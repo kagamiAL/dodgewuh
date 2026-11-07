@@ -8,9 +8,16 @@ services:
       BUILD_SHA: ${BUILD_SHA:-dev}
       GAME_WORKER_URL: http://game-worker:8000
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:5173}
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: dodgewuh
+      PGUSER: dodgewuh
+      PGPASSWORD: ${POSTGRES_PASSWORD:-dodgewuh-local-only}
     volumes:
       - ./backend/app:/app/app:ro
     depends_on:
+      postgres:
+        condition: service_healthy
       game-worker:
         condition: service_healthy
     healthcheck:
@@ -36,3 +43,21 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+
+  postgres:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_DB: dodgewuh
+      POSTGRES_USER: dodgewuh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dodgewuh-local-only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres_data:

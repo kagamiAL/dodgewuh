@@ -1,62 +1,93 @@
 # dodgewuh
 
-> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+Four phones cooperate to control two characters. A FastAPI coordinator owns room
+registration and PostgreSQL records; a separate game worker runs Richard's pure
+Python simulation. The current implementation is a working service scaffold.
 
-## Backend development
+## Start local development
 
-Install Docker with Compose and uv. From the repository root:
+Install Docker with Compose. From the repository root:
 
 ```sh
 docker compose up --build -d --wait
+docker compose ps
+```
+
+| Service | Local access |
+| --- | --- |
+| Coordinator | http://localhost:8000/docs |
+| Game worker | http://localhost:8001/docs |
+| PostgreSQL 17.11 | Compose network only; no published host port |
+
+Both FastAPI services expose `/api/health` and `/openapi.json`. Health currently
+reports HTTP liveness and `rooms: 0`; the app does not use the database yet.
+
+```sh
 curl --fail http://localhost:8000/api/health
 curl --fail http://localhost:8001/api/health
 docker compose logs -f
 ```
 
-Coordinator docs: http://localhost:8000/docs. Worker docs: http://localhost:8001/docs.
-Stop with `docker compose down`. Source edits in `backend/app` reload both services.
-After dependency changes, rebuild with `docker compose up --build -d --wait`.
+Edits in `backend/app/` reload both services. Simulation source is mounted in the
+worker. Reloads restart the process and will discard live game state once it is
+implemented. Rebuild after dependency or Dockerfile changes.
 
-Without Docker, use two terminals:
+Stop with `docker compose down`. PostgreSQL data remains in `postgres_data`.
+`docker compose down -v` deletes that data. The password default is for local
+use only. Copy `.env.example` to `.env` if you need overrides; never commit `.env`.
+
+## Python dependencies
+
+Use uv with Python 3.12; `backend/.python-version` selects the interpreter.
+Dependencies include FastAPI, Pydantic v2, SQLAlchemy 2, psycopg 3 and Alembic.
 
 ```sh
 cd backend
 uv sync --locked
-uv run uvicorn app.main:app --reload --port 8000
+uv add PACKAGE
 ```
 
+Commit both `pyproject.toml` and `uv.lock` after a dependency change. To run only
+the HTTP scaffold outside Docker, use separate terminals from `backend/`:
+
 ```sh
-cd backend
+uv run uvicorn app.main:app --reload --port 8000
 uv run uvicorn app.worker:app --reload --port 8001
 ```
 
-Manage dependencies with `cd backend && uv add PACKAGE`; commit `pyproject.toml`
-and `uv.lock`. Python 3.12 is selected by `backend/.python-version`.
+The Compose database hostname resolves inside Docker; native database access
+needs separate host/network configuration. Use the coordinator container for
+current database connectivity checks.
 
-## Architecture amendment
+## PostgreSQL
 
-Docker Compose runs a coordinator and a game worker as separate processes with
-network isolation, approximating separate production VMs. The coordinator will
-create rooms and allocate them to workers; each room has exactly one authoritative
-worker. A worker can eventually hold multiple room simulations. Worker placement
-and room registration are not implemented in this scaffold. `GAME_WORKER_URL`
-reserves the internal service address; it is not yet consumed by the application.
-Health currently reports zero rooms because room storage is not implemented.
+```sh
+docker compose exec postgres psql -U dodgewuh -d dodgewuh \
+  -c 'SELECT current_database(), version();'
+```
 
-This user-approved direction supersedes the single-process/no-container deployment
-assumptions in plans 01, 08 and Alan's brief. Gameplay rules and public message
-schemas remain as specified. Preserve the public same-origin `/api` and `/ws`
-paths through routing/proxying; internal worker addresses must not reach browsers.
-Room allocation, authenticated internal calls, WebSocket routing and worker-loss
-handling are the next integration decisions. No worker migration or automatic VM
-provisioning is included yet.
+PostgreSQL and the Python libraries are installed and reachable. Database
+connection code, Alembic configuration, migrations and SQL-backed endpoints are
+not implemented yet. Production will read its password from a mounted secret
+file; the app must implement `DB_PASSWORD_FILE` handling explicitly.
 
-Compose is for local development: loopback ports, source mounts and reload enabled.
-Production will run coordinator and worker containers on separate VMs, without
-reload, behind Caddy HTTPS/WSS, with private authenticated service communication
-and one Uvicorn worker per container. This scaffold does not provision those VMs.
+Live simulation state stays in worker memory. SQL stores room/member metadata,
+allocation records and completed match results as those features are implemented.
+Persisted records do not imply that interrupted games can resume.
 
-## AWS infrastructure
+## AWS and implementation handoff
 
-See [infra/README.md](infra/README.md) for the two-VM Terraform configuration,
-production Compose files, deployment prerequisites and cleanup instructions.
+Terraform prepares two EC2 VMs in `us-east-2` and an encrypted persistent database
+disk. Production Compose has no reload or source mounts. Caddy provides the
+public entry point for `dodgewuh.fit`; Porkbun manages DNS. No resources have
+been applied and DNS has not been changed by this setup work.
+
+- [Current progress and next task](plans/agents/alan-progress.md)
+- [API contracts](plans/03-api-contracts.md)
+- [Persistence and service boundaries](plans/11-sql-persistence.md)
+- [Infrastructure and deployment instructions](infra/README.md)
+
+The next slice is database configuration, initial Alembic migrations, SQL-backed
+room creation/join and then authenticated WebSockets. Keep public message schemas
+unchanged. Do not create automated tests or test-only dependencies; use manual
+checks, builds/type checks and runtime validation.

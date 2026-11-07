@@ -1,4 +1,5 @@
 """Worker entry point. Richard's simulation will run in this process."""
+
 import os
 
 from fastapi import FastAPI

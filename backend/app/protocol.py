@@ -1,4 +1,5 @@
 """Shared wire models, implemented from plans/03-api-contracts.md."""
+
 from typing import Literal
 
 from pydantic import BaseModel

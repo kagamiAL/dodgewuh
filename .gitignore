@@ -13,3 +13,9 @@ dist/
 *.tfplan
 terraform.tfvars
 *.pem
+# Database backups and local secrets
+*.dump
+*.sql.gz
+*.auto.tfvars
+*.auto.tfvars.json
+secrets/

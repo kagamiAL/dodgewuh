@@ -1,9 +1,10 @@
 """Coordinator entry point. Room allocation will be implemented here."""
+
 import os
 
 from fastapi import FastAPI
-from app.protocol import Health
 
+from app.protocol import Health
 
 app = FastAPI(title="dodgewuh coordinator", version="0.1.0")
 

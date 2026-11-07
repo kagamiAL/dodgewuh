@@ -3,4 +3,12 @@ name = "dodgewuh-backend"
 version = "0.1.0"
 description = "Coordinator and authoritative game worker services"
 requires-python = ">=3.12,<3.13"
-dependencies = ["fastapi", "uvicorn[standard]", "pydantic>=2,<3", "httpx"]
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2,<3",
+    "httpx",
+    "sqlalchemy>=2,<3",
+    "psycopg[binary]>=3,<4",
+    "alembic>=1,<2",
+]

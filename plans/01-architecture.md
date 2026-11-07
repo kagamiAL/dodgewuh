@@ -1,19 +1,22 @@
 # Architecture
 
+> **Architecture amendment:** dodgewuh uses Docker, a coordinator VM plus game worker VM(s), and PostgreSQL for durable records. [Persistence plan](11-sql-persistence.md) supersedes earlier single-process, no-database and systemd-backend instructions. Public message schemas remain unchanged; live simulations stay in worker memory.
+
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 
-The MVP is a 2v2 cooperative motion dodgeball game: four humans control two characters. Richard's pure Python simulation is authoritative. One FastAPI process on one EC2 instance holds rooms and one simulation object per active room. Vue 3 + TypeScript + Vite wraps a code-first PlayCanvas renderer. No screen host physics, peer-to-peer network, host migration, database, Redis, load balancer, or external game engine.
+The MVP is a 2v2 cooperative motion dodgeball game: four humans control two characters. Richard's pure Python simulation is authoritative. A FastAPI coordinator owns registration and PostgreSQL records; separate Docker game workers run one in-memory simulation per active room. Vue 3 + TypeScript + Vite wraps a code-first PlayCanvas renderer. No screen host physics, peer-to-peer network, host migration, Redis, load balancer, or external game engine.
 
 ```mermaid
 flowchart LR
-  P[Four phones: local sensors → normalized commands] -->|HTTPS / WSS| C[Caddy on EC2]
+  P[Four phones: local sensors → normalized commands] -->|HTTPS / WSS| C[Caddy on coordinator EC2]
   S[Vue + PlayCanvas screens] <-->|HTTPS / WSS| C
-  C -->|API and WS on loopback| A[Alan: FastAPI rooms and routing]
-  A -->|validated commands / lifecycle calls| R[Richard: one pure Python simulation per room]
+  C -->|API and WS through coordinator| A[Alan: FastAPI coordinator]
+  A -->|validated commands / lifecycle calls| R[Game worker VM: Richard Simulation per room]
   R -->|immutable state and events| A
   C --> F[Vite static build]
-  D[GoDaddy DNS A record] --> E[Elastic IP]
+  D[Porkbun DNS A record] --> E[Elastic IP]
   E --> C
+  A --> DB[(PostgreSQL on retained EBS)]
 ```
 
 ## Boundaries and runtime
@@ -32,7 +35,7 @@ All screens have identical status and receive the same full snapshots. Render th
 
 Creator is a screen and immutable host. Join page collects code, then screen/phone selection; REST registration assigns a room-scoped member and bearer token. Four phone slots fill T1 Arms, T1 Legs, T2 Arms, T2 Legs; up to four screens total. A fifth phone is rejected. Tokens live in sessionStorage, never URL/query/logs. First WebSocket message authenticates. Origin must match PUBLIC_ORIGIN; local development adds explicit localhost origins only. Rooms are private by unlisted code, not a durable account/security product. Use random codes and tokens, payload/rate limits, no personal data, no sensor telemetry storage.
 
-Phone readiness requires permissions, fresh sensor data and calibration for the current role. Disconnect handling and host authority are fixed in [03](03-api-contracts.md). A backend restart loses all rooms; display “room ended” and create another. Host is a UI permission, not a simulation authority.
+Phone readiness requires permissions, fresh sensor data and calibration for the current role. Disconnect handling and host authority are fixed in [03](03-api-contracts.md). A backend restart retains SQL records but ends runtime sessions; display “room ended” and create another. Host is a UI permission, not a simulation authority.
 
 ## Verification ledger — checked 2026-11-07
 

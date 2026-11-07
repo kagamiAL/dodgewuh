@@ -1,19 +1,21 @@
 # Backend / Networking / Infrastructure — Alan
 
+> **Architecture amendment:** dodgewuh uses Docker, a coordinator VM plus game worker VM(s), and PostgreSQL for durable records. [Persistence plan](../11-sql-persistence.md) supersedes earlier single-process, no-database and systemd-backend instructions. Public message schemas remain unchanged; live simulations stay in worker memory.
+
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 
 Connect the working game with the smallest backend. Richard supplies all gameplay mechanics. Your adapter converts validated input and pure snapshots without editing simulation internals. Read [03](../03-api-contracts.md) as authoritative wire/interface specification and [08](../08-deployment-runbook.md) as deployment specification.
 
 ## Necessary scope
 
-Create FastAPI app, REST room registration, unique code generation, session tokens, exactly four phone slots, up to four screens, immutable host identity, native WebSocket authentication/Origin checks, readiness/status, host command authorization, serialized input routing, one Simulation per room, full state broadcasting, safe disconnect-to-lobby reset, room cleanup and health/logging. Deploy one instance with Caddy/GoDaddy/EIP and Terraform. Do not implement collision, movement, scoring, timer or role-switch rules. Assign initial slots; thereafter mirror simulation assignments.
+Create FastAPI app, SQL-backed REST room registration, unique code generation, session tokens, exactly four phone slots, up to four screens, immutable host identity, native WebSocket authentication/Origin checks, readiness/status, host command authorization, serialized input routing, one Simulation per room, full state broadcasting, safe disconnect-to-lobby reset, room cleanup and health/logging. Deploy separate coordinator and worker VMs with Docker/Caddy, Porkbun DNS and retained PostgreSQL data disk using Terraform. Do not implement collision, movement, scoring, timer or role-switch rules. Assign initial slots; thereafter mirror simulation assignments.
 
 Optional work excluded until acceptance passes: QR image generation, accounts, persistent room recovery, reconnection resume, distributed coordination, autoscaling, metrics service, fancy dashboards or complex CI/CD. Room code copy and reconnect-to-lobby are enough. A few small modules and one deployment script suffice.
 
 ## Modules and sequence
 
 1. protocol.py implements [03] models and envelope registry. Export matching TS types/validators in owned generated directory, good/bad JSON fixtures and manual contract checks. Confirm DTO mapping with Richard and Transport interface with Ryan/Tysen/Morteza.
-2. rooms.py stores room ID/code, members, token hashes or securely compared opaque tokens, revision, host, readiness, connections and Simulation reference. Allocate phone slots in fixed order, no interactive team editor. Use cryptographically random session tokens (at least 32 random bytes), six-character collision-checked codes.
+2. rooms.py persists room ID/code, members, token hashes, host and allocation metadata through SQLAlchemy/PostgreSQL transactions; sockets, readiness, grace timers and live Simulation references stay in memory. Allocate phone slots in fixed order, no interactive team editor. Use cryptographically random session tokens (at least 32 random bytes), six-character collision-checked codes.
 3. main.py exposes exact REST endpoints and health, normalizes errors and no-store headers. Rate/cap limits are simple in-memory counters; no authentication product.
 4. ws.py handles first-frame hello, one socket/member, session ping/pong, sender queue and disconnect cleanup. Every input identity derives from socket. Unauthorized screens cannot send motion; wrong-role phones cannot control another role.
 5. simulation_adapter.py maps network models to Richard DTOs; runner.py schedules one fixed-step authority per room, broadcasts full snapshots and reliable events. Use Richard's synthetic script/fixtures for expected behavior. Never await socket sends in step.

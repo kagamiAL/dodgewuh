@@ -1,5 +1,7 @@
 # Hack the Change 2026 — Generate Complete Development Planning Package
 
+> **Architecture amendment:** dodgewuh uses Docker, a coordinator VM plus game worker VM(s), and PostgreSQL for durable records. [Persistence plan](11-sql-persistence.md) supersedes earlier single-process, no-database and systemd-backend instructions. Public message schemas remain unchanged; live simulations stay in worker memory.
+
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 
 You are acting as a principal software architect, multiplayer game engineer, and hackathon technical lead.
@@ -116,7 +118,7 @@ Use the simplest viable deployment:
 - GoDaddy-managed DNS pointing to an Elastic IP
 - Same-origin frontend and backend wherever practical
 - In-memory rooms and authoritative simulations
-- No database, Redis, Kubernetes, API Gateway, CloudFront, or load balancer for the MVP
+- PostgreSQL is required; no Redis, Kubernetes, API Gateway, CloudFront, or load balancer for the MVP
 
 Document DNS configuration, inbound ports, certificates, deployment commands, logs, rollback, and cleanup.
 

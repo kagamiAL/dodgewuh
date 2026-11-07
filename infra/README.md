@@ -8,7 +8,8 @@ The coordinator has a stable Elastic IP and public TCP 80/443. Worker TCP 8000
 accepts only the coordinator security group. Both machines have public IPv4 for
 outbound Docker downloads and Session Manager, but no SSH ingress. Internal game
 traffic uses private IPs. This avoids a NAT gateway; the worker is not in an
-isolated private subnet. Two VMs, two disks and public IPv4 incur AWS charges.
+isolated private subnet. Two VMs, two root disks, a separate 8 GiB PostgreSQL disk
+and public IPv4 incur AWS charges.
 
 ```sh
 terraform -chdir=infra init
@@ -59,7 +60,46 @@ source mounts. Deploy/restart between matches; in-memory state will be lost.
 
 ## Cleanup
 
-Save evidence/source, remove or restore the changed Porkbun record, review
-`terraform -chdir=infra plan -destroy`, then explicitly approve destruction.
-Confirm termination, disk deletion and EIP release in AWS. Never run destroy
-against a state file you have not reviewed.
+From the repository root, one command removes all Terraform-managed resources:
+
+```sh
+terraform -chdir=infra destroy
+```
+
+Review the displayed plan and enter `yes`. This deletes both VMs, their root
+disks, the PostgreSQL data disk and networking, and releases the Elastic IP.
+There is no database destruction guard. Back up any data you want to keep first.
+Porkbun DNS is managed manually: remove or restore its A record separately.
+Keep the local Terraform state until cleanup completes. Nothing is destroyed by
+these instructions alone.
+
+## PostgreSQL data and production secrets
+
+PostgreSQL runs in the coordinator Compose stack, with no exposed database port.
+Terraform creates an encrypted independent gp3 volume and attachment; bootstrap
+mounts it by volume ID at /opt/dodgewuh/data. Never start PostgreSQL before that
+mount is available. The disk survives VM replacement but is deleted by a full
+Terraform destroy. VM replacement must
+be preceded by a graceful stack shutdown and off-host backup. Restore/re-attach
+is restricted to the volume's availability zone.
+
+Create a strong production password file outside the repo and Terraform, e.g.
+under root-owned /etc/dodgewuh/secrets (directory 0700, file 0444). Set
+POSTGRES_PASSWORD_FILE to its absolute path for production Compose. Both app and
+PostgreSQL mount the file; app must implement DB_PASSWORD_FILE reading. Do not
+put database passwords in user data, tfvars or image layers. The local example
+password must never be reused on EC2. Database credentials, migrations and tables
+are not provisioned by Terraform; the application persistence layer is next.
+
+From the coordinator deployment directory, write a database backup to a protected
+operator file, then copy it off-host:
+
+```sh
+umask 077
+docker compose -f compose.coordinator.yaml exec -T postgres \
+  pg_dump -U dodgewuh -d dodgewuh -Fc > dodgewuh.dump
+```
+
+Verify a restore into a disposable database before relying on the backup. Never commit SQL dumps. Stop PostgreSQL before a consistent EBS snapshot.
+A full Terraform destroy deletes the database disk too. Backups or snapshots
+created outside Terraform must be retained or deleted separately.
