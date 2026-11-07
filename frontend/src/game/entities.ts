@@ -11,7 +11,9 @@ import {
   HELD_BALL_SIDE,
   TEAM_COLORS,
 } from './constants'
+import { instantiateCharacterModel, RIGHT_HAND_LOCAL, type CharacterRig } from './characterModel'
 import { toScene } from './coords'
+import { headingDeg, Ragdoll, type RagdollConfig } from './ragdoll'
 import type { Ball, Character, State, Team } from './state'
 
 function material(diffuse: pc.Color, emissive = new pc.Color(0, 0, 0)): pc.StandardMaterial {
@@ -23,9 +25,29 @@ function material(diffuse: pc.Color, emissive = new pc.Color(0, 0, 0)): pc.Stand
 }
 
 interface CharacterView {
+  team: Team
   root: pc.Entity
+  body: pc.Entity
   aimPivot: pc.Entity
+  /** Turned toward aim; holds the model once loaded. */
+  facing: pc.Entity
+  rig: CharacterRig | null
+  ragdoll: Ragdoll | null
+  // Cosmetic motion inputs, derived from consecutive snapshots.
+  lastPos: pc.Vec3 | null
+  lastSnapshotMs: number
+  velX: number
+  velZ: number
+  aimHeading: number
+  holding: boolean
+  heldBallId: string | null
+  epoch: number
 }
+
+// Snapshot-derived velocity is dropped if positions jump this far (reset/teleport)
+// or no snapshot arrives for this long (stale stream).
+const TELEPORT_M = 1.5
+const VELOCITY_STALE_MS = 250
 
 function createCharacter(team: Team): CharacterView {
   const color = TEAM_COLORS[team]
@@ -55,7 +77,23 @@ function createCharacter(team: Team): CharacterView {
   aimPivot.addChild(head)
   root.addChild(aimPivot)
 
-  return { root, aimPivot }
+  const facing = new pc.Entity('Facing')
+  root.addChild(facing)
+
+  return {
+    team, root, body, aimPivot, facing, rig: null, ragdoll: null,
+    lastPos: null, lastSnapshotMs: 0, velX: 0, velZ: 0, aimHeading: 0,
+    holding: false, heldBallId: null, epoch: -1,
+  }
+}
+
+/** Replaces the placeholder capsule with the character model. */
+function attachModel(view: CharacterView, asset: pc.Asset, cfg: RagdollConfig): void {
+  const model = instantiateCharacterModel(asset, view.team)
+  view.facing.addChild(model.entity)
+  view.rig = model.rig
+  view.ragdoll = new Ragdoll(model.rig, cfg)
+  view.body.enabled = false
 }
 
 interface BallView {
@@ -79,28 +117,91 @@ function createBall(id: string): BallView {
 export class StateRenderer {
   private readonly characters = new Map<Team, CharacterView>()
   private readonly balls = new Map<string, BallView>()
+  private model: { asset: pc.Asset; cfg: RagdollConfig } | null = null
   private readonly characterRoot = new pc.Entity('Characters')
   private readonly ballRoot = new pc.Entity('Balls')
+  /** ball_id -> owning team, for balls that must follow a hand every frame. */
+  private readonly heldBy = new Map<string, Team>()
 
   constructor(parent: pc.Entity) {
     parent.addChild(this.characterRoot)
     parent.addChild(this.ballRoot)
   }
 
+  /** Use the loaded character model for existing and future characters. */
+  setCharacterModel(asset: pc.Asset, cfg: RagdollConfig): void {
+    this.model = { asset, cfg }
+    for (const view of this.characters.values()) attachModel(view, asset, cfg)
+  }
+
   render(state: State): void {
-    for (const c of state.characters) this.renderCharacter(c)
+    const now = performance.now()
+    for (const c of state.characters) this.renderCharacter(c, state, now)
+    this.heldBy.clear()
     for (const b of state.balls) this.renderBall(b, state.characters)
   }
 
-  private renderCharacter(c: Character): void {
+  /** Per-frame cosmetic animation. Never changes where anything is in the game. */
+  update(dt: number): void {
+    const now = performance.now()
+    for (const view of this.characters.values()) {
+      if (!view.ragdoll) continue
+      const stale = now - view.lastSnapshotMs > VELOCITY_STALE_MS
+      view.ragdoll.update(dt, {
+        velX: stale ? 0 : view.velX,
+        velZ: stale ? 0 : view.velZ,
+        aimHeading: view.aimHeading,
+        holding: view.holding,
+      })
+    }
+    // Held balls follow the (animated) right hand.
+    for (const [ballId, team] of this.heldBy) {
+      const armR = this.characters.get(team)?.rig?.armR
+      const ball = this.balls.get(ballId)
+      if (armR && ball) ball.entity.setPosition(armR.getWorldTransform().transformPoint(RIGHT_HAND_LOCAL))
+    }
+  }
+
+  private renderCharacter(c: Character, state: State, now: number): void {
     let view = this.characters.get(c.team)
     if (!view) {
       view = createCharacter(c.team)
       this.characters.set(c.team, view)
       this.characterRoot.addChild(view.root)
+      if (this.model) attachModel(view, this.model.asset, this.model.cfg)
     }
-    view.root.setPosition(toScene(c.pos.x, c.pos.z))
-    view.aimPivot.lookAt(toScene(c.pos.x + c.aim.x, c.pos.z + c.aim.z))
+    const pos = toScene(c.pos.x, c.pos.z)
+    this.trackMotion(view, pos, state.epoch, now)
+    view.root.setPosition(pos)
+    const aimTarget = toScene(c.pos.x + c.aim.x, c.pos.z + c.aim.z)
+    view.aimPivot.lookAt(aimTarget)
+    view.facing.lookAt(aimTarget)
+    view.aimHeading = headingDeg(aimTarget.x - pos.x, aimTarget.z - pos.z)
+
+    // A throw: this team's held ball is now flying with them as shooter.
+    if (view.heldBallId && c.held_ball_id === null) {
+      const thrown = state.balls.find((b) => b.ball_id === view.heldBallId)
+      if (thrown?.mode === 'flying' && thrown.shooter_team === c.team) view.ragdoll?.kickThrow()
+    }
+    view.heldBallId = c.held_ball_id
+    view.holding = c.held_ball_id !== null
+  }
+
+  /** Velocity from consecutive snapshots; zeroed across resets and jumps. */
+  private trackMotion(view: CharacterView, pos: pc.Vec3, epoch: number, now: number): void {
+    const last = view.lastPos
+    const dtMs = now - view.lastSnapshotMs
+    const jumped = last !== null && last.distance(pos) > TELEPORT_M
+    if (last && dtMs > 0 && dtMs < VELOCITY_STALE_MS && !jumped && epoch === view.epoch) {
+      view.velX = ((pos.x - last.x) * 1000) / dtMs
+      view.velZ = ((pos.z - last.z) * 1000) / dtMs
+    } else {
+      view.velX = 0
+      view.velZ = 0
+    }
+    view.lastPos = pos.clone()
+    view.lastSnapshotMs = now
+    view.epoch = epoch
   }
 
   private renderBall(b: Ball, characters: Character[]): void {
@@ -115,8 +216,15 @@ export class StateRenderer {
 
     if (b.mode === 'held') {
       // Held pose comes from the owner in state, never from proximity.
-      // Carried at the character's right side (right = aim rotated 90° clockwise,
-      // matching 02's team-relative right) so the body doesn't hide it.
+      // In the model's right hand when the rig is loaded.
+      const ownerView = b.owner_team ? this.characters.get(b.owner_team) : undefined
+      if (ownerView?.rig?.armR && b.owner_team) {
+        this.heldBy.set(b.ball_id, b.owner_team) // positioned per frame in update()
+        this.tintBall(view, b)
+        return
+      }
+      // Capsule fallback: carried at the character's right side (right = aim rotated
+      // 90° clockwise, matching 02's team-relative right) so the body doesn't hide it.
       const owner = characters.find((c) => c.team === b.owner_team)
       const pos = owner?.pos ?? b.pos
       const aim = owner?.aim ?? { x: 0, z: 0 }
@@ -133,7 +241,11 @@ export class StateRenderer {
       view.entity.setPosition(toScene(b.pos.x, b.pos.z, y))
     }
 
-    // Glow in the owning/shooting team's colour so possession reads at a glance.
+    this.tintBall(view, b)
+  }
+
+  /** Glow in the owning/shooting team's colour so possession reads at a glance. */
+  private tintBall(view: BallView, b: Ball): void {
     const team = b.mode === 'held' ? b.owner_team : b.mode === 'flying' ? b.shooter_team : null
     const tint = team ? `t${team}` : ''
     if (tint !== view.tint) {

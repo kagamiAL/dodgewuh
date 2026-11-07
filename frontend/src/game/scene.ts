@@ -1,6 +1,9 @@
 import * as pc from 'playcanvas'
 import { COURT_HALF_DEPTH } from './constants'
 import { toScene } from './coords'
+import { loadCharacterModel, MODEL_URL } from './characterModel'
+import { ragdollConfig } from './ragdoll'
+import { loadSpringExtras } from './springConfig'
 import { createCourt } from './court'
 import { StateRenderer } from './entities'
 import type { State } from './state'
@@ -47,13 +50,21 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
 
   app.root.addChild(createCourt())
   const stateRenderer = new StateRenderer(app.root)
+  // Capsules render immediately; the model replaces them when it arrives.
+  let destroyed = false
+  // Spring tuning is authored in Blender and read from the same .glb.
+  void Promise.all([loadCharacterModel(app), loadSpringExtras(MODEL_URL)]).then(([asset, extras]) => {
+    if (asset && !destroyed) stateRenderer.setCharacterModel(asset, ragdollConfig(extras))
+  })
 
+  app.on('update', (dt: number) => stateRenderer.update(dt))
   app.start()
 
   return {
     app,
     renderState: (state) => stateRenderer.render(state),
     destroy() {
+      destroyed = true
       resizeObserver.disconnect()
       app.destroy()
     },
