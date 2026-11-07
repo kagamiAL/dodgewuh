@@ -1,17 +1,19 @@
 <script setup lang="ts">
-// Legs role: phone in a front trouser pocket, real steps move the character.
+// Legs role: phone in a front trouser pocket. Jog in place to move; the way you face is the way
+// you go (face the screen = forward, face left = left, turn around = back).
 //
-// Start tap (permission, audio, wake lock) → spoken "pocket it" → stand-still auto-calibration →
-// each detected step sends a short movement burst as input.legs at 20 Hz. Stale sensors, a hidden
-// page, an epoch change or unmount send zero immediately. See pocketFrame.ts / stepDetector.ts.
+// Start tap (permission, audio, wake lock) → spoken "pocket it" → face the screen and stand still
+// (heading 0 + gyro bias) → while jogging, input.legs carries the facing direction at 20 Hz.
+// Stale sensors, a hidden page, an epoch change or unmount send zero immediately.
+// See pocketFrame.ts / jogTracker.ts.
 
 import { onBeforeUnmount, ref, watch } from 'vue'
 import type { RoleComponentProps } from '@/phone/roleComponent'
 import type { Permission, Vec2 } from '@/contracts/pending'
 import { SENSOR_STALE_MS, type SensorSample } from '@/sensors/sensorService'
 import { TEAM_HEX } from '@/theme'
-import { calibrate, type StillSample } from './pocketFrame'
-import { createStepDetector, type StepDir } from './stepDetector'
+import { calibrate, rotationVector, type StillSample } from './pocketFrame'
+import { createJogTracker, type JogState } from './jogTracker'
 import { beep, say, silence, unlockAudio } from './voice'
 
 const props = defineProps<RoleComponentProps>()
@@ -21,36 +23,28 @@ const POCKET_MS = 6000 // time to pocket the phone while the instruction plays
 const SETTLE_MS = 1200 // after "stand still" before sampling
 const STILL_MS = 1000
 const MAX_TRIES = 4
-const BURST_MS = 400
 const SEND_MS = 50 // 20 Hz (03)
 const STOP_HOLD_MS = 1500
 
 type Stage = 'start' | 'pocketing' | 'calibrating' | 'live' | 'blocked'
 const stage = ref<Stage>('start')
 const note = ref('')
-const lastDir = ref<StepDir | null>(null)
-const steps = ref(0)
+const live = ref<JogState>({ jogging: false, heading_deg: 0, intensity: 0, dir: null })
 const stopping = ref(false)
 
-const ARROW: Record<StepDir, string> = { left: '←', right: '→', forward: '↑', back: '↓' }
-const LOCAL: Record<StepDir, { r: number; f: number }> = {
-  left: { r: -1, f: 0 }, right: { r: 1, f: 0 }, forward: { r: 0, f: 1 }, back: { r: 0, f: -1 },
-}
-
 // 02: Team 1 forward is +z and right is +x; Team 2 is mirrored.
-function toWorld(dir: StepDir | null): Vec2 {
+function toWorld(dir: JogState['dir']): Vec2 {
   if (!dir) return { x: 0, z: 0 }
   const s = props.team === 1 ? 1 : -1
-  return { x: LOCAL[dir].r * s, z: LOCAL[dir].f * s }
+  return { x: dir.r * s, z: dir.f * s }
 }
 
 let unsubscribe: (() => void) | null = null
-let detector: ReturnType<typeof createStepDetector> | null = null
+let tracker: ReturnType<typeof createJogTracker> | null = null
 let still: StillSample[] = []
 let collecting = false
 let tries = 0
 let lastMotionMs: number | null = null
-let burst: { dir: StepDir; until: number } | null = null
 let sendTimer: ReturnType<typeof setInterval> | null = null
 let stopTimer: ReturnType<typeof setTimeout> | null = null
 const timers = new Set<ReturnType<typeof setTimeout>>()
@@ -83,8 +77,10 @@ function tick(): void {
   const now = performance.now()
   const fresh = lastMotionMs !== null && now - lastMotionMs < SENSOR_STALE_MS
   setAvailability(fresh ? 'granted' : 'unknown')
-  if (!fresh || (burst && now >= burst.until)) burst = null
-  send(toWorld(burst?.dir ?? null))
+  if (!tracker) return
+  if (!fresh) tracker.halt()
+  live.value = tracker.state
+  send(toWorld(live.value.dir))
 }
 
 function onSample(s: SensorSample): void {
@@ -94,16 +90,12 @@ function onSample(s: SensorSample): void {
       beta_deg: s.beta_deg,
       gamma_deg: s.gamma_deg,
       accel_mag: s.accel ? Math.hypot(s.accel.x, s.accel.y, s.accel.z) : null,
-      rot_mag: s.rotation_rate ? Math.hypot(s.rotation_rate.alpha, s.rotation_rate.beta, s.rotation_rate.gamma) : null,
+      rot: s.rotation_rate ? rotationVector(s.rotation_rate) : null,
     })
   }
-  if (stage.value !== 'live' || !detector) return
-  const step = detector.push(s)
-  if (!step) return
-  burst = { dir: step.dir, until: performance.now() + BURST_MS }
-  lastDir.value = step.dir
-  steps.value++
-  tick() // send the edge now instead of waiting for the next 20 Hz slot
+  if (stage.value !== 'live' || !tracker) return
+  const wasJogging = tracker.state.jogging
+  if (tracker.push(s).jogging !== wasJogging) tick() // send start/stop edges without waiting for the 20 Hz slot
 }
 
 function start(): void {
@@ -111,7 +103,7 @@ function start(): void {
   unlockAudio()
   navigator.wakeLock?.request('screen').then((w) => (wakeLock = w)).catch(() => {})
   const permission = props.sensors.requestPermissionFromGesture()
-  say('Put your phone in your front pocket. Top of the phone up, screen facing your leg.')
+  say('Put your phone in your front pocket, then face the screen.')
   note.value = ''
   permission.then((p) => {
     if (p !== 'granted') {
@@ -132,7 +124,7 @@ function start(): void {
 
 function beginCalibration(): void {
   stage.value = 'calibrating'
-  say('Stand still')
+  say('Face the screen and stand still')
   later(SETTLE_MS, () => {
     still = []
     collecting = true
@@ -144,8 +136,8 @@ function finishCalibration(): void {
   collecting = false
   const result = calibrate(still)
   if (result.ok) {
-    detector = createStepDetector(result.frame)
-    burst = null
+    tracker = createJogTracker(result.gyroBias)
+    live.value = tracker.state
     stage.value = 'live'
     setCalibrated(true)
     beep(1200, 200)
@@ -155,10 +147,9 @@ function finishCalibration(): void {
   }
   tries++
   if (tries < MAX_TRIES) {
-    note.value = result.reason === 'flat' ? 'Phone is lying flat — stand it upright in the pocket.' : 'Moving — stand still.'
+    note.value = 'Moving — face the screen and stand still.'
     beep(300, 250)
-    if (result.reason === 'flat') say('Stand the phone upright in your pocket')
-    later(result.reason === 'flat' ? 2500 : 0, beginCalibration)
+    later(0, beginCalibration)
     return
   }
   stop('Could not calibrate. Take the phone out and tap Start again.')
@@ -172,8 +163,7 @@ function stop(message = ''): void {
   if (sendTimer) clearInterval(sendTimer)
   sendTimer = null
   collecting = false
-  detector = null
-  burst = null
+  tracker = null
   setCalibrated(false)
   wakeLock?.release().catch(() => {})
   wakeLock = null
@@ -205,7 +195,7 @@ document.addEventListener('visibilitychange', onVisibility)
 
 // A new epoch (countdown/active) clears the input latch but keeps calibration (roleComponent.ts).
 watch(() => props.epoch, () => {
-  burst = null
+  tracker?.halt()
   if (stage.value === 'live') send({ x: 0, z: 0 })
 })
 
@@ -225,22 +215,22 @@ onBeforeUnmount(() => {
       <h1>Legs</h1>
       <ol>
         <li>Tap <strong>Start</strong>.</li>
-        <li>Put the phone in your <strong>front pocket</strong>: top up, <strong>screen facing your leg</strong>.</li>
-        <li>Stand still when the voice says so, then <strong>step</strong> to move: left, right, forward, back.</li>
+        <li>Put the phone in your <strong>front pocket</strong> (any way round).</li>
+        <li><strong>Face the screen</strong> and stand still when the voice says so.</li>
+        <li><strong>Jog in place</strong> to move. Face the way you want to go: screen = forward, turn left = left, turn right = right, turn around = back. Turn while standing, then jog.</li>
       </ol>
       <p v-if="note" class="note">{{ note }}</p>
       <button v-if="stage === 'start'" class="start" @click="start">Start</button>
     </template>
 
     <template v-else-if="stage === 'pocketing' || stage === 'calibrating'">
-      <h1>{{ stage === 'pocketing' ? 'Pocket your phone' : 'Stand still…' }}</h1>
-      <p>Top up, screen facing your leg.</p>
+      <h1>{{ stage === 'pocketing' ? 'Pocket your phone' : 'Face the screen, stand still…' }}</h1>
       <p v-if="note" class="note">{{ note }}</p>
     </template>
 
     <div v-else class="lock">
-      <div class="arrow">{{ lastDir ? ARROW[lastDir] : '•' }}</div>
-      <p>{{ steps }} step{{ steps === 1 ? '' : 's' }}</p>
+      <div class="arrow" :class="{ moving: live.jogging }" :style="{ transform: `rotate(${-live.heading_deg}deg)` }">↑</div>
+      <p>{{ live.jogging ? 'Jogging' : 'Standing' }} · facing {{ Math.round(live.heading_deg) }}° · intensity {{ live.intensity.toFixed(1) }}</p>
       <button
         class="stop"
         :class="{ holding: stopping }"
@@ -296,6 +286,10 @@ ol {
   font-size: 9rem;
   line-height: 1;
   color: var(--team);
+  opacity: 0.35;
+}
+.arrow.moving {
+  opacity: 1;
 }
 .stop {
   padding: 1rem 2rem;

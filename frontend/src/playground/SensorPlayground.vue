@@ -1,40 +1,55 @@
 <script setup lang="ts">
 // /sensors: run the real LegsController without a backend. Outgoing input.legs messages go to a
 // recording Transport, move a dot on a local court at the 02 speed (3.5 m/s), and can be scored
-// against spoken cues ("Step left" … "Back to center") while the phone is in the pocket.
+// against spoken cues ("Face left and jog" … "Stop") while the phone is in the pocket.
 
-import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, shallowRef } from 'vue'
 import type { State, Team } from '@/contracts/pending'
 import { createSensorService } from '@/sensors/sensorService'
 import LegsController from '@/controllers/legs/LegsController.vue'
-import type { StepDir } from '@/controllers/legs/stepDetector'
+import { jogTuning } from '@/controllers/legs/jogTracker'
 import { beep, say } from '@/controllers/legs/voice'
 import { createRecordingTransport, type SentMessage } from './recordingTransport'
+
+type Dir = 'forward' | 'left' | 'right' | 'back'
 
 const SPEED = 3.5 // m/s, 02
 const HALF_W = 6
 const HALF_D = 9
-const CUE_MS = 3000
-const CUE_PAIRS = 5
-const DIRS: StepDir[] = ['left', 'right', 'forward', 'back']
-const OPPOSITE: Record<StepDir, StepDir> = { left: 'right', right: 'left', forward: 'back', back: 'forward' }
+const JOG_MS = 5000
+const STOP_MS = 3000
+const JOG_GRACE_MS = 1500 // time to turn and get jogging before a jog cue is judged
+const STOP_GRACE_MS = 1200
+const CUE_TEXT: Record<Dir, string> = {
+  forward: 'Face the screen and jog',
+  left: 'Face left and jog',
+  right: 'Face right and jog',
+  back: 'Face away from the screen and jog',
+}
 
 const team = ref<Team>(1)
 const scoredTest = ref(true)
-const speakSteps = ref(false)
+const speakMoves = ref(false)
 const calibrated = ref(false)
 const availability = ref('unknown')
 const sent = ref(0)
 const problems = ref<string[]>([])
 const log = ref<string[]>([])
 const pos = ref({ r: 0, f: 0 }) // team-local metres: +right, +forward
-const trail = ref<string>('')
-const counts = ref<Record<StepDir, number>>({ left: 0, right: 0, forward: 0, back: 0 })
+const trail = ref('')
+const tuning = reactive(jogTuning) // edits apply to the running tracker
 
-interface Cue { at: number; expect: StepDir; got: StepDir | null; extra: number }
+interface Cue {
+  text: string
+  at: number
+  end: number
+  expect: Dir | 'still'
+  result: 'pending' | 'ok' | 'bad'
+  detail: string
+}
 const cues = ref<Cue[]>([])
 const testState = ref<'idle' | 'running' | 'done'>('idle')
-const score = computed(() => cues.value.filter((c) => c.got === c.expect).length)
+const score = computed(() => cues.value.filter((c) => c.result === 'ok').length)
 
 const sensors = createSensorService()
 const transport = createRecordingTransport(onSent)
@@ -49,7 +64,8 @@ const state = shallowRef<State>({
 })
 
 let lastAt: number | null = null
-let lastDir: StepDir | null = null
+let lastDir: Dir | null = null
+const timeline: { at: number; dir: Dir | null }[] = []
 const timers = new Set<ReturnType<typeof setTimeout>>()
 function later(ms: number, fn: () => void): void {
   const id = setTimeout(() => {
@@ -59,7 +75,7 @@ function later(ms: number, fn: () => void): void {
   timers.add(id)
 }
 
-function localDir(r: number, f: number): StepDir | null {
+function localDir(r: number, f: number): Dir | null {
   if (r === 0 && f === 0) return null
   return Math.abs(r) >= Math.abs(f) ? (r > 0 ? 'right' : 'left') : f > 0 ? 'forward' : 'back'
 }
@@ -81,40 +97,61 @@ function onSent({ at, message, problem }: SentMessage): void {
   }
   lastAt = at
   const dir = localDir(r, f)
-  if (dir && dir !== lastDir) onStep(dir, at)
-  if (!dir && lastDir) trail.value += ` ${pos.value.r.toFixed(2)},${(-pos.value.f).toFixed(2)}`
+  timeline.push({ at, dir })
+  if (dir !== lastDir) {
+    trail.value += ` ${pos.value.r.toFixed(2)},${(-pos.value.f).toFixed(2)}`
+    log.value = [`${dir ?? 'stop'}  @${(at / 1000).toFixed(1)}s`, ...log.value].slice(0, 30)
+    if (speakMoves.value && testState.value !== 'running') say(dir ?? 'stop')
+  }
   lastDir = dir
 }
 
-function onStep(dir: StepDir, at: number): void {
-  counts.value = { ...counts.value, [dir]: counts.value[dir] + 1 }
-  trail.value += ` ${pos.value.r.toFixed(2)},${(-pos.value.f).toFixed(2)}`
-  log.value = [`${dir}  @${(at / 1000).toFixed(1)}s`, ...log.value].slice(0, 30)
-  const cue = [...cues.value].reverse().find((c) => at >= c.at && at < c.at + CUE_MS)
-  if (testState.value === 'running' && cue) {
-    if (cue.got === null) {
-      cue.got = dir
-      beep(dir === cue.expect ? 1400 : 250, 150)
-    } else cue.extra++
-    cues.value = [...cues.value]
-  } else if (speakSteps.value) say(dir)
+function judge(cue: Cue): void {
+  const isStop = cue.text === 'Stop'
+  const grace = isStop ? STOP_GRACE_MS : cue.expect === 'still' ? 500 : JOG_GRACE_MS
+  const window = timeline.filter((m) => m.at >= cue.at + grace && m.at < cue.end)
+  const moving = window.filter((m) => m.dir !== null)
+  if (cue.expect === 'still') {
+    const ok = window.length > 0 && moving.length / window.length <= 0.1
+    cue.result = ok ? 'ok' : 'bad'
+    cue.detail = `${Math.round((100 * moving.length) / (window.length || 1))}% moving`
+  } else {
+    const counts = new Map<Dir, number>()
+    for (const m of moving) counts.set(m.dir!, (counts.get(m.dir!) ?? 0) + 1)
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+    const firstMove = timeline.find((m) => m.at >= cue.at && m.dir !== null)
+    const ok = window.length > 0 && moving.length / window.length >= 0.6 && top === cue.expect
+    cue.result = ok ? 'ok' : 'bad'
+    cue.detail = `${top ?? 'none'}, ${Math.round((100 * moving.length) / (window.length || 1))}% moving` +
+      (firstMove ? `, started after ${((firstMove.at - cue.at) / 1000).toFixed(1)}s` : '')
+  }
+  cues.value = [...cues.value]
+  beep(cue.result === 'ok' ? 1400 : 250, 150)
 }
 
 function runTest(): void {
   cues.value = []
   testState.value = 'running'
+  const order = (['forward', 'left', 'right', 'back'] as Dir[]).sort(() => Math.random() - 0.5)
+  const plan: { text: string; ms: number; expect: Cue['expect'] }[] = [
+    { text: 'Stand still and lift one knee a little', ms: 3000, expect: 'still' },
+    ...order.flatMap((d) => [
+      { text: CUE_TEXT[d], ms: JOG_MS, expect: d },
+      { text: 'Stop', ms: STOP_MS, expect: 'still' as const },
+    ]),
+  ]
   let t = 2500 // let "Go" finish
-  for (let i = 0; i < CUE_PAIRS; i++) {
-    const dir = DIRS[Math.floor(Math.random() * DIRS.length)]
-    for (const [text, expect] of [[`Step ${dir}`, dir], ['Back to center', OPPOSITE[dir]]] as const) {
-      later(t, () => {
-        say(text)
-        cues.value = [...cues.value, { at: performance.now(), expect, got: null, extra: 0 }]
-      })
-      t += CUE_MS
-    }
+  for (const step of plan) {
+    later(t, () => {
+      say(step.text)
+      const now = performance.now()
+      const cue: Cue = { text: step.text, at: now, end: now + step.ms, expect: step.expect, result: 'pending', detail: '' }
+      cues.value = [...cues.value, cue]
+      later(step.ms, () => judge(cue))
+    })
+    t += step.ms
   }
-  later(t, () => {
+  later(t + 100, () => {
     testState.value = 'done'
     say(`Score: ${score.value} out of ${cues.value.length}`)
   })
@@ -125,7 +162,7 @@ function onCalibrated(v: boolean): void {
   if (v) {
     pos.value = { r: 0, f: 0 }
     trail.value = '0,0'
-    counts.value = { left: 0, right: 0, forward: 0, back: 0 }
+    timeline.length = 0
     if (scoredTest.value) runTest()
   } else if (testState.value === 'running') {
     for (const id of timers) clearTimeout(id)
@@ -142,7 +179,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="playground">
-    <h2>Sensor playground · Legs</h2>
+    <h2>Sensor playground · Legs (jog + face)</h2>
     <div class="row">
       <label>Team
         <select v-model.number="team" :disabled="calibrated">
@@ -151,7 +188,7 @@ onBeforeUnmount(() => {
         </select>
       </label>
       <label><input v-model="scoredTest" type="checkbox"> scored test after "Go"</label>
-      <label><input v-model="speakSteps" type="checkbox"> speak steps</label>
+      <label><input v-model="speakMoves" type="checkbox"> speak moves</label>
     </div>
 
     <LegsController
@@ -170,8 +207,8 @@ onBeforeUnmount(() => {
     <section v-if="cues.length" class="card">
       <h3>Scored test: {{ score }} / {{ cues.length }} {{ testState === 'running' ? '(running)' : '' }}</h3>
       <table>
-        <tr v-for="(c, i) in cues" :key="i" :class="c.got === c.expect ? 'ok' : 'bad'">
-          <td>{{ c.expect }}</td><td>{{ c.got ?? 'missed' }}</td><td>{{ c.extra ? `+${c.extra} extra` : '' }}</td>
+        <tr v-for="(c, i) in cues" :key="i" :class="c.result">
+          <td>{{ c.text }}</td><td>{{ c.result === 'pending' ? '…' : c.detail }}</td>
         </tr>
       </table>
     </section>
@@ -183,7 +220,16 @@ onBeforeUnmount(() => {
         <polyline :points="trail" class="trail" />
         <circle :cx="pos.r" :cy="-pos.f" r="0.45" class="dot" />
       </svg>
-      <p>← {{ counts.left }} · → {{ counts.right }} · ↑ {{ counts.forward }} · ↓ {{ counts.back }}</p>
+    </section>
+
+    <section class="card tuning">
+      <h3>Tuning (applies live)</h3>
+      <label>start jogging above <input v-model.number="tuning.start_rms" type="number" step="0.5"> m/s²</label>
+      <label>…held for <input v-model.number="tuning.start_hold_ms" type="number" step="50"> ms</label>
+      <label>stop below <input v-model.number="tuning.stop_rms" type="number" step="0.5"> m/s²</label>
+      <label>…held for <input v-model.number="tuning.stop_hold_ms" type="number" step="50"> ms</label>
+      <label>after stopping, ignore turns slower than <input v-model.number="tuning.settle_turn_dps" type="number" step="5"> °/s</label>
+      <label>…for <input v-model.number="tuning.settle_ms" type="number" step="100"> ms</label>
     </section>
 
     <section class="card small">
@@ -211,6 +257,13 @@ onBeforeUnmount(() => {
   padding: 0.75rem;
   border-radius: 10px;
   background: #1c1c1c;
+}
+.tuning label {
+  display: block;
+  margin: 0.3rem 0;
+}
+.tuning input {
+  width: 5em;
 }
 .small {
   font: 12px/1.4 ui-monospace, monospace;
