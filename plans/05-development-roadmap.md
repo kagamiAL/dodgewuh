@@ -1,5 +1,7 @@
 # 24-hour working-MVP execution plan
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 24 hours is an upper planning bound; the actual remaining time is less. Target the functional four-phone hosted match by H12, preserve the remaining time for fixes, and drop optional interpolation/polish entirely if time is tight. The user's priority is **something working**. Do not spend time on features not needed for the acceptance scenario. Primitive geometry, text room codes, binary permission feedback, a large Hold button and simple physical controls are the product for this hackathon. No custom art, audio, QR generation, account system, replays, advanced gesture ML, analytics, prediction, precise displacement, or deployment automation beyond a repeatable shell script.
 
 ## Gates and schedule

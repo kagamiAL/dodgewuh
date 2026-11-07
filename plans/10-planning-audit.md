@@ -1,5 +1,7 @@
 # Pre-implementation audit — 2026-11-07
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 The package is suitable for a coordinated contract freeze after the corrections below. No implementation agents were started. This is a document/interface review, not evidence of a working game. The priority is a functional four-phone multiplayer match within the remaining hackathon time; optional interpolation, art and strength tuning must not delay that loop.
 
 Reviewed all 19 core planning deliverables plus the master prompt and planning overrides. Retained the documented split between Richard simulation and Ryan rendering. Reviewed architecture, rules, protocol, ownership, schedule, mocks/testing, risks, deployment, demo, four workstream plans and five agent briefs. The original prompts remain historical inputs rather than implementation contracts.
@@ -27,11 +29,11 @@ Created 27 directories with empty `.gitkeep` files at the actual repository root
 
 | Owner | Directories |
 |---|---|
-| Richard | backend/simulation; backend/tests/simulation |
-| Ryan | frontend/src/stores; frontend/src/views; frontend/src/game; frontend/tests/game; tests/e2e; docs/demo |
-| Morteza | frontend/src/controllers/arms; frontend/tests/arms |
-| Tysen | frontend/src/controllers/legs; frontend/src/sensors; frontend/src/playground; frontend/tests/legs; frontend/tests/sensors; docs/device-tests |
-| Alan | backend/app; backend/tests/integration; backend/tests/contracts; frontend/src/net; frontend/src/generated; frontend/tests/net; contracts/fixtures/valid; contracts/fixtures/invalid; infra; deploy; .github/workflows |
+| Richard | backend/simulation |
+| Ryan | frontend/src/stores; frontend/src/views; frontend/src/game; tests/e2e; docs/demo |
+| Morteza | frontend/src/controllers/arms |
+| Tysen | frontend/src/controllers/legs; frontend/src/sensors; frontend/src/playground; docs/device-tests |
+| Alan | backend/app; frontend/src/net; frontend/src/generated; contracts/fixtures/valid; contracts/fixtures/invalid; infra; deploy; .github/workflows |
 
 No manifests, application source, CI workflow or infrastructure implementation was created. Existing files were preserved. Use a separate branch and checkout/worktree per agent; do not switch branches in a shared working directory. Only the directory owner removes its .gitkeep. Alan owns shared backend/root files and Ryan owns shared frontend manifests. No commit or worktree has been created by this audit.
 

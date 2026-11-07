@@ -1,12 +1,14 @@
 # Vue and PlayCanvas frontend — Ryan
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 Deliver the browser presentation and shared UI for a playable MVP. This is a separate workstream from Richard's authoritative simulation. Ryan renders server state, integrates the phone components and coordinates end-to-end merges.
 
 Read [architecture](../01-architecture.md), [rules](../02-game-specification.md), [contracts](../03-api-contracts.md) and [ownership](../04-repository-structure.md) before implementation. Keep this a working MVP: implement the playable loop before polish.
 
 ## Scope and ownership
 
-Own frontend files except Alan's net/generated/net tests, Morteza's Arms files/tests and Tysen's Legs/sensors/playground files/tests, as enumerated in [04](../04-repository-structure.md). Also own tests/e2e/** and docs/demo/**. Own frontend dependency manifests, app/router/session store, screen, lobby, HUD, PhoneShell and mock-state rendering.
+Own frontend files except Alan's net/generated/net tests, Morteza's Arms files/tests and Tysen's Legs/sensors/playground files/tests, as enumerated in [04](../04-repository-structure.md). Also own and docs/demo/**. Own frontend dependency manifests, app/router/session store, screen, lobby, HUD, PhoneShell and mock-state rendering.
 
 Do not implement movement physics, pickup, hit detection, scoring or authoritative timers. Use primitive geometry; no animation assets or visual effects are required. Alan owns transport and generated wire types; Richard owns the simulation and rules.
 
@@ -34,7 +36,7 @@ mockSource and live Transport deliver the same validated ServerMessage objects t
 
 Give motion owners exact component props/emits, route imports and readiness behavior. Give Alan reproducible transport failures without tokens. Report fixture gaps to Richard through Alan's schema ownership. Keep small working merges and record the integrated release SHA.
 
-## Tests and acceptance
+## Manual checks and acceptance
 
 - [ ] Vue mount/unmount cleans up engine, resize and render subscriptions.
 - [ ] Screens display server positions, possession, score and phase without determining outcomes.

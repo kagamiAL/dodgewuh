@@ -1,5 +1,7 @@
 # Motion Team — Morteza and Tysen
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 Make modest physical movements reliably control two complementary roles. Morteza owns Arms; Tysen owns Legs and shared sensor capture. Ryan mounts their Vue components and sends readiness through PhoneShell: explicit true on Ready tap, automatic false on loss of calibration/availability, always with current epoch and assignment_version. Alan owns transport. Use [03](../03-api-contracts.md) without inventing events. Gameplay rules live in [02](../02-game-specification.md).
 
 ## Minimal common flow
@@ -30,7 +32,7 @@ Server decides pickup, possession, zone and release legality. UI may show “mov
 
 ## Isolation, order and ownership
 
-Tysen owns frontend/src/sensors/**, controllers/legs/**, playground/** and corresponding tests/docs in [04]. Morteza owns controllers/arms/** and tests/arms/**. Ryan owns PhoneShell/router/dependency files; send him route/import requests. Alan owns net/generated types. Do not each implement separate permission or WebSocket services.
+Tysen owns frontend/src/sensors/**, controllers/legs/**, playground/** and corresponding tests/docs in [04]. Morteza owns controllers/arms/** and manual checks/arms/**. Ryan owns PhoneShell/router/dependency files; send him route/import requests. Alan owns net/generated types. Do not each implement separate permission or WebSocket services.
 
 1. H0–1 Tysen supplies SensorService stub and actual iPhone sample report; Morteza builds Hold/cancel against recorded SensorSample fixtures.
 2. H1–2 playground `/sensors` shows raw beta/gamma/accel/rate, neutral baseline, vector/aim, gesture indicator, sample age and outgoing validated messages. No backend required.
