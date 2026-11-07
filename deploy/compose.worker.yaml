@@ -1,0 +1,15 @@
+name: dodgewuh-worker
+services:
+  game-worker:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to an immutable backend image tag}
+    command: ["/app/.venv/bin/uvicorn", "app.worker:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    restart: unless-stopped
+    ports:
+      - "${WORKER_PRIVATE_IP:?Set worker private IP}:8000:8000"
+    environment:
+      BUILD_SHA: ${BUILD_SHA:?Set BUILD_SHA}
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

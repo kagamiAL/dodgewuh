@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "session.hello",
+  "payload": {
+    "token": "example-token-never-a-real-secret"
+  }
+}

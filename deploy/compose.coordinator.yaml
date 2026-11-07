@@ -1,0 +1,67 @@
+name: dodgewuh-coordinator
+services:
+  coordinator:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to an immutable backend image tag}
+    restart: unless-stopped
+    environment:
+      BUILD_SHA: ${BUILD_SHA:?Set BUILD_SHA}
+      PUBLIC_ORIGIN: https://${DOMAIN:?Set DOMAIN}
+      GAME_WORKER_URL: ${GAME_WORKER_URL:?Set worker private URL}
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: dodgewuh
+      PGUSER: dodgewuh
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - source: postgres_password
+        target: postgres_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  postgres:
+    image: postgres:17.11-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dodgewuh
+      POSTGRES_USER: dodgewuh
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - type: bind
+        source: /opt/dodgewuh/data/postgres
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      coordinator:
+        condition: service_healthy
+volumes:
+  caddy_data:
+  caddy_config:
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:?Set path to protected PostgreSQL password file}

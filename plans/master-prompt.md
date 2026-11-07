@@ -1,5 +1,7 @@
 # Hack the Change 2026 — Master Development Planning Agent
 
+> **Architecture amendment:** dodgewuh uses Docker, a coordinator VM plus game worker VM(s), and PostgreSQL for durable records. [Persistence plan](11-sql-persistence.md) supersedes earlier single-process, no-database and systemd-backend instructions. Public message schemas remain unchanged; live simulations stay in worker memory.
+
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 
 ## 1. Your Role and Objective
@@ -513,7 +515,7 @@ If a custom domain is required, explicitly state that dependency and provide a p
 
 Prefer a single FastAPI backend instance with in-memory rooms for the MVP.
 
-Do not introduce Redis, managed databases, Kubernetes, or distributed infrastructure unless clearly necessary.
+Use PostgreSQL persistence and separate Docker coordinator/workers as specified in plans/11-sql-persistence.md. Do not add Redis, Kubernetes or managed database services for this milestone.
 
 ## Terraform Deliverables
 

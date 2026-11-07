@@ -1,0 +1,132 @@
+{
+  "v": 1,
+  "type": "session.welcome",
+  "server_ms": 0,
+  "payload": {
+    "member_id": "s1",
+    "room": {
+      "room_id": "r1",
+      "room_code": "ABC234",
+      "host_id": "s1",
+      "revision": 1,
+      "members": [
+        {
+          "member_id": "s1",
+          "name": "Screen",
+          "device": "screen",
+          "connected": false,
+          "ready": false,
+          "permission": "unknown",
+          "calibrated": false
+        }
+      ],
+      "assignments": [],
+      "assignment_version": 0,
+      "phase": "lobby"
+    },
+    "state": {
+      "tick": 0,
+      "epoch": 0,
+      "round": 0,
+      "phase": "lobby",
+      "remaining_ms": 60000,
+      "phase_remaining_ms": null,
+      "score": {
+        "t1": 0,
+        "t2": 0
+      },
+      "assignments": [],
+      "assignment_version": 0,
+      "result": null,
+      "winner": null,
+      "characters": [
+        {
+          "team": 1,
+          "pos": {
+            "x": 0,
+            "z": -6
+          },
+          "aim": {
+            "x": 0,
+            "z": 1
+          },
+          "held_ball_id": null
+        },
+        {
+          "team": 2,
+          "pos": {
+            "x": 0,
+            "z": 6
+          },
+          "aim": {
+            "x": 0,
+            "z": -1
+          },
+          "held_ball_id": null
+        }
+      ],
+      "balls": [
+        {
+          "ball_id": "b1",
+          "mode": "ground",
+          "pos": {
+            "x": -2,
+            "z": -0.6
+          },
+          "velocity": {
+            "x": 0,
+            "z": 0
+          },
+          "owner_team": null,
+          "shooter_team": null,
+          "respawn_in_ms": 0
+        },
+        {
+          "ball_id": "b2",
+          "mode": "ground",
+          "pos": {
+            "x": 2,
+            "z": -0.6
+          },
+          "velocity": {
+            "x": 0,
+            "z": 0
+          },
+          "owner_team": null,
+          "shooter_team": null,
+          "respawn_in_ms": 0
+        },
+        {
+          "ball_id": "b3",
+          "mode": "ground",
+          "pos": {
+            "x": -2,
+            "z": 0.6
+          },
+          "velocity": {
+            "x": 0,
+            "z": 0
+          },
+          "owner_team": null,
+          "shooter_team": null,
+          "respawn_in_ms": 0
+        },
+        {
+          "ball_id": "b4",
+          "mode": "ground",
+          "pos": {
+            "x": 2,
+            "z": 0.6
+          },
+          "velocity": {
+            "x": 0,
+            "z": 0
+          },
+          "owner_team": null,
+          "shooter_team": null,
+          "respawn_in_ms": 0
+        }
+      ]
+    }
+  }
+}

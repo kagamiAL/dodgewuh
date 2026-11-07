@@ -1,0 +1,5 @@
+region        = "us-east-2"
+account_id    = "127471246523"
+domain        = "dodgewuh.fit"
+instance_type = "t3.small"
+postgres_volume_size = 8

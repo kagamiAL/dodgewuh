@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "session.ping",
+  "payload": {
+    "nonce": 1,
+    "token": "unexpected"
+  }
+}

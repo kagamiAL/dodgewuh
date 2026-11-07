@@ -1,0 +1,64 @@
+services:
+  coordinator:
+    build: ./backend
+    command: ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      BUILD_SHA: ${BUILD_SHA:-dev}
+      GAME_WORKER_URL: http://game-worker:8000
+      LOBBY_BASELINE_ENABLED: "true"
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:5173}
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: dodgewuh
+      PGUSER: dodgewuh
+      PGPASSWORD: ${POSTGRES_PASSWORD:-dodgewuh-local-only}
+    volumes:
+      - ./backend/app:/app/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      game-worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  game-worker:
+    build: ./backend
+    command: ["/app/.venv/bin/uvicorn", "app.worker:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      BUILD_SHA: ${BUILD_SHA:-dev}
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ./backend/simulation:/app/simulation:ro
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  postgres:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_DB: dodgewuh
+      POSTGRES_USER: dodgewuh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dodgewuh-local-only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres_data:

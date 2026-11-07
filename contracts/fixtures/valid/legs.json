@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "input.legs",
+  "payload": {
+    "seq": 1,
+    "epoch": 2,
+    "move": {
+      "x": 0.6,
+      "z": 0.8
+    }
+  }
+}

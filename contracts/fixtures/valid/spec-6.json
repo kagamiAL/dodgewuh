@@ -1,0 +1,84 @@
+{
+  "v": 1,
+  "type": "room.updated",
+  "server_ms": 13000,
+  "payload": {
+    "room": {
+      "room_id": "r1",
+      "room_code": "ABC234",
+      "host_id": "s1",
+      "revision": 12,
+      "members": [
+        {
+          "member_id": "s1",
+          "name": "Main screen",
+          "device": "screen",
+          "connected": true,
+          "ready": false,
+          "permission": "unknown",
+          "calibrated": false
+        },
+        {
+          "member_id": "p1",
+          "name": "Richard",
+          "device": "phone",
+          "connected": false,
+          "ready": false,
+          "permission": "granted",
+          "calibrated": false
+        },
+        {
+          "member_id": "p2",
+          "name": "Ryan",
+          "device": "phone",
+          "connected": true,
+          "ready": false,
+          "permission": "granted",
+          "calibrated": false
+        },
+        {
+          "member_id": "p3",
+          "name": "Morteza",
+          "device": "phone",
+          "connected": true,
+          "ready": false,
+          "permission": "granted",
+          "calibrated": false
+        },
+        {
+          "member_id": "p4",
+          "name": "Tysen",
+          "device": "phone",
+          "connected": true,
+          "ready": false,
+          "permission": "granted",
+          "calibrated": false
+        }
+      ],
+      "assignments": [
+        {
+          "member_id": "p1",
+          "team": 1,
+          "role": "legs"
+        },
+        {
+          "member_id": "p2",
+          "team": 1,
+          "role": "arms"
+        },
+        {
+          "member_id": "p3",
+          "team": 2,
+          "role": "legs"
+        },
+        {
+          "member_id": "p4",
+          "team": 2,
+          "role": "arms"
+        }
+      ],
+      "assignment_version": 2,
+      "phase": "lobby"
+    }
+  }
+}

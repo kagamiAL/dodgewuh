@@ -1,5 +1,7 @@
 # Coding-agent brief — Alan
 
+> **Architecture amendment:** dodgewuh uses Docker, a coordinator VM plus game worker VM(s), and PostgreSQL for durable records. [Persistence plan](../11-sql-persistence.md) supersedes earlier single-process, no-database and systemd-backend instructions. Public message schemas remain unchanged; live simulations stay in worker memory.
+
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 
 ## Identity and context
@@ -10,7 +12,7 @@ Read in this exact order: [01 architecture](../01-architecture.md), [02 gameplay
 
 ## Exact scope
 
-Implement FastAPI room/session API, native WebSocket transport, authoritative simulation adapter/runner, input validation, full-state broadcast and single-instance AWS/Terraform/Caddy deployment. Keep backend small enough to integrate within hours.
+Implement FastAPI room/session API, native WebSocket transport, authoritative simulation adapter/runner, input validation, full-state broadcast and Docker coordinator/worker AWS deployment with PostgreSQL persistence. Keep backend small enough to integrate within hours.
 
 ## Files you own
 
@@ -20,7 +22,7 @@ Shared 02/03 are authoritative references; do not independently redesign them or
 
 ## Explicit exclusions
 
-No gameplay mechanics or edits inside Richard simulation. No Redis/database, accounts, API Gateway, load balancer, containers, host migration, reconnect resume or QR generation. No client-authoritative relay. No secrets in committed files.
+No gameplay mechanics or edits inside Richard simulation. No Redis, accounts, API Gateway, load balancer, host migration, reconnect resume or QR generation. No client-authoritative relay. No secrets in committed files.
 
 ## Dependencies and interfaces
 
@@ -36,7 +38,7 @@ All wire message definitions come only from 03. Gameplay constants come only fro
 5. Implement conversion adapter and one serialized runner per room. Route normalized Legs to Richard, send snapshots to Ryan. Pair for H4 real-phone vertical slice before polishing operational features.
 6. Add Arms edges, readiness/start/reset/rematch authorization, role mapping updates, bounded queues/rate validation and immediate disconnect-to-lobby reset. Seats reserved briefly; no resume.
 7. Implement simple TTL cleanup, health/build and safe logs. Test unauthorized/wrong-role/old-epoch inputs and slow sockets.
-8. Provision EC2/EIP with Terraform, configure GoDaddy A record, Caddy TLS/static/proxy and one-worker systemd backend. Build/deploy with 08; target public WSS H6.
+8. Provision coordinator/worker EC2 and PostgreSQL data disk with Terraform, configure Porkbun DNS and Docker/Caddy TLS/static/proxy per plan 11. Build/deploy with 08; target public WSS H6.
 9. Run four-phone full-match cloud smoke and rollback rehearsal with Ryan. Record SHA, URLs/start commands and unresolved constraints; prepare cleanup.
 
 ## Manual verification instructions
