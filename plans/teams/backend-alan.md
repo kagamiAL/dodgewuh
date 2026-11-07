@@ -1,5 +1,7 @@
 # Backend / Networking / Infrastructure — Alan
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 Connect the working game with the smallest backend. Richard supplies all gameplay mechanics. Your adapter converts validated input and pure snapshots without editing simulation internals. Read [03](../03-api-contracts.md) as authoritative wire/interface specification and [08](../08-deployment-runbook.md) as deployment specification.
 
 ## Necessary scope
@@ -10,7 +12,7 @@ Optional work excluded until acceptance passes: QR image generation, accounts, p
 
 ## Modules and sequence
 
-1. protocol.py implements [03] models and envelope registry. Export matching TS types/validators in owned generated directory, good/bad JSON fixtures and contract tests. Confirm DTO mapping with Richard and Transport interface with Ryan/Tysen/Morteza.
+1. protocol.py implements [03] models and envelope registry. Export matching TS types/validators in owned generated directory, good/bad JSON fixtures and manual contract checks. Confirm DTO mapping with Richard and Transport interface with Ryan/Tysen/Morteza.
 2. rooms.py stores room ID/code, members, token hashes or securely compared opaque tokens, revision, host, readiness, connections and Simulation reference. Allocate phone slots in fixed order, no interactive team editor. Use cryptographically random session tokens (at least 32 random bytes), six-character collision-checked codes.
 3. main.py exposes exact REST endpoints and health, normalizes errors and no-store headers. Rate/cap limits are simple in-memory counters; no authentication product.
 4. ws.py handles first-frame hello, one socket/member, session ping/pong, sender queue and disconnect cleanup. Every input identity derives from socket. Unauthorized screens cannot send motion; wrong-role phones cannot control another role.
@@ -24,7 +26,7 @@ Optional work excluded until acceptance passes: QR image generation, accounts, p
 
 Own backend/app/** and backend tests except simulation; backend dependency manifests; contracts/**; frontend/src/net/** and generated/** plus net tests; infra/**, deploy/**, .github/** and enumerated root files in [04](../04-repository-structure.md). Richard owns simulation directory even though it executes in your process. Ryan owns frontend dependency manifests; request Zod/transport script changes from him. No edits to gameplay constants to fix adapter bugs.
 
-MockSimulation implements exact [03] methods and scriptable State. Test creation/join/auth, ready gates, invalid/duplicate/stale command, sender backpressure, room TTL, disconnect/reset and process restart behavior. Use FastAPI test clients for routes and real WebSocket clients for one integration test. Synthetic messages must validate the same schemas as phones. Ryan runs cloud UI smoke; Tysen validates physical phones; Richard pairs on conversion. Keep deployment responsibility with you, rather than giving everyone AWS credentials.
+MockSimulation implements exact [03] methods and scriptable State. Test creation/join/auth, ready gates, invalid/duplicate/stale command, sender backpressure, room TTL, disconnect/reset and process restart behavior. Exercise routes manually through API documentation or curl, and inspect a real browser WebSocket connection. Synthetic messages must validate the same schemas as phones. Ryan runs cloud UI smoke; Tysen validates physical phones; Richard pairs on conversion. Keep deployment responsibility with you, rather than giving everyone AWS credentials.
 
 ## Acceptance checklist
 
@@ -35,4 +37,4 @@ MockSimulation implements exact [03] methods and scriptable State. Test creation
 - [ ] Disconnect cannot leave motion/Hold stuck; lobby reset and reconnect are clear.
 - [ ] One-worker EC2 serves frontend HTTPS and WSS; health, logs, rollback and cleanup commands are documented and exercised as appropriate.
 
-Definition of done: backend tests/contract fixtures pass, production uses Richard Simulation, complete cloud match passes, deployment SHA and known limitations recorded. Handoff to all: base origin, exact startup commands, fixture locations, registration examples, logs for diagnostics and how room loss is displayed. Handoff to Ryan coordinator: known-good artifact, rollback target and acceptance results. Do not expose credentials/tokens in handoff.
+Definition of done: manual backend checks pass and contract fixtures are valid, production uses Richard Simulation, complete cloud match passes, deployment SHA and known limitations recorded. Handoff to all: base origin, exact startup commands, fixture locations, registration examples, logs for diagnostics and how room loss is displayed. Handoff to Ryan coordinator: known-good artifact, rollback target and acceptance results. Do not expose credentials/tokens in handoff.

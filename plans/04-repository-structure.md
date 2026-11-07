@@ -1,14 +1,16 @@
 # Repository, ownership and local workflow
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 All paths below are relative to the future monorepo root (parent of this plans directory). The repository now includes owner-separated directories with .gitkeep placeholders; application implementation has not started. Do not create another nested plans directory. One owner per path; other developers send proposed edits to its owner.
 
 | Owner | Exclusive paths | Responsibilities |
 |---|---|---|
-| Richard | backend/simulation/**; backend/tests/simulation/** | Pure types, constants, engine, synthetic runner, simulation tests |
-| Ryan | frontend/** EXCEPT paths assigned below; tests/e2e/**; docs/demo/** | package.json/lockfile, Vite, app/router/session store, views, screen renderer, PhoneShell, screen mocks, UI tests |
-| Morteza | frontend/src/controllers/arms/**; frontend/tests/arms/** | Arms Vue component, calibration, gesture processing, fixtures/tests |
-| Tysen | frontend/src/controllers/legs/**; frontend/src/sensors/**; frontend/src/playground/**; frontend/tests/legs/**; frontend/tests/sensors/**; docs/device-tests/** | Legs, shared sensor service, sensor playground, real-phone report |
-| Alan | backend/** EXCEPT Richard paths; contracts/**; frontend/src/net/**; frontend/src/generated/**; frontend/tests/net/**; infra/**; deploy/**; .github/**; root README.md, .gitignore, .env.example, Makefile | Network protocol, backend adapter, infrastructure, shared fixtures, CI and root bootstrap |
+| Richard | backend/simulation/** | Pure types, constants, engine, synthetic runner, manual simulation checks |
+| Ryan | frontend/** EXCEPT paths assigned below; docs/demo/** | package.json/lockfile, Vite, app/router/session store, views, screen renderer, PhoneShell, screen mocks, manual UI checks |
+| Morteza | frontend/src/controllers/arms/** | Arms Vue component, calibration, gesture processing, fixtures/manual observations |
+| Tysen | frontend/src/controllers/legs/**; frontend/src/sensors/**; frontend/src/playground/**; docs/device-tests/** | Legs, shared sensor service, sensor playground, real-phone report |
+| Alan | backend/** EXCEPT Richard paths; contracts/**; frontend/src/net/**; frontend/src/generated/**; infra/**; deploy/**; .github/**; root README.md, .gitignore, .env.example, Makefile | Network protocol, backend adapter, infrastructure, shared fixtures, CI and root bootstrap |
 
 Plans are frozen references; Alan records coordinated contract amendments in 03, Richard in 02. Any other plan correction has one named editor agreed before editing. Root bootstrap is Alan's; Ryan owns frontend dependency files even for controller dependencies. No five agents editing App.vue or requirements independently.
 
@@ -17,7 +19,6 @@ backend/
   pyproject.toml, requirements.lock
   app/{main,rooms,protocol,ws,runner,simulation_adapter}.py
   simulation/{types,constants,engine,geometry,synthetic}.py
-  tests/{simulation,integration,contracts}/
 frontend/
   package.json, package-lock.json, vite.config.ts
   src/
@@ -30,19 +31,17 @@ frontend/
     controllers/{arms,legs}/
     sensors/sensorService.ts
     playground/SensorPlayground.vue
-  tests/{arms,legs,sensors,net,game}/
 contracts/fixtures/{valid,invalid}/
 infra/{versions,main,variables,outputs}.tf
 infra/terraform.tfvars.example
-deploy/{Caddyfile,dodgeball.service,bootstrap.sh,deploy.sh}
-tests/e2e/
+deploy/{Caddyfile,dodgewuh.service,bootstrap.sh,deploy.sh}
 docs/{device-tests,demo}/
 plans/
 ```
 
 ## Dependency choices and bootstrap
 
-Use Python 3.12, FastAPI, Uvicorn standard extras, Pydantic v2; pytest and httpx for backend tests. Simulation uses standard library only. Vue 3, TypeScript, Vite, PlayCanvas, Vue Router, Zod and Vitest in frontend; Playwright only for a small browser smoke if time allows. No state management library required: small reactive session store. Use current compatible versions selected during bootstrap, commit exact npm lockfile and Python requirements lock, and record Node version matching selected Vite engines. Do not invent version compatibility before installation. Caddy runs as a host service; no containerization requirement.
+Use Python 3.12, FastAPI, Uvicorn standard extras, Pydantic v2; httpx for service communication; no automated test dependencies. Simulation uses standard library only. Vue 3, TypeScript, Vite, PlayCanvas, Vue Router, Zod in frontend; Use manual browser smoke checks. No state management library required: small reactive session store. Use current compatible versions selected during bootstrap, commit exact npm lockfile and Python requirements lock, and record Node version matching selected Vite engines. Do not invent version compatibility before installation. Caddy runs as a host service; no containerization requirement.
 
 Alan creates root/backend scaffolds and canonical protocol fixtures first; Ryan creates the frontend scaffold and PhoneShell placeholders inside his owned files. Morteza/Tysen create their own controller/sensor exports; Alan creates net/generated exports. Ryan never creates placeholder files in their directories. Richard supplies types/Simulation signatures immediately. Controller owners work in assigned directories against the frozen signatures. Shared interfaces in [03](03-api-contracts.md) precede implementation; placeholders must compile and have final method signatures.
 
@@ -69,14 +68,12 @@ Vite proxies /api and /ws (ws enabled) to 127.0.0.1:8000 without prefix rewritin
 
 ```sh
 PYTHONPATH=backend python -m simulation.synthetic
-PYTHONPATH=backend pytest backend/tests
 cd frontend
 npm run typecheck
-npm test -- --run
 npm run build
 ```
 
-Ryan defines these npm scripts. Each agent runs its focused tests before handing off; integrated checks run at merge windows. A physical phone connecting over LAN HTTP is not the secure-context solution. Use locally trusted HTTPS Caddy with a dev CA installed and explicitly trusted on each phone, or the public EC2 HTTPS origin; local-only CA setup in [08](08-deployment-runbook.md).
+Ryan defines these npm scripts. Each agent runs its manual checks before handing off; integrated checks run at merge windows. A physical phone connecting over LAN HTTP is not the secure-context solution. Use locally trusted HTTPS Caddy with a dev CA installed and explicitly trusted on each phone, or the public EC2 HTTPS origin; local-only CA setup in [08](08-deployment-runbook.md).
 
 ## Configuration and Git
 

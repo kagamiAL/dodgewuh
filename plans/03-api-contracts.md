@@ -1,6 +1,8 @@
 # Shared API contracts — protocol v1 authority
 
-This is the sole normative network schema source. Alan owns implementations in Python and TypeScript, fixture examples and validation. Richard owns the pure simulation DTO mirror and adapter compatibility tests; no framework dependency enters simulation. [02](02-game-specification.md) owns gameplay numbers. All clients and mocks implement this protocol without temporary event names.
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
+This is the sole normative network schema source. Alan owns implementations in Python and TypeScript, fixture examples and validation. Richard owns the pure simulation DTO mirror and manual adapter compatibility checks; no framework dependency enters simulation. [02](02-game-specification.md) owns gameplay numbers. All clients and mocks implement this protocol without temporary event names.
 
 ## Conventions and validation
 

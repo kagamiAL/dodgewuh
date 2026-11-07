@@ -1,5 +1,7 @@
 # Hack the Change 2026 — Master Development Planning Agent
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 ## 1. Your Role and Objective
 
 You are acting as a **principal software architect, technical project manager, senior multiplayer game developer, and hackathon engineering lead**.
@@ -1087,7 +1089,7 @@ Reference the exact shared message schemas, types, endpoints, and component inte
 
 ### H. Testing
 
-List tests the agent must implement or perform.
+List manual checks the agent must perform; do not create automated tests.
 
 Include mock inputs where necessary.
 
@@ -1113,7 +1115,7 @@ Explicitly tell the coding agent:
 - Do not replace locked technologies.
 - Do not introduce unrelated infrastructure.
 - Prefer functioning implementations over unnecessary abstractions.
-- Run relevant tests.
+- Run builds, type checks and manual acceptance checks.
 - Report blockers and assumptions.
 - Produce a concise summary of completed work and remaining integration tasks.
 

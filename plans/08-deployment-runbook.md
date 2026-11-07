@@ -1,5 +1,7 @@
 # Deployment runbook — single EC2 working MVP
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 Alan owns this runbook's implementation. Commands describe future artifacts that Alan must create; nothing has been provisioned by this planning task. Use one EC2 Linux instance, one Elastic IP, EBS root disk, security group and simple public network. Caddy serves the built frontend and proxies FastAPI on loopback. GoDaddy remains DNS authority. No database, Redis, containers, CloudFront, API Gateway, load balancer or ACM required.
 
 ## Prerequisites and evidence
@@ -17,7 +19,7 @@ Actual domain ownership, DNS propagation, EC2 capacity and certificate issuance 
 
 ## Infrastructure files and variables
 
-infra/versions.tf pins tested Terraform/provider compatibility and commits .terraform.lock.hcl. Use standard aws provider; no GoDaddy provider dependency. main.tf creates a small VPC, public subnet, internet gateway, route table/association, security group, EC2 instance, EIP and association. Avoid assuming a default VPC exists. Use one module (root), not a hierarchy. variables.tf requires region, ami_id, instance_type (default t3.small), key_name, operator_cidr, domain; tags include project and owner. outputs.tf emits public_ip, domain and ssh command. bootstrap user data installs Python venv support and Caddy via its official package repository, creates a non-login dodgeball user and /opt/dodgeball/releases. No AWS secrets in user data; no runtime AWS permissions required. deploy/bootstrap.sh must be idempotent and fail visibly if package install fails.
+infra/versions.tf pins tested Terraform/provider compatibility and commits .terraform.lock.hcl. Use standard aws provider; no GoDaddy provider dependency. main.tf creates a small VPC, public subnet, internet gateway, route table/association, security group, EC2 instance, EIP and association. Avoid assuming a default VPC exists. Use one module (root), not a hierarchy. variables.tf requires region, ami_id, instance_type (default t3.small), key_name, operator_cidr, domain; tags include project and owner. outputs.tf emits public_ip, domain and ssh command. bootstrap user data installs Python venv support and Caddy via its official package repository, creates a non-login dodgewuh user and /opt/dodgewuh/releases. No AWS secrets in user data; no runtime AWS permissions required. deploy/bootstrap.sh must be idempotent and fail visibly if package install fails.
 
 ```sh
 export AWS_PROFILE=hackathon
@@ -58,7 +60,7 @@ Alan creates deploy/Caddyfile with the following shape. Keep path prefixes: use 
         reverse_proxy 127.0.0.1:8000
     }
     handle {
-        root * /opt/dodgeball/current/frontend/dist
+        root * /opt/dodgewuh/current/frontend/dist
         try_files {path} /index.html
         file_server
     }
@@ -66,16 +68,16 @@ Alan creates deploy/Caddyfile with the following shape. Keep path prefixes: use 
 }
 ```
 
-Provide DOMAIN to the Caddy systemd service via a drop-in EnvironmentFile=/etc/dodgeball/caddy.env; a shell export alone does not reach systemd. Persist Caddy's certificate storage across releases; do not delete it during deploy. SPA fallback applies only to frontend, never /api or /ws.
+Provide DOMAIN to the Caddy systemd service via a drop-in EnvironmentFile=/etc/dodgewuh/caddy.env; a shell export alone does not reach systemd. Persist Caddy's certificate storage across releases; do not delete it during deploy. SPA fallback applies only to frontend, never /api or /ws.
 
-Backend systemd unit: User=dodgeball, WorkingDirectory=/opt/dodgeball/current/backend, EnvironmentFile=/etc/dodgeball/backend.env, ExecStart=/opt/dodgeball/current/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1, Restart=on-failure, WantedBy=multi-user.target. Never --reload or multiple workers. Environment: PUBLIC_ORIGIN=https://actual-host, LOG_LEVEL=INFO, BUILD_SHA=release SHA, ROOM_LIMIT=10. No gameplay constants in environment. Restrict env files to service/operator access.
+Backend systemd unit: User=dodgewuh, WorkingDirectory=/opt/dodgewuh/current/backend, EnvironmentFile=/etc/dodgewuh/backend.env, ExecStart=/opt/dodgewuh/current/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1, Restart=on-failure, WantedBy=multi-user.target. Never --reload or multiple workers. Environment: PUBLIC_ORIGIN=https://actual-host, LOG_LEVEL=INFO, BUILD_SHA=release SHA, ROOM_LIMIT=10. No gameplay constants in environment. Restrict env files to service/operator access.
 
 Install unit and Caddyfile, then:
 
 ```sh
 sudo systemctl daemon-reload
 sudo env DOMAIN="$DOMAIN" caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl enable --now dodgeball caddy
+sudo systemctl enable --now dodgewuh caddy
 sudo systemctl restart dodgeball
 sudo systemctl reload caddy
 ```
@@ -92,13 +94,12 @@ npm ci
 npm run typecheck
 npm run build
 cd ..
-PYTHONPATH=backend .venv/bin/pytest backend/tests
 export DEPLOY_HOST="$(terraform -chdir=infra output -raw public_ip)"
 export RELEASE_SHA="$(git rev-parse --short HEAD)"
 ./deploy/deploy.sh "$DEPLOY_HOST" "$RELEASE_SHA"
 ```
 
-Script must upload backend, requirements.lock and frontend/dist into /opt/dodgeball/releases/$RELEASE_SHA using SSH/SCP, create release .venv on EC2, install locked requirements, set ownership/read permissions for dodgeball and Caddy, and validate import before activation. Save prior symlink target, atomically replace current symlink, restart backend, reload Caddy only if config changed, curl health, and revert symlink/restart on failed health. Source .git, secrets, node_modules and Terraform state never belong in release. A backend restart loses rooms and Caddy config reload can close WebSockets: deploy/reload between matches and tell participants to create a new room. Retain two known-good release directories.
+Script must upload backend, requirements.lock and frontend/dist into /opt/dodgewuh/releases/$RELEASE_SHA using SSH/SCP, create release .venv on EC2, install locked requirements, set ownership/read permissions for dodgewuh and Caddy, and validate import before activation. Save prior symlink target, atomically replace current symlink, restart backend, reload Caddy only if config changed, curl health, and revert symlink/restart on failed health. Source .git, secrets, node_modules and Terraform state never belong in release. A backend restart loses rooms and Caddy config reload can close WebSockets: deploy/reload between matches and tell participants to create a new room. Retain two known-good release directories.
 
 ## Smoke, logs, rollback
 
@@ -107,12 +108,12 @@ curl --fail "https://$DOMAIN/api/health"
 curl --fail -X POST "https://$DOMAIN/api/rooms" -H 'Content-Type: application/json' -d '{"name":"Deployment smoke"}'
 sudo journalctl -u dodgeball -n 100 --no-pager
 sudo journalctl -u caddy -n 100 --no-pager
-sudo systemctl status dodgeball caddy
+sudo systemctl status dodgewuh caddy
 ```
 
 Run journal/systemctl on EC2. Do not copy token-bearing creation response into shared logs. Open page on phone cellular data, verify valid certificate and WSS 101, authenticate via app, observe snapshots for ten minutes, then four-phone match. Log room IDs, build SHA, input rejection counts, tick overruns, snapshot queue drops and disconnect reasons, never tokens/raw sensors. Keep logs bounded by journald limits; no monitoring service needed.
 
-Rollback: identify prior /opt/dodgeball/releases/SHA, `sudo ln -sfn /opt/dodgeball/releases/PREVIOUS_SHA /opt/dodgeball/current.next`, then `sudo mv -Tf /opt/dodgeball/current.next /opt/dodgeball/current`, restart dodgeball and health-check. Replace PREVIOUS_SHA with actual known-good release. Restore old Caddyfile only if it changed, validate and reload. Rollback also loses rooms; create a fresh one. If health passes but assets fail, inspect Caddy permissions and frontend/dist path. 404 on WS: verify /ws prefix preserved. 403/4401: inspect Origin/token, not certificate settings. Socket drops: confirm one worker and no deployment/reload during match.
+Rollback: identify prior /opt/dodgewuh/releases/SHA, `sudo ln -sfn /opt/dodgewuh/releases/PREVIOUS_SHA /opt/dodgewuh/current.next`, then `sudo mv -Tf /opt/dodgewuh/current.next /opt/dodgewuh/current`, restart dodgeball and health-check. Replace PREVIOUS_SHA with actual known-good release. Restore old Caddyfile only if it changed, validate and reload. Rollback also loses rooms; create a fresh one. If health passes but assets fail, inspect Caddy permissions and frontend/dist path. 404 on WS: verify /ws prefix preserved. 403/4401: inspect Origin/token, not certificate settings. Socket drops: confirm one worker and no deployment/reload during match.
 
 ## Independent local HTTPS
 

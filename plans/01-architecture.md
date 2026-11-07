@@ -1,5 +1,7 @@
 # Architecture
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 The MVP is a 2v2 cooperative motion dodgeball game: four humans control two characters. Richard's pure Python simulation is authoritative. One FastAPI process on one EC2 instance holds rooms and one simulation object per active room. Vue 3 + TypeScript + Vite wraps a code-first PlayCanvas renderer. No screen host physics, peer-to-peer network, host migration, database, Redis, load balancer, or external game engine.
 
 ```mermaid

@@ -1,5 +1,7 @@
 # Risks and minimal fallbacks
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 The plan aims for a working game, not a platform. Likelihood/impact are planning estimates. Each fallback preserves physical cooperation unless explicitly labelled a demo contingency.
 
 | Risk | Likelihood / impact | Earliest experiment | Mitigation and cutoff | Fallback | Owner |

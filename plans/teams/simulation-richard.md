@@ -1,12 +1,14 @@
 # Authoritative gameplay simulation — Richard
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 Deliver the pure Python simulation that decides every gameplay outcome. This is a separate workstream from Ryan's renderer and Alan's networking. Richard owns mechanics; Alan integrates the simulation without changing its internal logic.
 
 Read [architecture](../01-architecture.md), [rules](../02-game-specification.md), [contracts](../03-api-contracts.md) and [ownership](../04-repository-structure.md) before implementation. Keep this a working MVP: implement the playable loop before polish.
 
 ## Scope and ownership
 
-Own backend/simulation/** and backend/tests/simulation/** only. Implement constants, plain DTOs, movement clamps, ball acquisition/ownership, flat flight, swept collisions, no-throw zones, scoring, active timer, round/match/reset state machines, role swaps and immutable snapshots. No FastAPI, Pydantic, WebSocket, AWS or PlayCanvas dependencies inside simulation.
+Own backend/simulation/** and only. Implement constants, plain DTOs, movement clamps, ball acquisition/ownership, flat flight, swept collisions, no-throw zones, scoring, active timer, round/match/reset state machines, role swaps and immutable snapshots. No FastAPI, Pydantic, WebSocket, AWS or PlayCanvas dependencies inside simulation.
 
 Use [02](../02-game-specification.md) as the sole rules/constants authority and implement the exact Simulation seam in [03](../03-api-contracts.md). No advanced physics, reconnect resume or host migration. Straight trajectories and fixed-strength phone commands are sufficient for the MVP.
 
@@ -26,9 +28,9 @@ The synthetic runner uses the same pure command DTOs and Simulation methods as A
 
 Ryan consumes snapshots, not simulation internals. Coordinate state display requirements with [Ryan's plan](playcanvas-ryan.md), but do not edit his frontend. Report changes to rules through the coordinated contract process before either consumer implements them.
 
-## Tests and acceptance
+## Manual checks and acceptance
 
-- [ ] Movement clamps, diagonal speed and stale stop pass pure tests.
+- [ ] Movement clamps, diagonal speed and stale stop pass manual simulation checks.
 - [ ] Four balls reset correctly; each has at most one owner.
 - [ ] Cancel never launches; inclusive no-throw boundaries are enforced.
 - [ ] Swept hits and timeout award points exactly as specified; held balls do not shield.
@@ -36,4 +38,4 @@ Ryan consumes snapshots, not simulation internals. Coordinate state display requ
 - [ ] Winner, rematch and disconnect reset work without old-epoch input leaking through.
 - [ ] Real phone movement and a complete four-phone hosted match use this simulation.
 
-Run `PYTHONPATH=backend pytest backend/tests/simulation` and the synthetic runner. Definition of done: focused tests pass, immutable snapshots/events convert through Alan's adapter, and Richard-owned acceptance rows in [06](../06-integration-and-testing.md) are observed. Handoff includes commit SHA, test results, fixtures, conversion notes and outstanding integration defects. Use [Richard's coding-agent brief](../agents/richard.md) for execution.
+Run manual runtime checks and the synthetic runner. Definition of done: manual acceptance checks pass, immutable snapshots/events convert through Alan's adapter, and Richard-owned acceptance rows in [06](../06-integration-and-testing.md) are observed. Handoff includes commit SHA, test results, fixtures, conversion notes and outstanding integration defects. Use [Richard's coding-agent brief](../agents/richard.md) for execution.

@@ -1,5 +1,7 @@
 # Gameplay specification — rules authority
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 This file is the sole source of gameplay rules and constants. Values below are explicit MVP engineering decisions, not validated sensor measurements. Network representations live in [03](03-api-contracts.md). Richard owns their implementation.
 
 ## Coordinates and constants

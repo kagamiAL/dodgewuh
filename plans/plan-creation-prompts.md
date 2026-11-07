@@ -1,5 +1,7 @@
 # Hack the Change 2026 — Generate Complete Development Planning Package
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 You are acting as a principal software architect, multiplayer game engineer, and hackathon technical lead.
 
 ## Your task
@@ -45,7 +47,7 @@ These assignments supersede the original master prompt.
 - Hit detection, scoring, and round timer
 - Round/match state machines
 - Role-switching game logic
-- Simulation snapshots and unit tests
+- Simulation snapshots and manual checks
 - Pure Python gameplay modules with no dependency on AWS or WebSocket connections
 
 **Ryan — Vue + PlayCanvas Game Frontend**
