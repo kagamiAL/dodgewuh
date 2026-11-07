@@ -1,23 +1,16 @@
 import * as pc from 'playcanvas'
+import { COURT_HALF_DEPTH } from './constants'
+import { toScene } from './coords'
+import { createCourt } from './court'
+import { StateRenderer } from './entities'
+import type { State } from './state'
 
-// Court extents from plans/02-game-specification.md (metres).
-const COURT_HALF_WIDTH = 6
-const COURT_HALF_DEPTH = 9
-
-/**
- * World (x, z) from the server -> PlayCanvas position.
- *
- * The camera sits behind Team 1 (negative z) looking toward +z. In PlayCanvas's
- * right-handed, y-up space that puts world +x on the LEFT of the screen, which
- * would mirror Team 1's controls (02 defines Team 1 "right" as +x). Negating x
- * here keeps Team 1's right on screen-right. This is the only place the flip lives.
- */
-export function toScene(x: number, z: number, y = 0): pc.Vec3 {
-  return new pc.Vec3(-x, y, z)
-}
+export { toScene } from './coords'
 
 export interface GameScene {
   readonly app: pc.Application
+  /** Draw one authoritative server State. The only way game data reaches the scene. */
+  renderState(state: State): void
   destroy(): void
 }
 
@@ -40,30 +33,26 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   const camera = new pc.Entity('Camera')
   camera.addComponent('camera', {
     clearColor: new pc.Color(0.07, 0.08, 0.1),
-    fov: 50,
+    fov: 45,
   })
-  camera.setPosition(toScene(0, -COURT_HALF_DEPTH - 6, 13))
-  camera.lookAt(toScene(0, 1))
+  // Raised behind Team 1's baseline and tilted so both baselines stay in frame.
+  camera.setPosition(toScene(0, -COURT_HALF_DEPTH - 7, 16))
+  camera.lookAt(toScene(0, -1.5))
   app.root.addChild(camera)
 
-  const sun = new pc.Entity('Sun')
-  sun.addComponent('light', { type: 'directional', intensity: 1 })
-  sun.setEulerAngles(50, 30, 0)
-  app.root.addChild(sun)
+  const lights = new pc.Entity('Lights')
+  lights.addComponent('light', { type: 'directional', intensity: 1 })
+  lights.setEulerAngles(50, 30, 0)
+  app.root.addChild(lights)
 
-  // Placeholder floor so the mount is visibly working; the court markings come next.
-  const floorMaterial = new pc.StandardMaterial()
-  floorMaterial.diffuse = new pc.Color(0.18, 0.32, 0.22)
-  floorMaterial.update()
-  const floor = new pc.Entity('Floor')
-  floor.addComponent('render', { type: 'plane', material: floorMaterial })
-  floor.setLocalScale(COURT_HALF_WIDTH * 2, 1, COURT_HALF_DEPTH * 2)
-  app.root.addChild(floor)
+  app.root.addChild(createCourt())
+  const stateRenderer = new StateRenderer(app.root)
 
   app.start()
 
   return {
     app,
+    renderState: (state) => stateRenderer.render(state),
     destroy() {
       resizeObserver.disconnect()
       app.destroy()

@@ -1,0 +1,33 @@
+import type { State } from '../state'
+
+// Verbatim state from plans/03-api-contracts.md, examples 11–12 (active round,
+// Team 1 holding b1). Development-only stand-in until Alan's canonical fixtures
+// in contracts/fixtures/valid/ exist.
+export const activeSnapshotState: State = {
+  tick: 300,
+  epoch: 2,
+  round: 1,
+  phase: 'active',
+  remaining_ms: 58000,
+  phase_remaining_ms: null,
+  score: { t1: 0, t2: 0 },
+  characters: [
+    { team: 1, pos: { x: -2, z: -1 }, aim: { x: 0, z: 1 }, held_ball_id: 'b1' },
+    { team: 2, pos: { x: 0, z: 6 }, aim: { x: 0, z: -1 }, held_ball_id: null },
+  ],
+  balls: [
+    { ball_id: 'b1', mode: 'held', pos: { x: -2, z: -1 }, velocity: { x: 0, z: 0 }, owner_team: 1, shooter_team: null, respawn_in_ms: 0 },
+    { ball_id: 'b2', mode: 'ground', pos: { x: 2, z: -0.6 }, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0 },
+    { ball_id: 'b3', mode: 'ground', pos: { x: -2, z: 0.6 }, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0 },
+    { ball_id: 'b4', mode: 'ground', pos: { x: 2, z: 0.6 }, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0 },
+  ],
+  assignments: [
+    { member_id: 'p1', team: 1, role: 'arms' },
+    { member_id: 'p2', team: 1, role: 'legs' },
+    { member_id: 'p3', team: 2, role: 'arms' },
+    { member_id: 'p4', team: 2, role: 'legs' },
+  ],
+  assignment_version: 1,
+  result: null,
+  winner: null,
+}

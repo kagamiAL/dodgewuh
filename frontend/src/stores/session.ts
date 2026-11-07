@@ -1,0 +1,118 @@
+// Session store: the single place the frontend applies server messages.
+// Screens and PhoneShell read from it; Transport (Alan) feeds it via apply().
+// Small reactive object, no state library (plans/04-repository-structure.md).
+
+import { computed, reactive, readonly } from 'vue'
+import type {
+  Assignment,
+  Registration,
+  Room,
+  ServerMessage,
+  State,
+  TransportStatus,
+} from '@/contracts/pending'
+
+const REGISTRATION_KEY = 'dodgewuh.registration'
+
+interface SessionState {
+  registration: Registration | null
+  status: TransportStatus
+  room: Room | null
+  state: State | null
+  lastError: { code: string; message: string } | null
+  closedReason: 'host_left' | 'expired' | 'server_shutdown' | null
+}
+
+const s = reactive<SessionState>({
+  registration: loadRegistration(),
+  status: 'closed',
+  room: null,
+  state: null,
+  lastError: null,
+  closedReason: null,
+})
+
+function loadRegistration(): Registration | null {
+  try {
+    const raw = sessionStorage.getItem(REGISTRATION_KEY)
+    return raw ? (JSON.parse(raw) as Registration) : null
+  } catch {
+    return null
+  }
+}
+
+/** Never apply older epoch/assignment_version (03, "WebSocket lifecycle"), nor older ticks. */
+function isNewer(next: State, current: State | null): boolean {
+  if (!current) return true
+  if (next.epoch !== current.epoch) return next.epoch > current.epoch
+  if (next.assignment_version !== current.assignment_version) return next.assignment_version > current.assignment_version
+  return next.tick >= current.tick
+}
+
+export const session = {
+  /** Read-only view for components. */
+  data: readonly(s),
+
+  /** This device's assignment, or null for screens / unassigned phones. */
+  myAssignment: computed<Assignment | null>(() => {
+    const id = s.registration?.member_id
+    const list = s.state?.assignments ?? s.room?.assignments ?? []
+    return list.find((a) => a.member_id === id) ?? null
+  }),
+
+  isHost: computed(() => !!s.room && s.room.host_id === s.registration?.member_id),
+
+  setRegistration(reg: Registration | null): void {
+    s.registration = reg
+    try {
+      if (reg) sessionStorage.setItem(REGISTRATION_KEY, JSON.stringify(reg))
+      else sessionStorage.removeItem(REGISTRATION_KEY)
+    } catch {
+      // Storage unavailable (private mode): keep the in-memory copy only.
+    }
+  },
+
+  setStatus(status: TransportStatus): void {
+    s.status = status
+  },
+
+  /** Apply one validated server message. Same entry point for live and mock sources. */
+  apply(msg: ServerMessage): void {
+    switch (msg.type) {
+      case 'session.welcome':
+        // Full baseline: replaces everything regardless of epoch.
+        s.room = msg.payload.room
+        s.state = msg.payload.state
+        s.lastError = null
+        s.closedReason = null
+        break
+      case 'room.updated':
+        if (!s.room || msg.payload.room.revision >= s.room.revision) s.room = msg.payload.room
+        break
+      case 'state.snapshot':
+      case 'phase.changed':
+        if (isNewer(msg.payload.state, s.state)) s.state = msg.payload.state
+        break
+      case 'roles.changed':
+        // Full mapping also arrives in the following state/room messages; nothing to merge here.
+        break
+      case 'error':
+        s.lastError = { code: msg.payload.code, message: msg.payload.message }
+        break
+      case 'room.closed':
+        s.closedReason = msg.payload.reason
+        break
+      case 'session.pong':
+        break
+    }
+  },
+
+  reset(): void {
+    s.room = null
+    s.state = null
+    s.lastError = null
+    s.closedReason = null
+    s.status = 'closed'
+    this.setRegistration(null)
+  },
+}

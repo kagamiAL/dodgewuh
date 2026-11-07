@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { useRoute } from 'vue-router'
 import { createScene, type GameScene } from '@/game/scene'
+import { activeSnapshotState } from '@/game/fixtures/activeSnapshot'
+
+const route = useRoute()
+// Dev-only mock route (plans/04): never reachable from a production build.
+const mock = import.meta.env.DEV && route.query.mock === '1'
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const error = ref<string | null>(null)
@@ -11,6 +17,8 @@ onMounted(() => {
   if (!canvas.value) return
   try {
     scene.value = createScene(canvas.value)
+    // Development stand-in: the 03 example snapshot until live/mock sources exist.
+    if (mock) scene.value.renderState(activeSnapshotState)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
