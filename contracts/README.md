@@ -9,7 +9,7 @@ it is not a playable match or a production gameplay backend.
 - `backend/app/protocol.py`: strict Pydantic wire models and event registries.
 - `backend/app/api/rooms.py`, `api/ws.py`: HTTP and socket entry points.
 - `backend/app/services/rooms.py`: registration/authentication policy and transactions.
-- `backend/app/services/lobby.py`: local socket connectivity, baseline and broadcasts.
+- `backend/app/services/game.py`: live rooms — one Simulation, fixed-step runner and bounded senders per room.
 - `backend/app/repositories/`: SQL operations; `db/`: configuration and ORM records.
 - `frontend/src/generated/protocol.ts`, `validators.ts`: matching types and Zod validators.
 - `frontend/src/net/transport.ts`: native browser transport, independent of Vue components.
@@ -46,10 +46,10 @@ Origin must equal `PUBLIC_ORIGIN` (default `http://localhost:5173`). Explicit
 additional development origins can be supplied through comma-separated
 `DEV_ORIGINS`. Query parameters are rejected; tokens go in hello only.
 
-Local Compose explicitly enables `LOBBY_BASELINE_ENABLED=true`. Without that
-setting the temporary lobby endpoint refuses upgrade. Production must use the
-real simulation/worker path instead of enabling this development baseline.
-All gameplay/readiness commands currently return `SERVER_BUSY` without mutation.
+Local Compose explicitly enables `IN_PROCESS_SIMULATION=true`, running each room's
+Simulation inside the coordinator. Without that setting the socket refuses upgrade;
+production stays refused until worker allocation/routing exists. Readiness, host
+start/reset/rematch and Legs/Arms inputs are routed into the simulation (milestone 1).
 
 ## Ryan’s Vue integration
 

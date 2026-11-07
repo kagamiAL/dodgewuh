@@ -9,7 +9,6 @@ const loadPlayground = playground['./playground/SensorPlayground.vue'] ?? (async
 
 export const routes = [
   { path: '/', name: 'home', component: Home },
-  { path: '/lobby', name: 'lobby', component: () => import('./views/Lobby.vue') },
   { path: '/screen', name: 'screen', component: () => import('./views/Screen.vue') },
   { path: '/phone', name: 'phone', component: () => import('./views/PhoneShell.vue') },
   { path: '/sensors', name: 'sensors', component: loadPlayground },

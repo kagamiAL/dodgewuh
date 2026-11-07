@@ -1,10 +1,10 @@
 # dodgewuh
 
 Four phones cooperate to control two characters. A FastAPI coordinator owns room
-registration and PostgreSQL records; a separate game worker runs Richard's pure
-Python simulation. The coordinator implements SQL-backed room creation/joining
-and a local authenticated lobby socket. Real simulation and worker gameplay
-integration are the next slice.
+registration and PostgreSQL records; Richard's pure Python simulation decides the
+game. For local integration each room's simulation currently runs inside the
+coordinator (`IN_PROCESS_SIMULATION=true`); moving rooms onto the worker VM is
+pending. See [Milestone 1 integration](#milestone-1-integration-real-phone--screen).
 
 ## Start local development
 
@@ -93,8 +93,35 @@ been applied and DNS has not been changed by this setup work.
 - [Persistence and service boundaries](plans/11-sql-persistence.md)
 - [Infrastructure and deployment instructions](infra/README.md)
 
-Authenticated WebSocket hello/welcome and the Vue-compatible native transport are now available
-for local integration. See [the transport handoff](contracts/README.md). The next slice is
-Richard’s real simulation/worker adapter and Ryan’s UI integration. Keep public message schemas
+See [the transport handoff](contracts/README.md). Keep public message schemas
 unchanged. Do not create automated tests or test-only dependencies; use manual
 checks, builds/type checks and runtime validation.
+
+## Milestone 1 integration: real phone → screen
+
+The H4 vertical slice is wired end to end: phone Legs controller → `input.legs` →
+coordinator → Richard's `Simulation` (60 Hz fixed step) → `state.snapshot` at 20 Hz →
+PlayCanvas screen. Live rooms live in `backend/app/services/game.py`.
+
+1. Start the backend as above. If host port 8000 is taken, set `COORDINATOR_PORT`
+   (e.g. `8010`) for `docker compose up`.
+2. Frontend (Node 22, see `frontend/.nvmrc`):
+   ```sh
+   cd frontend && npm ci && npm run dev    # BACKEND_URL=http://127.0.0.1:8010 if you moved the port
+   ```
+3. Phones need HTTPS for motion sensors. Run `cloudflared tunnel --url http://localhost:5173`
+   and restart the coordinator with that origin allowed:
+   `DEV_ORIGINS=https://<name>.trycloudflare.com docker compose up -d coordinator`.
+4. On a laptop open `http://localhost:5173`, **Create room**; the screen shows the code.
+5. Fill three phone seats with synthetic ready controllers (they send no input):
+   ```sh
+   docker compose exec coordinator /app/.venv/bin/python -m app.devtools.synthetic_phones CODE --count 3
+   ```
+6. On an iPhone open the tunnel URL, join with the code as **Phone**: it takes the
+   Team 2 Legs seat. Tap **Ready**, then **Start**, pocket the phone and stand still.
+7. When all four show Ready, the host screen's **Start match** runs countdown → active.
+   Step left/right/forward/back; the orange character moves on the screen.
+
+Four real phones work the same way. Until Morteza's `ArmsController.vue` lands, Arms seats show
+a placeholder; dev builds offer a labelled stand-in so a real phone can occupy that seat. Ball
+pickup/throws, scoring and role switching arrive with the simulation's M3–M5 milestones.

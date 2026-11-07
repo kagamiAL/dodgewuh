@@ -31,6 +31,18 @@ The local lobby baseline requires LOBBY_BASELINE_ENABLED=true, enabled only in
 local Compose. It cannot start gameplay; gameplay/readiness requests explicitly
 return SERVER_BUSY. This is the pre-integration boundary, not the H4 movement gate.
 
+## Milestone 1 integration (2026-11-07)
+
+`app/services/game.py` replaces the static lobby baseline: one Richard `Simulation`
+per room, a 60 Hz runner (5-step catch-up, 250 ms overload abort), 20 Hz snapshots,
+ordered transition bundles, per-socket bounded senders, readiness mirroring,
+host-only controls, per-socket seq checks and room-wide ordinals, and
+disconnect/ready=false aborts. It runs in the coordinator behind
+`IN_PROCESS_SIMULATION=true` (local Compose only). Verified manually with four
+socket clients: start gating, countdown → active, Legs movement at ~3.5 m/s,
+20 snapshots/s, WRONG_ROLE/OLD_SEQ rejection and disconnect → lobby.
+`app/devtools/synthetic_phones.py` fills seats for the one-real-phone slice.
+
 ## Next work with the team
 
 Connect Richard’s Simulation/DTOs through the worker adapter and serialized runner;

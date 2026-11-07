@@ -74,7 +74,8 @@ function setCalibrated(v: boolean): void {
 }
 
 function send(move: Vec2): void {
-  if (!props.connected) return
+  // The server accepts movement only while active (03); calibration can finish in the lobby.
+  if (!props.connected || props.state.phase !== 'active') return
   props.transport.send({ v: 1, type: 'input.legs', payload: { seq: props.transport.nextInputSeq(), epoch: props.epoch, move } })
 }
 
