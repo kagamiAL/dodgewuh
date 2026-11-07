@@ -7,7 +7,7 @@ import { loadSpringExtras } from './springConfig'
 import { createCourt } from './court'
 import { createStadium } from './stadium'
 import { StateRenderer } from './entities'
-import type { State } from './state'
+import type { State, Team } from './state'
 
 export { toScene } from './coords'
 
@@ -22,7 +22,18 @@ export interface GameScene {
  * Creates the PlayCanvas application on `canvas`. The canvas's CSS box decides its
  * size; the drawing buffer follows it via ResizeObserver. Call destroy() on unmount.
  */
-export function createScene(canvas: HTMLCanvasElement): GameScene {
+/** Eye height for a first-person camera (character is 1.8 m tall). */
+const EYE_HEIGHT = 1.6
+const FIRST_PERSON_FOV = 75
+/** Higher = camera catches up to the 20 Hz snapshots faster (1/s). */
+const FIRST_PERSON_FOLLOW = 12
+
+export interface SceneOptions {
+  /** Ride along with this team's character instead of the shared elevated camera. */
+  firstPerson?: Team
+}
+
+export function createScene(canvas: HTMLCanvasElement, options: SceneOptions = {}): GameScene {
   const app = new pc.Application(canvas, {})
 
   // Render at device resolution (capped at 2x) and size from the canvas's CSS box.
@@ -66,9 +77,25 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
     if (asset && !destroyed) stateRenderer.setCharacterModel(asset, ragdollConfig(extras))
   })
 
+  // First person: follow the character smoothly so 20 Hz snapshots don't judder.
+  const eye = new pc.Vec3()
+  const look = new pc.Vec3()
+  let haveEye = false
+  if (options.firstPerson) camera.camera!.fov = FIRST_PERSON_FOV
+
   app.on('update', (dt: number) => {
     stateRenderer.update(dt)
     stadium.update(dt)
+    if (!options.firstPerson) return
+    const pov = stateRenderer.pointOfView(options.firstPerson)
+    if (!pov) return
+    const targetEye = new pc.Vec3(pov.pos.x, EYE_HEIGHT, pov.pos.z)
+    const k = haveEye ? 1 - Math.exp(-dt * FIRST_PERSON_FOLLOW) : 1
+    eye.lerp(eye, targetEye, k)
+    look.lerp(look, pov.forward, k).normalize()
+    haveEye = true
+    camera.setPosition(eye)
+    camera.lookAt(eye.x + look.x, EYE_HEIGHT - 0.1, eye.z + look.z)
   })
   app.start()
 

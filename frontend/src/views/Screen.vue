@@ -13,7 +13,11 @@ const route = useRoute()
 //   /screen?mock=lobby     Richard's reset-lobby fixture
 //   /screen?mock=movement  Richard's active-movement fixture
 //   /screen?mock=held      03 example 11–12 (Team 1 holding b1)
+// Add &view=fp1 or &view=fp2 to watch from that team's character (first-person preview).
 const mock = import.meta.env.DEV ? (route.query.mock as string | undefined) : undefined
+const firstPerson = import.meta.env.DEV
+  ? ({ fp1: 1, fp2: 2 } as const)[route.query.view as string]
+  : undefined
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const error = ref<string | null>(null)
@@ -65,7 +69,7 @@ watch(
 onMounted(async () => {
   if (!canvas.value) return
   try {
-    scene.value = createScene(canvas.value)
+    scene.value = createScene(canvas.value, { firstPerson })
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
     return

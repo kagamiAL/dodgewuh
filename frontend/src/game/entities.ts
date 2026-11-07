@@ -141,6 +141,17 @@ export class StateRenderer {
     for (const b of state.balls) this.renderBall(b, state.characters)
   }
 
+  /**
+   * Where a team's character is and which way it aims (scene space), for a camera to
+   * follow. Hides that character so a first-person camera isn't inside its head.
+   */
+  pointOfView(team: Team): { pos: pc.Vec3; forward: pc.Vec3 } | null {
+    const view = this.characters.get(team)
+    if (!view) return null
+    view.root.enabled = false
+    return { pos: view.root.getPosition(), forward: view.aimPivot.forward }
+  }
+
   /** Per-frame cosmetic animation. Never changes where anything is in the game. */
   update(dt: number): void {
     const now = performance.now()
