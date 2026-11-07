@@ -120,8 +120,12 @@ onBeforeUnmount(() => {
 <style scoped>
 .screen {
   position: relative;
-  width: 100vw;
+  /* 100vw includes the scrollbar gutter and overflows; 100% matches #app. */
+  width: 100%;
   height: 100vh;
+  /* Mobile browsers size 100vh to the *expanded* toolbar, so the bottom is
+     cut off until the user scrolls. dvh tracks the visible viewport. */
+  height: 100dvh;
   overflow: hidden;
 }
 .game-canvas {
@@ -139,22 +143,24 @@ onBeforeUnmount(() => {
 }
 .hud {
   position: absolute;
-  top: 12px;
+  top: calc(12px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 1.5rem;
+  gap: clamp(0.75rem, 4vw, 1.5rem);
   align-items: baseline;
-  padding: 0.4rem 1.2rem;
+  max-width: calc(100% - 1.5rem);
+  padding: 0.4rem clamp(0.6rem, 3vw, 1.2rem);
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.55);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .score {
-  font: 700 2rem system-ui, sans-serif;
+  font: 700 clamp(1.4rem, 7vw, 2rem) system-ui, sans-serif;
 }
 .clock {
-  font-size: 1.4rem;
+  font-size: clamp(1rem, 5vw, 1.4rem);
 }
 .clock small {
   color: #aaa;
@@ -175,18 +181,28 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   display: grid;
-  place-items: center;
+  /* start, not center: on a phone the lobby is taller than the viewport, and
+     .screen clips it. Scroll instead of hiding the host buttons. */
+  align-content: center;
+  align-content: safe center;
+  justify-items: center;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: calc(1rem + env(safe-area-inset-top)) env(safe-area-inset-right)
+    calc(1rem + env(safe-area-inset-bottom)) env(safe-area-inset-left);
   background: rgba(0, 0, 0, 0.25);
 }
 .connection {
   position: absolute;
-  bottom: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
+  max-width: calc(100% - 1.5rem);
   margin: 0;
   padding: 0.5rem 1rem;
   border-radius: 8px;
   background: #522;
+  text-align: center;
 }
 .connection a {
   color: #8cf;
@@ -196,6 +212,8 @@ onBeforeUnmount(() => {
   inset: 0;
   margin: auto;
   height: fit-content;
+  padding: 0 1rem;
   text-align: center;
+  overflow-wrap: break-word;
 }
 </style>
