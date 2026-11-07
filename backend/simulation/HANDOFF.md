@@ -1,5 +1,13 @@
 # Simulation handoff — Richard
 
+**Branch:** `richard-simulation` (note: 04 names this branch `feat/richard-sim`; the current name was set by
+explicit instruction from the repo owner — raise it with them, not with me).
+**Implementation commit:** see `git log -1 --format=%H richard-simulation`; the milestone content is
+`44b43fe` (M1) plus `31cfc6a` (project-instruction alignment) on top of the merge of `main` at `ebccfe4`.
+**Manual checks performed:** build check (`compileall`, all modules), runtime diagnostics (76/76 observations
+matching), constants audit (38/38 against the 02 table), seam-signature and DTO field-set introspection
+against 03, and fixture field-set validation. All listed under "Manual verification steps" below.
+
 **Contract commits:** frozen at `0a49de1` ("Init plans."); amended by `ebccfe4` ("Amend MD to not make
 tests."), which is merged into this branch. I re-diffed 02 and 03 across that amendment: **no normative rule
 or wire-schema change** — 02 and 03 received only the project-instruction banner and test→manual-check
