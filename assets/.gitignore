@@ -1,0 +1,6 @@
+# Blender autosave/backup files (keep the .blend source, not its backups)
+*.blend1
+*.blend2
+*.blend@
+__pycache__/
+.DS_Store

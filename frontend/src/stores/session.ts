@@ -2,7 +2,7 @@
 // Screens and PhoneShell read from it; Transport (Alan) feeds it via apply().
 // Small reactive object, no state library (plans/04-repository-structure.md).
 
-import { computed, reactive, readonly } from 'vue'
+import { computed, shallowReactive, shallowReadonly } from 'vue'
 import type {
   Assignment,
   Registration,
@@ -23,7 +23,9 @@ interface SessionState {
   closedReason: 'host_left' | 'expired' | 'server_shutdown' | null
 }
 
-const s = reactive<SessionState>({
+// Shallow: room/state are replaced wholesale on each message, never mutated, so
+// deep proxies would only add cost at 20 snapshots/s.
+const s = shallowReactive<SessionState>({
   registration: loadRegistration(),
   status: 'closed',
   room: null,
@@ -51,7 +53,7 @@ function isNewer(next: State, current: State | null): boolean {
 
 export const session = {
   /** Read-only view for components. */
-  data: readonly(s),
+  data: shallowReadonly(s),
 
   /** This device's assignment, or null for screens / unassigned phones. */
   myAssignment: computed<Assignment | null>(() => {
