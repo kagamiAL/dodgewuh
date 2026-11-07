@@ -13,7 +13,9 @@ export interface Health { status: 'ok'; build: string; rooms: number }
 export interface RestError { code: string; message: string }
 export interface Assignment { member_id: ID; team: Team; role: Role }
 export interface Member { member_id: ID; name: string; device: Device; connected: boolean;
-  ready: boolean; permission: Permission; calibrated: boolean }
+  ready: boolean; permission: Permission; calibrated: boolean;
+  /** Screens only: the team whose Legs this screen's camera drives, else null. */
+  camera_team: Team | null }
 export interface Room { room_id: ID; room_code: string; host_id: ID; revision: number;
   members: Member[]; assignments: Assignment[]; assignment_version: number; phase: Phase }
 export interface Character { team: Team; pos: Vec2; aim: Vec2; held_ball_id: ID | null }
@@ -30,6 +32,7 @@ export interface Hello { token: string }
 export interface Ping { nonce: number }
 export interface Ready { epoch: number; assignment_version: number; ready: boolean; permission: Permission; calibrated: boolean }
 export interface Empty {}
+export interface CameraClaim { team: Team | null }
 export interface Legs { seq: number; epoch: number; move: Vec2 }
 export interface Arms { seq: number; epoch: number; aim: Vec2;
   action: 'aim' | 'press' | 'release' | 'cancel'; strength: number | null }
@@ -43,7 +46,7 @@ export interface Closed { reason: 'host_left' | 'expired' | 'server_shutdown' }
 export interface ClientPayloads {
   'session.hello': Hello; 'session.ping': Ping; 'controller.ready': Ready;
   'match.start': Empty; 'match.reset': Empty; 'match.rematch': Empty;
-  'input.legs': Legs; 'input.arms': Arms;
+  'input.legs': Legs; 'input.arms': Arms; 'camera.claim': CameraClaim;
 }
 export interface ServerPayloads {
   'session.welcome': Welcome; 'session.pong': Ping; 'room.updated': RoomUpdate;

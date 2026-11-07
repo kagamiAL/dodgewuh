@@ -93,6 +93,7 @@ class Member(Model):
     ready: bool
     permission: Permission
     calibrated: bool
+    camera_team: Team | None  # screens only: whose Legs this screen's camera drives
 
 
 class Room(Model):
@@ -212,6 +213,11 @@ class Empty(Model):
     pass
 
 
+class CameraClaim(Model):
+    """A screen's camera drives this team's Legs (null releases it)."""
+    team: Team | None
+
+
 class Legs(Model):
     seq: UInt
     epoch: UInt
@@ -301,7 +307,7 @@ class Closed(Model):
 CLIENT_PAYLOADS = {
     'session.hello': Hello, 'session.ping': Ping, 'controller.ready': Ready,
     'match.start': Empty, 'match.reset': Empty, 'match.rematch': Empty,
-    'input.legs': Legs, 'input.arms': Arms,
+    'input.legs': Legs, 'input.arms': Arms, 'camera.claim': CameraClaim,
 }
 SERVER_PAYLOADS = {
     'session.welcome': Welcome, 'session.pong': Ping, 'room.updated': RoomUpdate,

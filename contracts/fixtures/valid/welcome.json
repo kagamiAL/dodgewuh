@@ -17,7 +17,8 @@
           "connected": false,
           "ready": false,
           "permission": "unknown",
-          "calibrated": false
+          "calibrated": false,
+          "camera_team": null
         }
       ],
       "assignments": [],

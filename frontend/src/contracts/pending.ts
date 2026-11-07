@@ -5,7 +5,7 @@
 // Do not add or rename anything here: 03 is the authority.
 
 export type {
-  Arms, Assignment, Closed, ClientMessage, ClientPayloads, Device, Empty, ErrorPayload, Hello, ID,
+  Arms, Assignment, CameraClaim, Closed, ClientMessage, ClientPayloads, Device, Empty, ErrorPayload, Hello, ID,
   Legs, Member, Permission, Phase, PhaseChange, Ping, Ready, Registration, RolesChanged, Room,
   RoomUpdate, ServerMessage, ServerPayloads, Snapshot, State, Team, Vec2, Welcome,
 } from '@/generated/protocol'

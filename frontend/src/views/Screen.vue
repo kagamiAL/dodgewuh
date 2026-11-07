@@ -6,6 +6,7 @@ import { session } from '@/stores/session'
 import { connect, transport } from '@/stores/connection'
 import { TEAM_HEX } from '@/theme'
 import Lobby from './Lobby.vue'
+import CameraLegs from '@/camera/CameraLegs.vue'
 
 const route = useRoute()
 // Dev-only mock routes (plans/04), compiled out of production builds:
@@ -107,6 +108,7 @@ onBeforeUnmount(() => {
       <p v-if="banner" class="banner">{{ banner }}</p>
     </template>
     <div v-if="showLobby" class="overlay"><Lobby /></div>
+    <CameraLegs v-if="live" />
     <p v-if="connection" class="connection">
       {{ connection }} <RouterLink v-if="session.data.status === 'closed'" to="/">Home</RouterLink>
     </p>

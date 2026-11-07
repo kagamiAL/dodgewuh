@@ -7,10 +7,11 @@
 // Stale sensors, a hidden page, an epoch change or unmount send zero immediately.
 // See pocketFrame.ts / jogTracker.ts.
 
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { RoleComponentProps } from '@/phone/roleComponent'
 import type { Permission, Vec2 } from '@/contracts/pending'
 import { SENSOR_STALE_MS, type SensorSample } from '@/sensors/sensorService'
+import { session } from '@/stores/session'
 import { TEAM_HEX } from '@/theme'
 import { calibrate, rotationVector, type StillSample } from './pocketFrame'
 import { createJogTracker, type JogState } from './jogTracker'
@@ -67,7 +68,14 @@ function setCalibrated(v: boolean): void {
   if (v !== isCalibrated) emit('calibrated', (isCalibrated = v))
 }
 
+// A screen camera can drive this team's Legs instead (src/camera/CameraLegs.vue). Then the
+// phone only tells the player where to stand, sends no movement and reports itself ready.
+const cameraMode = computed(() =>
+  !!session.data.room?.members.some((m) => m.device === 'screen' && m.connected && m.camera_team === props.team),
+)
+
 function send(move: Vec2): void {
+  if (cameraMode.value) return
   // The server accepts movement only while active (03); calibration can finish in the lobby.
   if (!props.connected || props.state.phase !== 'active') return
   props.transport.send({ v: 1, type: 'input.legs', payload: { seq: props.transport.nextInputSeq(), epoch: props.epoch, move } })
@@ -194,6 +202,18 @@ function onVisibility(): void {
 document.addEventListener('visibilitychange', onVisibility)
 
 // A new epoch (countdown/active) clears the input latch but keeps calibration (roleComponent.ts).
+watch(cameraMode, (on) => {
+  if (on) {
+    stop()
+    silence()
+    setAvailability('granted')
+    setCalibrated(true)
+  } else {
+    setCalibrated(false)
+    setAvailability('unknown')
+  }
+}, { immediate: true })
+
 watch(() => props.epoch, () => {
   tracker?.halt()
   if (stage.value === 'live') send({ x: 0, z: 0 })
@@ -211,7 +231,17 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="legs" :style="{ '--team': TEAM_HEX[team] }">
-    <template v-if="stage === 'start' || stage === 'blocked'">
+    <template v-if="cameraMode">
+      <h1>Legs · camera</h1>
+      <p class="camera-note">The screen's camera moves you. Put the phone away.</p>
+      <ol>
+        <li>Stand in the <strong>right half</strong> of the camera view (Arms takes the left half).</li>
+        <li><strong>Jog in place</strong> to move. Face the way you want to go: the screen = forward; turn to steer.</li>
+        <li>Swap sides with your teammate every round.</li>
+      </ol>
+    </template>
+
+    <template v-else-if="stage === 'start' || stage === 'blocked'">
       <h1>Legs</h1>
       <ol>
         <li>Tap <strong>Start</strong>.</li>
@@ -258,6 +288,10 @@ ol {
 }
 .note {
   color: #fb4;
+}
+.camera-note {
+  font-size: 1.2rem;
+  color: #3c6;
 }
 .start {
   width: 100%;
