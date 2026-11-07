@@ -7,6 +7,7 @@ import {
   TEAM_COLORS,
 } from './constants'
 import { toScene } from './coords'
+import { createWoodTexture, woodMaterial } from './woodFloor'
 
 function solidMaterial(color: pc.Color): pc.StandardMaterial {
   const m = new pc.StandardMaterial()
@@ -47,17 +48,19 @@ function floorRect(
  * Static court geometry derived from 02: team halves (Team 1 negative z), boundary
  * lines, centre line and the no-throw strip |z| ≤ 2. Never changes after creation.
  */
-export function createCourt(): pc.Entity {
+export function createCourt(device: pc.GraphicsDevice): pc.Entity {
   const court = new pc.Entity('Arena')
   const W = COURT_HALF_WIDTH
   const D = COURT_HALF_DEPTH
   const L = LINE_WIDTH / 2
 
-  // Halves tinted toward each team's colour so sides are obvious from across the room.
-  const floor = new pc.Color(0.16, 0.18, 0.2)
-  const tint = (c: pc.Color) => new pc.Color().lerp(floor, c, 0.18)
-  court.addChild(floorRect('Team1Half', solidMaterial(tint(TEAM_COLORS[1])), -W, W, -D, 0, 0))
-  court.addChild(floorRect('Team2Half', solidMaterial(tint(TEAM_COLORS[2])), -W, W, 0, D, 0))
+  // Maple gym floor; a translucent team-colour wash over each half so sides read at a glance
+  // (multiplying the colour into the wood turns blue muddy). Blue needs more to show on maple.
+  const maple = woodMaterial(createWoodTexture(device), pc.Color.WHITE, 2 * W, D)
+  court.addChild(floorRect('Team1Half', maple, -W, W, -D, 0, 0))
+  court.addChild(floorRect('Team2Half', maple, -W, W, 0, D, 0))
+  court.addChild(floorRect('Team1Wash', translucentMaterial(TEAM_COLORS[1], 0.34), -W, W, -D, 0, 0.002))
+  court.addChild(floorRect('Team2Wash', translucentMaterial(TEAM_COLORS[2], 0.2), -W, W, 0, D, 0.002))
 
   // No-throw strip: you can stand, pick up and be hit here, but not throw.
   const noThrow = translucentMaterial(new pc.Color(0.95, 0.2, 0.25), 0.28)

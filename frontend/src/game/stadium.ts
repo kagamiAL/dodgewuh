@@ -1,6 +1,7 @@
 import * as pc from 'playcanvas'
 import { COURT_HALF_DEPTH, COURT_HALF_WIDTH, TEAM_COLORS } from './constants'
 import { toScene } from './coords'
+import { createWoodTexture, woodMaterial } from './woodFloor'
 
 // Cosmetic stadium around the court: apron, ad boards, stepped bleachers full of
 // low-poly fans, and floodlight towers. Purely decoration; nothing here reads game
@@ -222,12 +223,13 @@ function buildBoards(device: pc.GraphicsDevice): pc.Entity {
   return boards.build(device, vertexColorMaterial(true), 'AdBoards')
 }
 
-/** Floor around the court out to the stands. */
-function buildApron(): pc.Entity {
-  const e = new pc.Entity('Apron')
-  e.addComponent('render', { type: 'plane', material: solidMaterial(new pc.Color(0.09, 0.1, 0.12)) })
+/** Darker-stained wood border around the court, out to the stands. */
+function buildApron(device: pc.GraphicsDevice): pc.Entity {
   const w = 2 * (STAND_X + STAND_DEPTH)
   const d = 2 * (STAND_Z + STAND_DEPTH)
+  const e = new pc.Entity('Apron')
+  const material = woodMaterial(createWoodTexture(device), new pc.Color(0.62, 0.48, 0.34), w, d)
+  e.addComponent('render', { type: 'plane', material })
   e.setPosition(toScene(0, 0, -0.01))
   e.setLocalScale(w, 1, d)
   return e
@@ -269,7 +271,7 @@ export interface Stadium {
 export function createStadium(app: pc.Application): Stadium {
   const device = app.graphicsDevice
   const root = new pc.Entity('Stadium')
-  root.addChild(buildApron())
+  root.addChild(buildApron(device))
   root.addChild(buildBoards(device))
   root.addChild(buildFloodlights())
   const { root: stands, sections } = buildStands(device)

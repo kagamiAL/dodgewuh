@@ -55,7 +55,7 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   lights.setEulerAngles(50, 30, 0)
   app.root.addChild(lights)
 
-  app.root.addChild(createCourt())
+  app.root.addChild(createCourt(app.graphicsDevice))
   const stadium = createStadium(app)
   app.root.addChild(stadium.root)
   const stateRenderer = new StateRenderer(app.root)
