@@ -5,6 +5,7 @@ import { loadCharacterModel, MODEL_URL } from './characterModel'
 import { ragdollConfig } from './ragdoll'
 import { loadSpringExtras } from './springConfig'
 import { createCourt } from './court'
+import { createStadium } from './stadium'
 import { StateRenderer } from './entities'
 import type { State } from './state'
 
@@ -32,10 +33,16 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   resizeObserver.observe(canvas)
 
   app.scene.ambientLight = new pc.Color(0.35, 0.35, 0.4)
+  // Night sky; distant stands fade into it.
+  const sky = new pc.Color(0.03, 0.04, 0.08)
+  app.scene.fog.type = pc.FOG_LINEAR
+  app.scene.fog.color = sky
+  app.scene.fog.start = 35
+  app.scene.fog.end = 90
 
   const camera = new pc.Entity('Camera')
   camera.addComponent('camera', {
-    clearColor: new pc.Color(0.07, 0.08, 0.1),
+    clearColor: sky,
     fov: 45,
   })
   // Raised behind Team 1's baseline and tilted so both baselines stay in frame.
@@ -49,6 +56,8 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   app.root.addChild(lights)
 
   app.root.addChild(createCourt())
+  const stadium = createStadium(app)
+  app.root.addChild(stadium.root)
   const stateRenderer = new StateRenderer(app.root)
   // Capsules render immediately; the model replaces them when it arrives.
   let destroyed = false
@@ -57,7 +66,10 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
     if (asset && !destroyed) stateRenderer.setCharacterModel(asset, ragdollConfig(extras))
   })
 
-  app.on('update', (dt: number) => stateRenderer.update(dt))
+  app.on('update', (dt: number) => {
+    stateRenderer.update(dt)
+    stadium.update(dt)
+  })
   app.start()
 
   return {
