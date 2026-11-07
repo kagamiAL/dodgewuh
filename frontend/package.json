@@ -1,0 +1,33 @@
+{
+  "name": "dodgeball-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json",
+    "test": "vitest",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "playcanvas": "^2.23.3",
+    "vue": "^3.5.45",
+    "vue-router": "^5.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "@vue/test-utils": "^2.5.1",
+    "@vue/tsconfig": "^0.9.1",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0",
+    "vue-tsc": "^3.3.14"
+  },
+  "engines": {
+    "node": "^22.12.0 || >=24.0.0"
+  }
+}
