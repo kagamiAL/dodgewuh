@@ -33,7 +33,8 @@ from typing import Any
 
 from . import constants as K
 from .engine import Simulation
-from .types import ArmsCommand, Assignment, LegsCommand, SimulationError, Vec2
+from .types import (ArmsCommand, Assignment, InputRejected, LegsCommand,
+                    SimulationError, Vec2)
 
 # Readable substitutes for opaque production IDs, as used in 03's examples.
 P1, P2, P3, P4 = "p1", "p2", "p3", "p4"
@@ -106,6 +107,80 @@ def character(sim: Simulation, team: int):
         if c.team == team:
             return c
     raise AssertionError("no character")
+
+
+def arms_member(sim: Simulation, team: int) -> str:
+    for a in sim.snapshot().assignments:
+        if a.team == team and a.role == "arms":
+            return a.member_id
+    raise AssertionError("no arms assignment")
+
+
+def ball(sim: Simulation, ball_id: str):
+    for b in sim.snapshot().balls:
+        if b.ball_id == ball_id:
+            return b
+    raise AssertionError(f"no ball {ball_id}")
+
+
+class Hands:
+    """Drives one team's Arms phone through the real apply_input seam."""
+
+    def __init__(self, sim: Simulation, team: int, ordinal: int | None = None,
+                 now_ms: int = 0):
+        self.sim = sim
+        self.team = team
+        self.member = arms_member(sim, team)
+        # The receive ordinal is room-wide, so continue the room's sequence
+        # rather than restarting at 1 (which the engine rightly rejects).
+        self.ordinal = ordinal if ordinal is not None else sim._last_ordinal + 1  # noqa: SLF001
+        self.now_ms = now_ms
+        self.forward = Vec2(0.0, 1.0 if team == 1 else -1.0)
+
+    def send(self, action: str, aim: Vec2 | None = None, strength: float | None = None):
+        self.sim.apply_input(
+            self.member,
+            ArmsCommand(
+                seq=self.ordinal,
+                epoch=self.sim.snapshot().epoch,
+                aim=aim or self.forward,
+                action=action,  # type: ignore[arg-type]
+                strength=strength,
+            ),
+            received_ms=self.now_ms,
+            ordinal=self.ordinal,
+        )
+        self.ordinal += 1
+        return self
+
+    def step(self):
+        self.sim.step(self.now_ms)
+        self.now_ms += 17
+        return self
+
+
+def place(sim: Simulation, team: int, x: float, z: float) -> None:
+    """Teleport a character for a boundary check.
+
+    Reaches into internals deliberately: these scenarios probe exact geometric
+    boundaries, and walking there by command would accumulate float drift and
+    obscure the very boundary under examination.
+    """
+    sim._characters[team].pos = Vec2(x, z)  # noqa: SLF001
+    sim._sync_held_balls()  # noqa: SLF001
+
+
+def put_ball(sim: Simulation, ball_id: str, x: float, z: float) -> None:
+    sim._balls[ball_id].pos = Vec2(x, z)  # noqa: SLF001
+
+
+def clear_ground_balls(sim: Simulation, keep: tuple[str, ...]) -> None:
+    """Park unwanted balls far away so a scenario isolates specific ones."""
+    for bid in sim._balls:  # noqa: SLF001
+        if bid not in keep:
+            sim._balls[bid].pos = Vec2(0.0, 0.0)  # noqa: SLF001
+            sim._balls[bid].mode = "respawning"  # noqa: SLF001
+            sim._balls[bid].respawn_ticks = 10_000  # noqa: SLF001
 
 
 def drive(
@@ -609,6 +684,273 @@ def scenario_immutability(d: Diagnostics) -> None:
     )
 
 
+# --- Task 5: acquisition, ownership, cancel, no-throw zone ------------------
+def scenario_pickup(d: Diagnostics) -> None:
+    print("\n[acquisition: nearest in range, ties by ball ID]")
+
+    # Nearest grounded ball wins.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1", "b2"))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 1.0, -3.0)  # 1.0 m away
+    put_ball(sim, "b2", 0.5, -3.0)  # 0.5 m away - nearer
+    Hands(sim, 1).send("press").step()
+    d.observe("nearest ball is acquired", character(sim, 1).held_ball_id == "b2",
+              str(character(sim, 1).held_ball_id))
+
+    # Equal distance -> lowest ball ID.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b3", "b4"))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b3", 0.8, -3.0)
+    put_ball(sim, "b4", -0.8, -3.0)  # exactly the same distance
+    Hands(sim, 1).send("press").step()
+    d.observe("equal-distance tie breaks to the lower ball ID",
+              character(sim, 1).held_ball_id == "b3",
+              str(character(sim, 1).held_ball_id))
+
+    # Inclusive range boundary at exactly 1.2 m.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 0.0, -3.0 + K.PICKUP_RANGE)
+    Hands(sim, 1).send("press").step()
+    d.observe("pickup at exactly 1.2 m succeeds (inclusive)",
+              character(sim, 1).held_ball_id == "b1")
+
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 0.0, -3.0 + K.PICKUP_RANGE + 1e-6)
+    Hands(sim, 1).send("press").step()
+    d.observe("pickup just beyond 1.2 m fails",
+              character(sim, 1).held_ball_id is None)
+
+    # Hold is retried each tick: walk into range while already holding Hold.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -5.0)
+    put_ball(sim, "b1", 0.0, -3.0)
+    h = Hands(sim, 1).send("press").step()
+    d.observe("press out of range acquires nothing",
+              character(sim, 1).held_ball_id is None)
+    place(sim, 1, 0.0, -3.9)
+    h.step()
+    d.observe("latched Hold re-acquires once in range",
+              character(sim, 1).held_ball_id == "b1")
+
+
+def scenario_ownership(d: Diagnostics) -> None:
+    print("\n[ownership: one ball each, never acquired twice]")
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1", "b2"))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 0.3, -3.0)
+    put_ball(sim, "b2", 0.4, -3.0)
+    h = Hands(sim, 1).send("press").step()
+    first = character(sim, 1).held_ball_id
+    h.send("press").step()
+    d.observe("a second press does not take a second ball",
+              character(sim, 1).held_ball_id == first, str(first))
+    held_count = sum(1 for b in sim.snapshot().balls if b.mode == "held")
+    d.observe("exactly one ball is held", held_count == 1, str(held_count))
+
+    b = ball(sim, first)
+    d.observe("held ball reports owner_team", b.owner_team == 1, str(b.owner_team))
+    d.observe("held ball has no shooter_team", b.shooter_team is None)
+    d.observe("held ball has zero velocity", (b.velocity.x, b.velocity.z) == (0.0, 0.0))
+
+    # The opponent cannot take a ball that is already held.
+    place(sim, 2, 0.0, 0.5)
+    put_ball(sim, first, 0.0, 0.5)  # park it right on top of Team 2
+    Hands(sim, 2).send("press").step()
+    d.observe("a held ball cannot be acquired by the opponent",
+              character(sim, 2).held_ball_id is None,
+              str(character(sim, 2).held_ball_id))
+
+    # Held balls follow their character.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 0.3, -3.0)
+    Hands(sim, 1).send("press").step()
+    drive(sim, 1, Vec2(0.0, 1.0), 10, ordinal=500)
+    c, b = character(sim, 1), ball(sim, "b1")
+    d.observe("held ball follows the character",
+              (b.pos.x, b.pos.z) == (c.pos.x, c.pos.z), f"ball {b.pos} vs char {c.pos}")
+
+
+def scenario_no_throw_zone(d: Diagnostics) -> None:
+    print("\n[no-throw zone: inclusive boundary at abs(z) = 2.0]")
+
+    def release_at(z: float, strength: float = 0.5):
+        sim = boot_to_active()
+        clear_ground_balls(sim, ("b1",))
+        place(sim, 1, 0.0, z)
+        put_ball(sim, "b1", 0.0, z)
+        h = Hands(sim, 1).send("press")
+        h.step()
+        sim.drain_events()
+        place(sim, 1, 0.0, z)
+        h.send("release", strength=strength).step()
+        return sim, sim.drain_events()
+
+    # Exactly on the boundary: rejected, because the rule is inclusive.
+    sim, events = release_at(-K.NO_THROW_ABS_Z)
+    b = ball(sim, "b1")
+    codes = [e.code for e in events if isinstance(e, InputRejected)]
+    d.observe("release at exactly z = -2.0 does not launch", b.mode == "ground", b.mode)
+    d.observe("release at the boundary emits NO_THROW_ZONE",
+              codes == ["NO_THROW_ZONE"], str(codes))
+    d.observe("safe cancel drops the ball at the character centre",
+              (b.pos.x, b.pos.z) == (0.0, -K.NO_THROW_ABS_Z), str(b.pos))
+    d.observe("safe cancel clears possession", character(sim, 1).held_ball_id is None)
+    rejected = [e for e in events if isinstance(e, InputRejected)]
+    d.observe("rejection carries ref_seq", rejected and rejected[0].ref_seq is not None,
+              str(rejected[0].ref_seq) if rejected else "none")
+
+    # Inside the zone, well clear of the boundary.
+    sim, events = release_at(-1.0)
+    d.observe("release deep inside the zone does not launch",
+              ball(sim, "b1").mode == "ground")
+
+    # Just outside: a legal throw.
+    sim, events = release_at(-K.NO_THROW_ABS_Z - 1e-6)
+    b = ball(sim, "b1")
+    d.observe("release just outside the zone launches", b.mode == "flying", b.mode)
+    d.observe("legal throw emits no rejection",
+              not [e for e in events if isinstance(e, InputRejected)])
+    d.observe("flying ball records shooter_team", b.shooter_team == 1, str(b.shooter_team))
+    d.observe("flying ball has no owner_team", b.owner_team is None)
+
+
+def scenario_throw_launch(d: Diagnostics) -> None:
+    print("\n[release: launch offset and speed]")
+    for strength, expected in ((0.0, 8.0), (0.5, 11.0), (1.0, 14.0)):
+        sim = boot_to_active()
+        clear_ground_balls(sim, ("b1",))
+        place(sim, 1, 0.0, -4.0)
+        put_ball(sim, "b1", 0.0, -4.0)
+        h = Hands(sim, 1).send("press").step()
+        place(sim, 1, 0.0, -4.0)
+        h.send("release", strength=strength).step()
+        b = ball(sim, "b1")
+        speed = math.hypot(b.velocity.x, b.velocity.z)
+        d.observe(f"strength {strength} gives speed {expected}",
+                  near(speed, expected, 1e-9), f"{speed:.6f}")
+
+    # Launch point is centre + aim * 0.65.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -4.0)
+    put_ball(sim, "b1", 0.0, -4.0)
+    h = Hands(sim, 1).send("press").step()
+    place(sim, 1, 0.0, -4.0)
+    h.send("release", strength=0.5).step()
+    b = ball(sim, "b1")
+    d.observe("launch at centre + aim x 0.65",
+              near(b.pos.z, -4.0 + K.THROW_OFFSET, 1e-9) and near(b.pos.x, 0.0, 1e-12),
+              str(b.pos))
+
+
+def scenario_cancel_and_edges(d: Diagnostics) -> None:
+    print("\n[cancel and same-tick edge ordering]")
+
+    # Cancel drops without launching, anywhere on the court.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    h = Hands(sim, 1).send("press").step()
+    place(sim, 1, 0.0, -6.0)
+    h.send("cancel").step()
+    b = ball(sim, "b1")
+    d.observe("cancel never launches", b.mode == "ground", b.mode)
+    d.observe("cancel drops at the character centre", (b.pos.x, b.pos.z) == (0.0, -6.0))
+    d.observe("cancel has zero velocity", (b.velocity.x, b.velocity.z) == (0.0, 0.0))
+    d.observe("cancel clears possession", character(sim, 1).held_ball_id is None)
+
+    # Must press again after cancelling: the latch is gone.
+    h.step()
+    d.observe("no re-acquire after cancel without a fresh press",
+              character(sim, 1).held_ball_id is None)
+
+    # press + release in the SAME tick throws.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    Hands(sim, 1).send("press").send("release", strength=0.5).step()
+    d.observe("press + release in one tick throws",
+              ball(sim, "b1").mode == "flying", ball(sim, "b1").mode)
+
+    # release then cancel in one tick: cancel cannot undo a legal throw.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    Hands(sim, 1).send("press").send("release", strength=0.5).send("cancel").step()
+    d.observe("cancel after release cannot undo the throw",
+              ball(sim, "b1").mode == "flying", ball(sim, "b1").mode)
+
+    # A later aim cannot redirect an earlier release.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    straight = Vec2(0.0, 1.0)
+    sideways = Vec2(0.6, 0.8)
+    (Hands(sim, 1).send("press", aim=straight)
+                  .send("release", aim=straight, strength=0.5)
+                  .send("aim", aim=sideways).step())
+    b = ball(sim, "b1")
+    d.observe("a later aim does not redirect an earlier release",
+              near(b.velocity.x, 0.0, 1e-12), f"vx={b.velocity.x}")
+
+    # Releasing with no ball clears Hold and does nothing else.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ())
+    place(sim, 1, 0.0, -6.0)
+    h = Hands(sim, 1).send("release", strength=0.5).step()
+    flying = [b for b in sim.snapshot().balls if b.mode == "flying"]
+    d.observe("release with no ball launches nothing", not flying)
+    d.observe("release with no ball emits no rejection",
+              not [e for e in sim.drain_events() if isinstance(e, InputRejected)])
+
+
+def scenario_drop_paths(d: Diagnostics) -> None:
+    print("\n[drop paths: stale input and phase transition]")
+
+    # Stale Arms input drops the held ball.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    h = Hands(sim, 1)
+    h.now_ms = 1000
+    h.send("press")
+    sim.step(1000)
+    d.observe("ball acquired before silence", character(sim, 1).held_ball_id == "b1")
+    sim.step(1251)  # 251 ms since the last Arms input
+    d.observe("stale Arms input drops the held ball",
+              character(sim, 1).held_ball_id is None)
+    d.observe("dropped ball is grounded, not flying",
+              ball(sim, "b1").mode == "ground", ball(sim, "b1").mode)
+
+    # A phase transition drops the held ball too.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    Hands(sim, 1).send("press").step()
+    d.observe("ball held before reset", character(sim, 1).held_ball_id == "b1")
+    sim.control("reset")
+    held = [b for b in sim.snapshot().balls if b.mode == "held"]
+    d.observe("reset to lobby leaves no held ball", not held)
+    d.observe("reset clears possession on the character",
+              character(sim, 1).held_ball_id is None)
+
+
 # --- Fixture emission -------------------------------------------------------
 def _plain(value: Any) -> Any:
     if is_dataclass(value) and not isinstance(value, type):
@@ -682,6 +1024,12 @@ def main(argv: list[str] | None = None) -> int:
     scenario_determinism(diagnostics)
     scenario_lifecycle_m1(diagnostics)
     scenario_immutability(diagnostics)
+    scenario_pickup(diagnostics)
+    scenario_ownership(diagnostics)
+    scenario_no_throw_zone(diagnostics)
+    scenario_throw_launch(diagnostics)
+    scenario_cancel_and_edges(diagnostics)
+    scenario_drop_paths(diagnostics)
 
     total = diagnostics.matched + len(diagnostics.deviations)
     print(f"\n{diagnostics.matched}/{total} observations match the specified rules")
@@ -690,9 +1038,11 @@ def main(argv: list[str] | None = None) -> int:
         for rule in diagnostics.deviations:
             print(f"  - {rule}")
         return 1
-    print("\nNot yet implemented (M3-M6): acquisition, throw, flight, swept")
-    print("collision, hit scoring, round timeout, round_end/role_switch/")
-    print("match_end, role swapping, readiness abort guard.")
+    print("\nNot yet implemented (task 6 onward): ball flight advancement,")
+    print("wall/expiry respawn, swept-circle collision, hit scoring, round")
+    print("timeout, round_end/role_switch/match_end, role swapping, rematch,")
+    print("and the readiness abort guard. A thrown ball is set flying with the")
+    print("correct velocity and shooter team, but does not travel yet.")
     return 0
 
 

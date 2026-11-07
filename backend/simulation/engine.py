@@ -34,6 +34,7 @@ from .types import (
     BallDTO,
     CharacterDTO,
     Command,
+    InputRejected,
     LegsCommand,
     Phase,
     PhaseChanged,
@@ -405,20 +406,124 @@ class Simulation:
                     G.add(char.pos, G.scale(move, K.MOVE_SPEED * K.DT)), team
                 )
 
-        # (4) Arms edges replay in receive-ordinal order. M1 latches Hold and
-        # updates aim; acquisition, release and cancel-drop land in M3.
+        # (4a) Retry previously latched holds in team-number order at the NEW
+        # positions, before any edge in this tick is replayed (02 step 4).
+        for team in K.TEAMS:
+            if self._arms[team].hold:
+                self._try_acquire(team)
+
+        # (4b) Replay Arms edges in receive-ordinal order. Edges are never
+        # collapsed into a final button value, so press+release in one tick
+        # works, a later aim cannot redirect an earlier release, and a cancel
+        # cannot undo an already-legal throw.
         for p in arms_edges:
             cmd = p.command
             assert isinstance(cmd, ArmsCommand)
-            arms = self._arms[p.team]
-            arms.aim = G.validate_aim(cmd.aim, p.team)
-            self._characters[p.team].aim = arms.aim
+            team = p.team
+            arms = self._arms[team]
+            # Aim was validated and normalized in apply_input; normalize again
+            # so the stored aim is always a unit vector.
+            aim = G.validate_aim(cmd.aim, team)
+            arms.aim = aim
+            self._characters[team].aim = aim
+
             if cmd.action == "press":
                 arms.hold = True
-            elif cmd.action in ("release", "cancel"):
+                self._try_acquire(team)
+            elif cmd.action == "release":
+                # Uses its own aim and the possession as it stands right now.
+                self._release(team, aim, cmd.strength, p.member_id, cmd.seq)
                 arms.hold = False
+            elif cmd.action == "cancel":
+                self._drop_held(team)
+                arms.hold = False
+            # 'aim' updates aim only, which happened above.
 
-        # (5) flight, hit resolution and respawns land in M3/M4.
+        # Held balls follow their character.
+        self._sync_held_balls()
+
+        # (5) flight, hit resolution and respawns land in M4.
+
+    # --- Internal: acquisition and release ----------------------------------
+    def _try_acquire(self, team: int) -> None:
+        """Acquire the nearest grounded ball in range, ties broken by ball ID.
+
+        One held ball per character, and no ball can be acquired twice: only
+        grounded balls are candidates, so a ball already held by anyone is
+        never eligible.
+        """
+        char = self._characters[team]
+        if char.held_ball_id is not None:
+            return
+
+        best_id: str | None = None
+        best_distance = 0.0
+        for ball_id in sorted(self._balls):  # ball ID order breaks equal ties
+            ball = self._balls[ball_id]
+            if ball.mode != "ground":
+                continue
+            distance = G.distance(char.pos, ball.pos)
+            if distance > K.PICKUP_RANGE:  # inclusive boundary
+                continue
+            if best_id is None or distance < best_distance:
+                best_id, best_distance = ball_id, distance
+
+        if best_id is None:
+            return
+        ball = self._balls[best_id]
+        ball.mode = "held"
+        ball.owner_team = team
+        ball.shooter_team = None
+        ball.velocity = G.ZERO
+        ball.respawn_ticks = 0
+        ball.flight_ticks = 0
+        ball.pos = char.pos
+        char.held_ball_id = best_id
+
+    def _release(
+        self,
+        team: int,
+        aim: Vec2,
+        strength: float | None,
+        member_id: str,
+        ref_seq: int,
+    ) -> None:
+        """Resolve a release edge. Hold is cleared by the caller either way."""
+        char = self._characters[team]
+        if char.held_ball_id is None:
+            # Releasing without a ball clears Hold and has no gameplay effect.
+            return
+
+        if abs(char.pos.z) <= K.NO_THROW_ABS_Z:
+            # Safe cancellation: drop grounded at the character centre and tell
+            # the phone why. This is the only deferred rejection in the engine.
+            self._drop_held(team)
+            self._events.append(
+                InputRejected(
+                    member_id=member_id,
+                    code="NO_THROW_ZONE",
+                    message="Move back before throwing",
+                    ref_seq=ref_seq,
+                )
+            )
+            return
+
+        ball = self._balls[char.held_ball_id]
+        speed = K.THROW_BASE_SPEED + K.THROW_SPEED_PER_STRENGTH * float(strength or 0.0)
+        ball.mode = "flying"
+        ball.pos = G.add(char.pos, G.scale(aim, K.THROW_OFFSET))
+        ball.velocity = G.scale(aim, speed)
+        ball.owner_team = None
+        ball.shooter_team = team  # only the opposing character can be hit
+        ball.flight_ticks = 0
+        ball.respawn_ticks = 0
+        char.held_ball_id = None
+
+    def _sync_held_balls(self) -> None:
+        for team in K.TEAMS:
+            held = self._characters[team].held_ball_id
+            if held is not None:
+                self._balls[held].pos = self._characters[team].pos
 
     # --- Seam: snapshot -----------------------------------------------------
     def snapshot(self) -> StateDTO:
@@ -506,8 +611,11 @@ class Simulation:
         self._events.append(PhaseChanged(state=self.snapshot()))
 
     def _clear_controls(self) -> None:
+        """Clear latched controls. A role change or phase transition drops the
+        held ball without velocity or damage, same as cancel or stale input."""
         self._pending.clear()
         for team in K.TEAMS:
+            self._drop_held(team)
             self._legs_input[team] = _LegsInput(G.ZERO, None)
             self._arms[team] = _ArmsState(False, G.team_forward(team), None)
 
