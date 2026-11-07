@@ -6,8 +6,10 @@ import { session } from '@/stores/session'
 
 const route = useRoute()
 // Dev-only mock routes (plans/04), compiled out of production builds:
-//   /screen?mock=1       scripted 20 Hz feed through session.apply (same path as live)
-//   /screen?mock=static  the single 03 example snapshot
+//   /screen?mock=1         scripted 20 Hz feed through session.apply (same path as live)
+//   /screen?mock=lobby     Richard's reset-lobby fixture
+//   /screen?mock=movement  Richard's active-movement fixture
+//   /screen?mock=held      03 example 11–12 (Team 1 holding b1)
 const mock = import.meta.env.DEV ? (route.query.mock as string | undefined) : undefined
 
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -37,9 +39,11 @@ onMounted(async () => {
   if (mock === '1') {
     const { startMockSource } = await import('@/game/mockSource')
     stopMock = startMockSource((msg) => session.apply(msg))
-  } else if (mock === 'static') {
-    const { activeSnapshotState } = await import('@/game/fixtures/activeSnapshot')
-    scene.value.renderState(activeSnapshotState)
+  } else if (mock) {
+    const { FIXTURES } = await import('@/game/fixtures')
+    const fixture = FIXTURES[mock]
+    if (fixture) session.apply(fixture)
+    else error.value = `Unknown mock "${mock}". Try: 1, ${Object.keys(FIXTURES).join(', ')}`
   }
 })
 
