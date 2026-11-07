@@ -278,9 +278,14 @@ onBeforeUnmount(() => {
 <style scoped>
 .legs {
   min-height: 100%;
-  padding: 1.5rem 1rem;
+  padding: 1.5rem max(1rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-left));
   box-sizing: border-box;
   border-top: 6px solid var(--team);
+  overflow-wrap: break-word;
+}
+h1 {
+  font-size: clamp(1.5rem, 8vw, 2rem);
 }
 ol {
   padding-left: 1.2rem;
@@ -295,8 +300,9 @@ ol {
 }
 .start {
   width: 100%;
-  min-height: 120px;
-  font-size: 1.6rem;
+  min-width: 0;
+  min-height: min(120px, 22vh);
+  font-size: clamp(1.25rem, 6vw, 1.6rem);
   font-weight: 700;
   border: 0;
   border-radius: 14px;
@@ -311,13 +317,16 @@ ol {
   align-items: center;
   justify-content: center;
   gap: 1rem;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
   background: #000;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
 .arrow {
-  font-size: 9rem;
+  /* Shrink rather than clip on short/landscape phones. */
+  font-size: min(9rem, 40vh, 45vw);
   line-height: 1;
   color: var(--team);
   opacity: 0.35;
