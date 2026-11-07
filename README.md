@@ -2,14 +2,18 @@
 
 Four phones cooperate to control two characters. A FastAPI coordinator owns room
 registration and PostgreSQL records; a separate game worker runs Richard's pure
-Python simulation. The current implementation is a working service scaffold.
+Python simulation. The coordinator implements SQL-backed room creation and joining. WebSocket and
+worker gameplay integration are the next slice.
 
 ## Start local development
 
 Install Docker with Compose. From the repository root:
 
 ```sh
-docker compose up --build -d --wait
+docker compose build
+docker compose up -d --wait postgres game-worker
+docker compose run --rm --no-deps coordinator /app/.venv/bin/alembic upgrade head
+docker compose up -d --wait coordinator
 docker compose ps
 ```
 
@@ -19,8 +23,9 @@ docker compose ps
 | Game worker | http://localhost:8001/docs |
 | PostgreSQL 17.11 | Compose network only; no published host port |
 
-Both FastAPI services expose `/api/health` and `/openapi.json`. Health currently
-reports HTTP liveness and `rooms: 0`; the app does not use the database yet.
+Both services expose `/api/health` and `/openapi.json`. Coordinator health checks
+SQL access and reports the open room count; SQL failures return 503. Worker health
+still reports HTTP liveness.
 
 ```sh
 curl --fail http://localhost:8000/api/health
@@ -66,10 +71,10 @@ docker compose exec postgres psql -U dodgewuh -d dodgewuh \
   -c 'SELECT current_database(), version();'
 ```
 
-PostgreSQL and the Python libraries are installed and reachable. Database
-connection code, Alembic configuration, migrations and SQL-backed endpoints are
-not implemented yet. Production will read its password from a mounted secret
-file; the app must implement `DB_PASSWORD_FILE` handling explicitly.
+Database configuration, the initial room/member migration and transactional
+create/join endpoints are implemented. Production explicitly reads
+`DB_PASSWORD_FILE`; development uses `PGPASSWORD`. See [backend operations](backend/README.md)
+for directory boundaries, migration and backup commands.
 
 Live simulation state stays in worker memory. SQL stores room/member metadata,
 allocation records and completed match results as those features are implemented.
@@ -87,7 +92,6 @@ been applied and DNS has not been changed by this setup work.
 - [Persistence and service boundaries](plans/11-sql-persistence.md)
 - [Infrastructure and deployment instructions](infra/README.md)
 
-The next slice is database configuration, initial Alembic migrations, SQL-backed
-room creation/join and then authenticated WebSockets. Keep public message schemas
+The next slice is authenticated WebSockets and worker integration. Keep public message schemas
 unchanged. Do not create automated tests or test-only dependencies; use manual
 checks, builds/type checks and runtime validation.

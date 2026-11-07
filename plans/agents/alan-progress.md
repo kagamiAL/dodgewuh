@@ -1,89 +1,118 @@
 # Alan — dodgewuh handoff
 
-Updated 2026-11-07. The setup is working; the first functional milestone is still
-in progress. Read Git status before editing. The SQL setup was committed as
-`9c2a38a`; subsequent readability/bootstrap cleanup may be uncommitted.
+Updated 2026-11-07. Git was clean before this slice. Persistence and registration
+changes are staged but uncommitted; this handoff update is unstaged. Inspect Git
+status before editing, and preserve the user's staging choices. No commit was made.
 
 ## Working and verified
 
-- [x] Python 3.12/uv backend with FastAPI, Uvicorn and Pydantic v2.
-- [x] SQLAlchemy 2.1.8, psycopg 3.3.8 (binary) and Alembic 1.20.1 installed and
-  locked in `backend/uv.lock`. No automated test dependencies.
-- [x] Docker Compose starts coordinator, game worker and PostgreSQL 17.11 healthy.
-- [x] Coordinator `localhost:8000` and worker `localhost:8001` serve health,
-  Swagger docs and OpenAPI. Health is HTTP liveness only, with `rooms: 0`.
-- [x] Coordinator can reach worker over Docker networking. A read-only SQLAlchemy
-  query from coordinator reaches database `dodgewuh` through psycopg.
-- [x] Local PostgreSQL uses a named volume and has no published database port.
-- [x] Terraform and production Compose prepared for two t3.small EC2 VMs in
-  us-east-2, Caddy, encrypted disks, coordinator EIP, private worker ingress and
-  Session Manager administration without inbound SSH.
-- [x] PostgreSQL production data uses an independent encrypted 8 GiB EBS volume,
-  deleted along with the stack by terraform destroy. Bootstrap identifies/mounts it by volume
-  ID before starting Docker. AWS boot and mount behavior have not been exercised.
-- [x] Terraform formatting/validation and read-only plan passed: **21 additions,
-  0 changes, 0 deletions**. Saved plans and local state are ignored by Git.
-- [x] Production Compose configuration and bootstrap shell syntax checks passed.
+- Python 3.12/uv/FastAPI; SQLAlchemy 2, psycopg 3 and Alembic remain locked.
+  No dependencies or automated tests were added.
+- Separate `backend/app/db`, `app/repositories`, `app/services`, `app/api`
+  directories implement database configuration, SQL access, registration policy
+  and HTTP routing. Services own shared transactions; repositories never commit.
+  Comments and docstrings explain transaction ownership, locks, credentials and
+  lifecycle behavior. All earlier verification categories were rerun after this
+  separation on rebuilt images; results are recorded below.
+- `PG*` development configuration and explicit production `DB_PASSWORD_FILE`
+  reading work. Password-file precedence was manually verified without logging
+  secrets. Workers receive no SQL configuration and create no database engine.
+- Initial room/member schema lives under `backend/migrations/versions` and is
+  included in the Docker image with Alembic configuration. Explicit upgrade on
+  local PostgreSQL passed. Fresh upgrade, schema-drift check and downgrade passed
+  in a separate disposable database, which was removed afterward.
+- SQL-backed create/join follows plan 03: atomic room+host registration, UUIDs,
+  unique six-character codes, 32-byte random tokens stored only as SHA-256 hashes,
+  normalized names/codes, four phone and four screen slots, serialized joins,
+  ten-room cap and process-local IP rate limits. Slot order maps to the initial
+  assignments when the simulation adapter is built.
+- Manual HTTP checks passed for create, lowercase-code join, four phones, fifth
+  phone rejection, missing room, malformed request and `Cache-Control: no-store`.
+  SQL inspection confirmed trimmed names, slots and token hashes.
+- Coordinator health reads SQL and counts open rooms. Stopping PostgreSQL produced
+  JSON 503; restarting it recovered to 200. All three services finished healthy.
+- Idle-lobby expiry was manually verified by aging a temporary room. Hard expiry
+  is enforced at four hours. Cleanup runs every 30 seconds and on health requests.
+- Recreating coordinator and PostgreSQL preserved five member records, closed the
+  former runtime room and revoked all five memberships. Joining that room returned
+  404. Verification records were removed afterward. SQL history is retained in
+  normal operation; restart does not implement match resume.
+- Docker builds and `git diff --check` passed. Rate thresholds, ten-room saturation,
+  concurrent join races and full screen capacity have not been manually exercised.
+
+## Final verification rerun — 2026-11-07, 20:53–20:55 UTC
+
+All checks below passed against the repository/service split:
+
+- Both Docker images rebuilt and all three services finished healthy.
+- Existing-database Alembic upgrade and schema check; fresh upgrade/check/downgrade
+  in disposable `dodgewuh_handoff_review`, which was dropped afterward.
+- HTTP health 200, create/join 201, malformed request 422, absent room 404,
+  lowercase-code lookup, four ordered phone seats and fifth-phone 409.
+- Membership responses included no-store headers. SQL showed trimmed names,
+  phone slots 0–3, host screen slot 0 and 64-character token hashes.
+- Password-file precedence checked with a temporary nonproduction value.
+- PostgreSQL/coordinator recreation retained five members, closed the former room
+  with `server_restart`, revoked all five memberships and rejected the old room.
+- Aging a separate temporary lobby by 31 minutes caused `expired` closure and
+  health room count zero.
+- PostgreSQL stop produced JSON health 503; restart restored health 200.
+- Python syntax parsed in all 16 app/migration files; staged and unstaged Git
+  whitespace checks passed.
+
+Only the two rooms and six members created by this rerun were removed afterward.
+No automated test files, test harnesses or dependencies were created. No AWS/DNS
+changes. Rate thresholds, saturation/concurrency, screen capacity, backup/restore
+and real-device gameplay remain unverified as described above.
+
+## Run and directory guide
+
+See [backend operations](../../backend/README.md) for directory responsibilities,
+configuration, migration commands and backup/restore instructions. From repo root:
+
+```sh
+docker compose build
+docker compose up -d --wait postgres game-worker
+docker compose run --rm --no-deps coordinator /app/.venv/bin/alembic upgrade head
+docker compose up -d --wait coordinator
+```
+
+Run migrations once per deployment, never per app startup. Use one coordinator
+process and do not overlap coordinator instances: startup ends former sessions.
+Local auto-reload also ends rooms. The current worker health remains liveness only.
+Backup/restore commands are documented but have not been exercised.
+
+## Next functional slice
+
+1. Implement the remaining exact plan 03 protocol models, authenticated WebSocket
+   hello/welcome, Origin checks and full-state baseline. `ws_path` is returned by
+   registration but the socket endpoint is not implemented. `backend/simulation`
+   currently has no implementation to integrate; coordinate Richard's interface.
+2. Add runtime connectivity/readiness, DELETE membership, disconnect grace and
+   five-minute empty-room expiry with the transport lifecycle. Current registration
+   expiry covers idle lobbies and hard TTL; SQL is not live connection authority.
+3. Add authenticated coordinator/worker allocation and routing, the real Simulation
+   adapter and one serialized runner per room. Mirror assignments from simulation;
+   never persist ticks, sensor streams, live positions, sockets or tick queues.
+4. Add allocation/match/result migrations as those features exist. No speculative
+   tables were added. Verify exactly-once results and safe interrupted-match abort.
+5. Complete frontend integration and real-phone WSS/gameplay acceptance. Healthy
+   HTTP and successful registration do not establish a functional game.
 
 ## AWS and DNS status
 
-AWS CLI and Terraform are installed under Alan's user directory. CLI default is
-us-east-2. Authentication was verified as root in account 127471246523; a dedicated
-non-root operator identity has not been configured. The checked regional vCPU
-quota was 5, enough for the two planned t3.small VMs (4 total vCPUs).
+Terraform previously validated and planned **21 additions, 0 changes, 0 deletions**
+in us-east-2 for coordinator/worker VMs and encrypted PostgreSQL storage. Domain
+is dodgewuh.fit; DNS is managed by Porkbun. Nothing was applied or changed in AWS
+or DNS during this slice. AWS boot/mount, production secret permissions, image
+publishing, TLS and public WSS remain unverified. Configure trusted proxy addresses
+explicitly for per-client rate limiting behind Caddy.
 
-Domain dodgewuh.fit uses Porkbun DNS; operator DNS edit access is unconfirmed.
-**No AWS resources were applied and no DNS records were changed by this work.**
-Image publishing, actual VM bootstrap, production secrets, migrations, public TLS
-and real-phone WSS/gameplay remain deployment work.
+A normal Terraform destroy removes the entire stack, including PostgreSQL data;
+there is no destruction guard. A retained volume is not a backup. Stop PostgreSQL
+and take an off-host backup before VM replacement; verify restore separately.
+See [infrastructure instructions](../../infra/README.md).
 
-## Decisions to preserve
-
-- User-approved Docker coordinator/worker separation and PostgreSQL override older
-  no-container/no-database/single-process planning assumptions. See
-  [persistence amendment](../11-sql-persistence.md).
-- Coordinator owns SQL writes and membership. Workers import Richard's pure
-  simulation and can host multiple rooms; each room has one serialized runner.
-  Richard's simulation must not import database, FastAPI or networking libraries.
-- Keep live game state, sensor streams, sockets and tick queues in memory. Persist
-  room/member metadata, token hashes, allocation metadata and final results as
-  features are built. Do not write every simulation tick to SQL.
-- Persistence does not provide active-match resume. The current amendment ends
-  runtime sessions/aborts interrupted games while retaining SQL records.
-- Public schemas come from plan 03. No temporary API/message variants.
-- Do not create automated tests, test files or test-only dependencies. Use manual
-  verification, builds/type checks and runtime validation.
-- Keep documentation changes focused. The prior room-registration subagent was
-  stopped; no in-memory rooms.py implementation was integrated. Its scratch work
-  under /tmp is not a dependency and should not be relied on.
-
-## Next functional slice — in order
-
-1. Read [Alan brief](alan.md), [API contracts](../03-api-contracts.md) and
-   [persistence plan](../11-sql-persistence.md), plus applicable repository rules.
-2. Implement database settings/connection management in backend/app, including
-   PG* development settings and explicit DB_PASSWORD_FILE reading in production.
-   Current FastAPI apps do not read database configuration or create engines.
-3. Initialize Alembic and add initial room/member models and migration. Include
-   migrations/config in the Docker image and provide a repeatable migration
-   command; current Dockerfile copies only app and simulation. Run migrations
-   explicitly once per deployment, not on every app startup.
-4. Implement agreed protocol models; app/protocol.py currently contains only
-   Health. Implement SQL-backed create/join, transactional host/phone registration,
-   secure token hashes, code uniqueness, capacity/expiry rules and room count.
-5. Manually check migrations, create/join/error/capacity behavior and persistence
-   across container recreation. Row retention and backup/restore are unverified.
-6. Implement WebSocket session.hello/welcome and full-state baseline, then worker
-   allocation/routing, internal authentication and real Simulation integration.
-
-Backend/root/infra/deploy are Alan-owned; do not edit Richard's simulation or
-Ryan's frontend dependency manifests. Keep scope small and runnable.
-
-## Known deployment limits
-
-Production app-to-database secret loading, migrations, SQL readiness checks,
-worker routing/authentication and frontend deployment are not implemented. A
-retained disk is not a backup. Gracefully stop PostgreSQL and take an off-host
-backup before VM replacement; verify restore separately. One Terraform destroy
-removes the full stack, including PostgreSQL data; no protection needs disabling. See
-[infra/README.md](../../infra/README.md) for deployment commands and cleanup.
+Preserve ownership: Alan owns backend except Richard's simulation and root/infra/
+deploy. Do not edit frontend manifests or simulation internals. No automated tests,
+test files or test-only dependencies; use manual checks and focused documentation.
