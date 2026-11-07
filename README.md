@@ -2,8 +2,9 @@
 
 Four phones cooperate to control two characters. A FastAPI coordinator owns room
 registration and PostgreSQL records; a separate game worker runs Richard's pure
-Python simulation. The coordinator implements SQL-backed room creation and joining. WebSocket and
-worker gameplay integration are the next slice.
+Python simulation. The coordinator implements SQL-backed room creation/joining
+and a local authenticated lobby socket. Real simulation and worker gameplay
+integration are the next slice.
 
 ## Start local development
 
@@ -92,6 +93,8 @@ been applied and DNS has not been changed by this setup work.
 - [Persistence and service boundaries](plans/11-sql-persistence.md)
 - [Infrastructure and deployment instructions](infra/README.md)
 
-The next slice is authenticated WebSockets and worker integration. Keep public message schemas
+Authenticated WebSocket hello/welcome and the Vue-compatible native transport are now available
+for local integration. See [the transport handoff](contracts/README.md). The next slice is
+Richard’s real simulation/worker adapter and Ryan’s UI integration. Keep public message schemas
 unchanged. Do not create automated tests or test-only dependencies; use manual
 checks, builds/type checks and runtime validation.

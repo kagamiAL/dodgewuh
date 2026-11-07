@@ -34,3 +34,8 @@ class MemberRepository:
 
     def add(self, member: MemberRecord) -> None:
         self.session.add(member)
+
+    def active(self, room_id: UUID) -> list[MemberRecord]:
+        return list(self.session.scalars(select(MemberRecord).where(
+            MemberRecord.room_id == room_id, MemberRecord.revoked_at.is_(None)
+        ).order_by(MemberRecord.device, MemberRecord.slot)))

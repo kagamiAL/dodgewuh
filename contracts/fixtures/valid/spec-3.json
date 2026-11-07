@@ -1,0 +1,31 @@
+{
+  "v": 1,
+  "type": "roles.changed",
+  "server_ms": 8000,
+  "payload": {
+    "assignments": [
+      {
+        "member_id": "p1",
+        "team": 1,
+        "role": "legs"
+      },
+      {
+        "member_id": "p2",
+        "team": 1,
+        "role": "arms"
+      },
+      {
+        "member_id": "p3",
+        "team": 2,
+        "role": "legs"
+      },
+      {
+        "member_id": "p4",
+        "team": 2,
+        "role": "arms"
+      }
+    ],
+    "assignment_version": 2,
+    "epoch": 4
+  }
+}

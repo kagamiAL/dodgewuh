@@ -7,6 +7,7 @@ services:
     environment:
       BUILD_SHA: ${BUILD_SHA:-dev}
       GAME_WORKER_URL: http://game-worker:8000
+      LOBBY_BASELINE_ENABLED: "true"
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:5173}
       PGHOST: postgres
       PGPORT: "5432"

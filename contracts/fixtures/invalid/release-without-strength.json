@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "type": "input.arms",
+  "payload": {
+    "seq": 1,
+    "epoch": 0,
+    "aim": {
+      "x": 0,
+      "z": 1
+    },
+    "action": "release",
+    "strength": null
+  }
+}

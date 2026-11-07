@@ -131,3 +131,22 @@ class Rooms:
                 token=token,
                 ws_path=f"/ws/rooms/{room.code}",
             )
+
+    def authenticate(self, code, token):
+        """Return detached public membership facts after checking a room-scoped secret."""
+        now = datetime.now(timezone.utc)
+        with self.sessions.begin() as db:
+            rooms = RoomRepository(db)
+            room = rooms.get_by_code_for_update(code.strip().upper())
+            self._validate_join(room, 'screen', now)
+            members = MemberRepository(db).active(room.id)
+            digest = hashlib.sha256(token.encode()).hexdigest()
+            member = next((m for m in members if secrets.compare_digest(m.token_hash, digest)), None)
+            if member is None:
+                raise RoomError(401, 'UNAUTHORIZED', 'Invalid membership')
+            rooms.touch(room, at=now)
+            return {
+                'room_id': str(room.id), 'room_code': room.code, 'host_id': str(room.host_id),
+                'member_id': str(member.id),
+                'members': [dict(member_id=str(m.id), name=m.name, device=m.device, slot=m.slot) for m in members],
+            }

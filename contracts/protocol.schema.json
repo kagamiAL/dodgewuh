@@ -1,0 +1,1392 @@
+{
+  "client": {
+    "$defs": {
+      "Arms": {
+        "additionalProperties": false,
+        "properties": {
+          "seq": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "epoch": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "aim": {
+            "$ref": "#/$defs/Vec2"
+          },
+          "action": {
+            "enum": [
+              "aim",
+              "press",
+              "release",
+              "cancel"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "strength": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strength"
+          }
+        },
+        "required": [
+          "seq",
+          "epoch",
+          "aim",
+          "action",
+          "strength"
+        ],
+        "title": "Arms",
+        "type": "object"
+      },
+      "Empty": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "Empty",
+        "type": "object"
+      },
+      "Hello": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "Hello",
+        "type": "object"
+      },
+      "Legs": {
+        "additionalProperties": false,
+        "properties": {
+          "seq": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "epoch": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "move": {
+            "$ref": "#/$defs/Vec2"
+          }
+        },
+        "required": [
+          "seq",
+          "epoch",
+          "move"
+        ],
+        "title": "Legs",
+        "type": "object"
+      },
+      "Ping": {
+        "additionalProperties": false,
+        "properties": {
+          "nonce": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Nonce",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nonce"
+        ],
+        "title": "Ping",
+        "type": "object"
+      },
+      "Ready": {
+        "additionalProperties": false,
+        "properties": {
+          "epoch": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "assignment_version": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Assignment Version",
+            "type": "integer"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "permission": {
+            "enum": [
+              "unknown",
+              "granted",
+              "denied",
+              "unsupported"
+            ],
+            "title": "Permission",
+            "type": "string"
+          },
+          "calibrated": {
+            "title": "Calibrated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "epoch",
+          "assignment_version",
+          "ready",
+          "permission",
+          "calibrated"
+        ],
+        "title": "Ready",
+        "type": "object"
+      },
+      "Vec2": {
+        "additionalProperties": false,
+        "properties": {
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "z": {
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "z"
+        ],
+        "title": "Vec2",
+        "type": "object"
+      },
+      "controller_ready": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "controller.ready",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Ready"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "controller_ready",
+        "type": "object"
+      },
+      "input_arms": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "input.arms",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Arms"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "input_arms",
+        "type": "object"
+      },
+      "input_legs": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "input.legs",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Legs"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "input_legs",
+        "type": "object"
+      },
+      "match_rematch": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "match.rematch",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Empty"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "match_rematch",
+        "type": "object"
+      },
+      "match_reset": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "match.reset",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Empty"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "match_reset",
+        "type": "object"
+      },
+      "match_start": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "match.start",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Empty"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "match_start",
+        "type": "object"
+      },
+      "session_hello": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "session.hello",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Hello"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "session_hello",
+        "type": "object"
+      },
+      "session_ping": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "session.ping",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Ping"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "session_ping",
+        "type": "object"
+      }
+    },
+    "discriminator": {
+      "mapping": {
+        "controller.ready": "#/$defs/controller_ready",
+        "input.arms": "#/$defs/input_arms",
+        "input.legs": "#/$defs/input_legs",
+        "match.rematch": "#/$defs/match_rematch",
+        "match.reset": "#/$defs/match_reset",
+        "match.start": "#/$defs/match_start",
+        "session.hello": "#/$defs/session_hello",
+        "session.ping": "#/$defs/session_ping"
+      },
+      "propertyName": "type"
+    },
+    "oneOf": [
+      {
+        "$ref": "#/$defs/session_hello"
+      },
+      {
+        "$ref": "#/$defs/session_ping"
+      },
+      {
+        "$ref": "#/$defs/controller_ready"
+      },
+      {
+        "$ref": "#/$defs/match_start"
+      },
+      {
+        "$ref": "#/$defs/match_reset"
+      },
+      {
+        "$ref": "#/$defs/match_rematch"
+      },
+      {
+        "$ref": "#/$defs/input_legs"
+      },
+      {
+        "$ref": "#/$defs/input_arms"
+      }
+    ]
+  },
+  "server": {
+    "$defs": {
+      "Assignment": {
+        "additionalProperties": false,
+        "properties": {
+          "member_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Member Id",
+            "type": "string"
+          },
+          "team": {
+            "enum": [
+              1,
+              2
+            ],
+            "title": "Team",
+            "type": "integer"
+          },
+          "role": {
+            "enum": [
+              "arms",
+              "legs"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member_id",
+          "team",
+          "role"
+        ],
+        "title": "Assignment",
+        "type": "object"
+      },
+      "Ball": {
+        "additionalProperties": false,
+        "properties": {
+          "ball_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Ball Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "ground",
+              "held",
+              "flying",
+              "respawning"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "pos": {
+            "$ref": "#/$defs/Vec2"
+          },
+          "velocity": {
+            "$ref": "#/$defs/Vec2"
+          },
+          "owner_team": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Team"
+          },
+          "shooter_team": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shooter Team"
+          },
+          "respawn_in_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Respawn In Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ball_id",
+          "mode",
+          "pos",
+          "velocity",
+          "owner_team",
+          "shooter_team",
+          "respawn_in_ms"
+        ],
+        "title": "Ball",
+        "type": "object"
+      },
+      "Character": {
+        "additionalProperties": false,
+        "properties": {
+          "team": {
+            "enum": [
+              1,
+              2
+            ],
+            "title": "Team",
+            "type": "integer"
+          },
+          "pos": {
+            "$ref": "#/$defs/Vec2"
+          },
+          "aim": {
+            "$ref": "#/$defs/Vec2"
+          },
+          "held_ball_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held Ball Id"
+          }
+        },
+        "required": [
+          "team",
+          "pos",
+          "aim",
+          "held_ball_id"
+        ],
+        "title": "Character",
+        "type": "object"
+      },
+      "Closed": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "enum": [
+              "host_left",
+              "expired",
+              "server_shutdown"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "Closed",
+        "type": "object"
+      },
+      "ErrorPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ref_seq": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Seq"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "ref_seq"
+        ],
+        "title": "ErrorPayload",
+        "type": "object"
+      },
+      "Member": {
+        "additionalProperties": false,
+        "properties": {
+          "member_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Member Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 24,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "device": {
+            "enum": [
+              "screen",
+              "phone"
+            ],
+            "title": "Device",
+            "type": "string"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "permission": {
+            "enum": [
+              "unknown",
+              "granted",
+              "denied",
+              "unsupported"
+            ],
+            "title": "Permission",
+            "type": "string"
+          },
+          "calibrated": {
+            "title": "Calibrated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "member_id",
+          "name",
+          "device",
+          "connected",
+          "ready",
+          "permission",
+          "calibrated"
+        ],
+        "title": "Member",
+        "type": "object"
+      },
+      "PhaseChange": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "PhaseChange",
+        "type": "object"
+      },
+      "Ping": {
+        "additionalProperties": false,
+        "properties": {
+          "nonce": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Nonce",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nonce"
+        ],
+        "title": "Ping",
+        "type": "object"
+      },
+      "Result": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "enum": [
+              "hit",
+              "timeout",
+              "simultaneous"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "winner": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner"
+          },
+          "hit_ball_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Ball Id"
+          },
+          "victim_team": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Victim Team"
+          }
+        },
+        "required": [
+          "reason",
+          "winner",
+          "hit_ball_id",
+          "victim_team"
+        ],
+        "title": "Result",
+        "type": "object"
+      },
+      "RolesChanged": {
+        "additionalProperties": false,
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/$defs/Assignment"
+            },
+            "title": "Assignments",
+            "type": "array"
+          },
+          "assignment_version": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Assignment Version",
+            "type": "integer"
+          },
+          "epoch": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Epoch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assignments",
+          "assignment_version",
+          "epoch"
+        ],
+        "title": "RolesChanged",
+        "type": "object"
+      },
+      "Room": {
+        "additionalProperties": false,
+        "properties": {
+          "room_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Room Id",
+            "type": "string"
+          },
+          "room_code": {
+            "title": "Room Code",
+            "type": "string"
+          },
+          "host_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Host Id",
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/$defs/Member"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "assignments": {
+            "items": {
+              "$ref": "#/$defs/Assignment"
+            },
+            "title": "Assignments",
+            "type": "array"
+          },
+          "assignment_version": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Assignment Version",
+            "type": "integer"
+          },
+          "phase": {
+            "enum": [
+              "lobby",
+              "countdown",
+              "active",
+              "round_end",
+              "role_switch",
+              "match_end"
+            ],
+            "title": "Phase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "room_id",
+          "room_code",
+          "host_id",
+          "revision",
+          "members",
+          "assignments",
+          "assignment_version",
+          "phase"
+        ],
+        "title": "Room",
+        "type": "object"
+      },
+      "RoomUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "room": {
+            "$ref": "#/$defs/Room"
+          }
+        },
+        "required": [
+          "room"
+        ],
+        "title": "RoomUpdate",
+        "type": "object"
+      },
+      "Score": {
+        "additionalProperties": false,
+        "properties": {
+          "t1": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "T1",
+            "type": "integer"
+          },
+          "t2": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "T2",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "t1",
+          "t2"
+        ],
+        "title": "Score",
+        "type": "object"
+      },
+      "Snapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "Snapshot",
+        "type": "object"
+      },
+      "State": {
+        "additionalProperties": false,
+        "properties": {
+          "tick": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Tick",
+            "type": "integer"
+          },
+          "epoch": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "round": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Round",
+            "type": "integer"
+          },
+          "phase": {
+            "enum": [
+              "lobby",
+              "countdown",
+              "active",
+              "round_end",
+              "role_switch",
+              "match_end"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "remaining_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Remaining Ms",
+            "type": "integer"
+          },
+          "phase_remaining_ms": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase Remaining Ms"
+          },
+          "score": {
+            "$ref": "#/$defs/Score"
+          },
+          "characters": {
+            "items": {
+              "$ref": "#/$defs/Character"
+            },
+            "title": "Characters",
+            "type": "array"
+          },
+          "balls": {
+            "items": {
+              "$ref": "#/$defs/Ball"
+            },
+            "title": "Balls",
+            "type": "array"
+          },
+          "assignments": {
+            "items": {
+              "$ref": "#/$defs/Assignment"
+            },
+            "title": "Assignments",
+            "type": "array"
+          },
+          "assignment_version": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Assignment Version",
+            "type": "integer"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Result"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "winner": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner"
+          }
+        },
+        "required": [
+          "tick",
+          "epoch",
+          "round",
+          "phase",
+          "remaining_ms",
+          "phase_remaining_ms",
+          "score",
+          "characters",
+          "balls",
+          "assignments",
+          "assignment_version",
+          "result",
+          "winner"
+        ],
+        "title": "State",
+        "type": "object"
+      },
+      "Vec2": {
+        "additionalProperties": false,
+        "properties": {
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "z": {
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "z"
+        ],
+        "title": "Vec2",
+        "type": "object"
+      },
+      "Welcome": {
+        "additionalProperties": false,
+        "properties": {
+          "member_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Member Id",
+            "type": "string"
+          },
+          "room": {
+            "$ref": "#/$defs/Room"
+          },
+          "state": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "member_id",
+          "room",
+          "state"
+        ],
+        "title": "Welcome",
+        "type": "object"
+      },
+      "error": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "error",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/ErrorPayload"
+          },
+          "server_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Server Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload",
+          "server_ms"
+        ],
+        "title": "error",
+        "type": "object"
+      },
+      "phase_changed": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "phase.changed",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/PhaseChange"
+          },
+          "server_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Server Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload",
+          "server_ms"
+        ],
+        "title": "phase_changed",
+        "type": "object"
+      },
+      "roles_changed": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "roles.changed",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/RolesChanged"
+          },
+          "server_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Server Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload",
+          "server_ms"
+        ],
+        "title": "roles_changed",
+        "type": "object"
+      },
+      "room_closed": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "room.closed",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Closed"
+          },
+          "server_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Server Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload",
+          "server_ms"
+        ],
+        "title": "room_closed",
+        "type": "object"
+      },
+      "room_updated": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "room.updated",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/RoomUpdate"
+          },
+          "server_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Server Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload",
+          "server_ms"
+        ],
+        "title": "room_updated",
+        "type": "object"
+      },
+      "session_pong": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "session.pong",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Ping"
+          },
+          "server_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Server Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload",
+          "server_ms"
+        ],
+        "title": "session_pong",
+        "type": "object"
+      },
+      "session_welcome": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "session.welcome",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Welcome"
+          },
+          "server_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Server Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload",
+          "server_ms"
+        ],
+        "title": "session_welcome",
+        "type": "object"
+      },
+      "state_snapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "state.snapshot",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/Snapshot"
+          },
+          "server_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Server Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload",
+          "server_ms"
+        ],
+        "title": "state_snapshot",
+        "type": "object"
+      }
+    },
+    "discriminator": {
+      "mapping": {
+        "error": "#/$defs/error",
+        "phase.changed": "#/$defs/phase_changed",
+        "roles.changed": "#/$defs/roles_changed",
+        "room.closed": "#/$defs/room_closed",
+        "room.updated": "#/$defs/room_updated",
+        "session.pong": "#/$defs/session_pong",
+        "session.welcome": "#/$defs/session_welcome",
+        "state.snapshot": "#/$defs/state_snapshot"
+      },
+      "propertyName": "type"
+    },
+    "oneOf": [
+      {
+        "$ref": "#/$defs/session_welcome"
+      },
+      {
+        "$ref": "#/$defs/session_pong"
+      },
+      {
+        "$ref": "#/$defs/room_updated"
+      },
+      {
+        "$ref": "#/$defs/state_snapshot"
+      },
+      {
+        "$ref": "#/$defs/phase_changed"
+      },
+      {
+        "$ref": "#/$defs/roles_changed"
+      },
+      {
+        "$ref": "#/$defs/error"
+      },
+      {
+        "$ref": "#/$defs/room_closed"
+      }
+    ]
+  }
+}

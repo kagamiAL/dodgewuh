@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException
 from app.api.rooms import router
+from app.api.ws import router as ws_router
+from app.services.lobby import LobbyHub
 from app.db.connection import make_engine, sessions
 from app.protocol import Health
 from app.services.rooms import RoomError, Rooms
@@ -23,6 +25,7 @@ async def lifespan(app):
         # cannot block future WebSocket connections or other async handlers.
         await asyncio.to_thread(rooms.start)
         app.state.rooms = rooms
+        app.state.lobby_hub = LobbyHub()
         async def cleanup():
             """Expire rooms even when nobody calls the API or health endpoint."""
             while True:
@@ -48,6 +51,7 @@ async def lifespan(app):
 
 app = FastAPI(title="dodgewuh coordinator", version="0.1.0", lifespan=lifespan)
 app.include_router(router)
+app.include_router(ws_router)
 
 
 def error(status, code, message):

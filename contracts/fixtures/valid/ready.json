@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "controller.ready",
+  "payload": {
+    "epoch": 0,
+    "assignment_version": 0,
+    "ready": false,
+    "permission": "unknown",
+    "calibrated": false
+  }
+}

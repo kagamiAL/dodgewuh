@@ -1,0 +1,7 @@
+{
+  "v": true,
+  "type": "session.ping",
+  "payload": {
+    "nonce": 1
+  }
+}
