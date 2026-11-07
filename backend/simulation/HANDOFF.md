@@ -1,8 +1,7 @@
 # Simulation handoff — Richard
 
-**Branch:** `richard-simulation` (note: 04 names this branch `feat/richard-sim`; the current name was set by
-explicit instruction from the repo owner — raise it with them, not with me).
-**Implementation commit:** see `git log -1 --format=%H richard-simulation`; the milestone content is
+**Branch:** `feat/richard-sim`, as specified in [04:82](../../plans/04-repository-structure.md).
+**Implementation commit:** see `git log -1 --format=%H feat/richard-sim`; the milestone content is
 `44b43fe` (M1) plus `31cfc6a` (project-instruction alignment) on top of the merge of `main` at `ebccfe4`.
 **Manual checks performed:** build check (`compileall`, all modules), runtime diagnostics (76/76 observations
 matching), constants audit (38/38 against the 02 table), seam-signature and DTO field-set introspection
