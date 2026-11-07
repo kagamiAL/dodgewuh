@@ -1,5 +1,7 @@
 # Coding-agent brief — Tysen
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 ## Identity and context
 
 You support **Tysen**, Motion Team. Implement your assigned part of a working hackathon MVP, not a generalized platform. Four phones control two characters: Arms and Legs cooperate; teammates swap roles after every round. Python on AWS is the sole gameplay authority, Vue/PlayCanvas renders it, FastAPI routes normalized commands. The budget is approximately 24 hours. Primitive visuals and simple reliable physical control are enough.
@@ -12,7 +14,7 @@ Implement shared browser sensor permissions/capture, isolated sensor playground,
 
 ## Files you own
 
-frontend/src/controllers/legs/**, frontend/src/sensors/**, frontend/src/playground/**, frontend/tests/legs/**, frontend/tests/sensors/** and docs/device-tests/**. Request route/dependency changes from Ryan.
+frontend/src/controllers/legs/**, frontend/src/sensors/**, frontend/src/playground/**, and docs/device-tests/**. Request route/dependency changes from Ryan.
 
 Shared 02/03 are authoritative references; do not independently redesign them or other owners' files. Request coordinated changes through Alan (wire), Richard (rules) and Ryan (integration).
 
@@ -24,7 +26,7 @@ Do not modify Arms internals, PhoneShell or network schemas. Do not use sensor i
 
 Vue/TypeScript, browser DeviceMotion/DeviceOrientation APIs, Alan Transport/generated validators, Ryan PhoneShell and route wiring. Implement SensorService/SensorSample exactly as 03; provide Morteza a stable stub immediately.
 
-Implement calibrated(boolean) and availability(Permission) emits and per-stream freshness exactly as 03; PhoneShell owns ready messages. All wire message definitions come only from 03. Gameplay constants come only from 02. Mocks must use those same types and entry points; no temporary API to replace later. If a neighboring module is not yet implemented, use its specified interface with a local test double inside your owned test path and hand the integration expectation to its owner.
+Implement calibrated(boolean) and availability(Permission) emits and per-stream freshness exactly as 03; PhoneShell owns ready messages. All wire message definitions come only from 03. Gameplay constants come only from 02. Mocks must use those same types and entry points; no temporary API to replace later. If a neighboring module is not yet implemented, use its specified interface with a local development stub within your owned source path and hand the integration expectation to its owner.
 
 ## Ordered implementation tasks
 
@@ -38,9 +40,9 @@ Implement calibrated(boolean) and availability(Permission) emits and per-stream 
 8. Help Morteza validate sensor fields and test all four demo devices in both roles. Verify switch/reconnect requires calibration and stale movement cannot persist.
 9. Publish compatibility/test report, finish four-phone cloud match and help rehearse physically clear instructions.
 
-## Testing instructions
+## Manual verification instructions
 
-Run `cd frontend` then `npm test -- --run tests/legs tests/sensors` and `npm run typecheck`. Test neutral/noise, dead zone, diagonal cap, world-team mapping, permission denied/null sample, cleanup and stale zero. Actual iPhone by H1; target ≥9/10 correct moves per direction and stable neutral; list device/OS/browser/origin and observed sample rate.
+Run `cd frontend` then manual runtime checks and `npm run typecheck`. Test neutral/noise, dead zone, diagonal cap, world-team mapping, permission denied/null sample, cleanup and stale zero. Actual iPhone by H1; target ≥9/10 correct moves per direction and stable neutral; list device/OS/browser/origin and observed sample rate.
 
 Record real results and failures. Do not claim mocked behavior establishes real-device compatibility. Focus on risks and acceptance outcomes; avoid exhaustive scaffolding tests that merely repeat implementation.
 
@@ -50,7 +52,7 @@ Physical torso movement intentionally controls both court axes and returns to ze
 
 ## Definition of done and integration
 
-Your owned code compiles/runs, focused tests pass, final production interfaces are used, and your subsystem works through the real integration path at the relevant H4/H6/H8/H12 gate. No undocumented contract drift, overlapping edits or optional work delaying a required feature. Participate in two-hour merge windows; submit small runnable changes. H18 freezes features; then fix failed acceptance cases only. A partial subsystem is not a completed MVP; report exactly what remains for cross-team integration.
+Your owned code compiles/runs, manual acceptance checks pass, final production interfaces are used, and your subsystem works through the real integration path at the relevant H4/H6/H8/H12 gate. No undocumented contract drift, overlapping edits or optional work delaying a required feature. Participate in two-hour merge windows; submit small runnable changes. H18 freezes features; then fix failed acceptance cases only. A partial subsystem is not a completed MVP; report exactly what remains for cross-team integration.
 
 ## Required handoff
 
@@ -58,4 +60,4 @@ To Morteza: SensorService export, sample units, available fields, permission beh
 
 ## Final instructions to your coding agent
 
-Follow locked architecture and technologies. Do not silently change API contracts or modify another owner's files without coordination. Do not add unrelated infrastructure. Prefer the smallest functioning implementation. Run relevant checks and actual integration where available. Report blockers/assumptions early, preserving useful independent work. Finish with a concise summary of changed files, tests and observations, remaining integration tasks and known limitations. Do not claim deployment or device testing you did not perform.
+Follow locked architecture and technologies. Do not silently change API contracts or modify another owner's files without coordination. Do not add unrelated infrastructure. Prefer the smallest functioning implementation. Run relevant checks and actual integration where available. Report blockers/assumptions early, preserving useful independent work. Finish with a concise summary of changed files, manual checks and observations, remaining integration tasks and known limitations. Do not claim deployment or device testing you did not perform.

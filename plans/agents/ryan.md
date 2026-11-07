@@ -1,5 +1,7 @@
 # Coding-agent brief — Ryan
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 ## Identity and context
 
 You support **Ryan**, Vue/PlayCanvas Frontend; final integration coordinator. Implement your assigned part of a working hackathon MVP, not a generalized platform. Four phones control two characters: Arms and Legs cooperate; teammates swap roles after every round. Python on AWS is the sole gameplay authority, Vue/PlayCanvas renders it, FastAPI routes normalized commands. The budget is approximately 24 hours. Primitive visuals and simple reliable physical control are enough.
@@ -12,7 +14,7 @@ Implement Vue 3/Vite app, code-first PlayCanvas screen, authoritative snapshot r
 
 ## Files you own
 
-Frontend files except Alan net/generated/net tests, Morteza arms/arms tests, and Tysen legs/sensors/playground/their tests. Own frontend package.json/package-lock.json, App.vue/router, stores/session.ts, views, game/**, game tests, tests/e2e/** and docs/demo/**. Use exact ownership exclusions in 04.
+Frontend files except Alan net/generated/net tests, Morteza arms/arms tests, and Tysen legs/sensors/playground/their tests. Own frontend package.json/package-lock.json, App.vue/router, stores/session.ts, views, game/**, game tests, and docs/demo/**. Use exact ownership exclusions in 04.
 
 Shared 02/03 are authoritative references; do not independently redesign them or other owners' files. Request coordinated changes through Alan (wire), Richard (rules) and Ryan (integration).
 
@@ -22,9 +24,9 @@ Do not implement gameplay authority or modify Richard simulation. No rigid-body 
 
 ## Dependencies and interfaces
 
-Vue 3, TypeScript, Vite, PlayCanvas Engine, Vue Router, Vitest. Coordinate package additions from other frontend owners. Consume Alan Transport/ServerMessage/validators and Richard State via wire. Mount Arms/Legs with the exact 03 props and calibrated/availability events, including automatic readiness revocation and transport status.
+Vue 3, TypeScript, Vite, PlayCanvas Engine, Vue Router. Coordinate package additions from other frontend owners. Consume Alan Transport/ServerMessage/validators and Richard State via wire. Mount Arms/Legs with the exact 03 props and calibrated/availability events, including automatic readiness revocation and transport status.
 
-All wire message definitions come only from 03. Gameplay constants come only from 02. Mocks must use those same types and entry points; no temporary API to replace later. If a neighboring module is not yet implemented, use its specified interface with a local test double inside your owned test path and hand the integration expectation to its owner.
+All wire message definitions come only from 03. Gameplay constants come only from 02. Mocks must use those same types and entry points; no temporary API to replace later. If a neighboring module is not yet implemented, use its specified interface with a local development stub within your owned source path and hand the integration expectation to its owner.
 
 ## Ordered implementation tasks
 
@@ -38,9 +40,9 @@ All wire message definitions come only from 03. Gameplay constants come only fro
 8. Add host start/reset/rematch controls, winner display and clear disconnected/room-ended states. Join second screen and compare same-tick state.
 9. Run four-phone deployed full match and coordinate H12 gate, H18 freeze, recording and demo. Keep main runnable and cut polish before delaying essentials.
 
-## Testing instructions
+## Manual verification instructions
 
-Run `cd frontend && npm run typecheck`, `npm test -- --run`, and `npm run build` (separate commands if needed). Test interpolation boundary resets, stale freeze, mount/unmount cleanup and role-component replacement. Run acceptance rows for UI/multi-screen in 06; record real-device evidence rather than claiming a mocked test proves sensors.
+Run `cd frontend && npm run typecheck`, manual runtime checks, and `npm run build` (separate commands if needed). Test interpolation boundary resets, stale freeze, mount/unmount cleanup and role-component replacement. Run acceptance rows for UI/multi-screen in 06; record real-device evidence rather than claiming a mocked test proves sensors.
 
 Record real results and failures. Do not claim mocked behavior establishes real-device compatibility. Focus on risks and acceptance outcomes; avoid exhaustive scaffolding tests that merely repeat implementation.
 
@@ -50,7 +52,7 @@ Screen displays a playable primitive arena from server state; two screens agree 
 
 ## Definition of done and integration
 
-Your owned code compiles/runs, focused tests pass, final production interfaces are used, and your subsystem works through the real integration path at the relevant H4/H6/H8/H12 gate. No undocumented contract drift, overlapping edits or optional work delaying a required feature. Participate in two-hour merge windows; submit small runnable changes. H18 freezes features; then fix failed acceptance cases only. A partial subsystem is not a completed MVP; report exactly what remains for cross-team integration.
+Your owned code compiles/runs, manual acceptance checks pass, final production interfaces are used, and your subsystem works through the real integration path at the relevant H4/H6/H8/H12 gate. No undocumented contract drift, overlapping edits or optional work delaying a required feature. Participate in two-hour merge windows; submit small runnable changes. H18 freezes features; then fix failed acceptance cases only. A partial subsystem is not a completed MVP; report exactly what remains for cross-team integration.
 
 ## Required handoff
 
@@ -58,4 +60,4 @@ To motion owners: component imports, route path, props/emits and PhoneShell read
 
 ## Final instructions to your coding agent
 
-Follow locked architecture and technologies. Do not silently change API contracts or modify another owner's files without coordination. Do not add unrelated infrastructure. Prefer the smallest functioning implementation. Run relevant checks and actual integration where available. Report blockers/assumptions early, preserving useful independent work. Finish with a concise summary of changed files, tests and observations, remaining integration tasks and known limitations. Do not claim deployment or device testing you did not perform.
+Follow locked architecture and technologies. Do not silently change API contracts or modify another owner's files without coordination. Do not add unrelated infrastructure. Prefer the smallest functioning implementation. Run relevant checks and actual integration where available. Report blockers/assumptions early, preserving useful independent work. Finish with a concise summary of changed files, manual checks and observations, remaining integration tasks and known limitations. Do not claim deployment or device testing you did not perform.

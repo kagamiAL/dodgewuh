@@ -1,5 +1,7 @@
 # Two-to-three-minute demonstration
 
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
 Goal: show two people communicating to control one character, physical activity, then role exchange. Describe a prototype for social active play, not a proven health intervention. Reusing existing phones and browser access reduces participation friction; no quantified sustainability or medical claims.
 
 ## Setup

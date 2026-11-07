@@ -1,12 +1,14 @@
 # Integration and acceptance
 
-Test behavior that can break the playable loop. Prefer short deterministic tests and real-device observation over a large test framework. Code compiling is necessary but does not prove a usable game. Ryan coordinates each integration gate; each owner fixes their files.
+> **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
+
+Test behavior that can break the playable loop. Use manual gameplay checks and real-device observation; do not create automated tests. Code compiling is necessary but does not prove a usable game. Ryan coordinates each integration gate; each owner fixes their files.
 
 ## Production-compatible mocks
 
 | Owner | Harness | Replacement gate |
 |---|---|---|
-| Richard | Pure Simulation with fake member IDs, exact LegsCommand/ArmsCommand DTOs and supplied tick/time; output full State fixture | H2 Alan uses real Simulation; synthetic runner stays unit-test tool |
+| Richard | Pure Simulation with fake member IDs, exact LegsCommand/ArmsCommand DTOs and supplied tick/time; output full State fixture | H2 Alan uses real Simulation; synthetic runner stays manual diagnostic tool |
 | Ryan | SnapshotSource delivers validated ServerMessage fixtures at 20 Hz; same handler as Transport; include phase reset | H4 replace source with subscribed real transport, no renderer rewrite |
 | Morteza | Same Arms component + recording MockTransport, real/replayed SensorService | H4 join actual room, then H6 real two-phone throw |
 | Tysen | Same SensorService/Legs component in playground; trace raw, neutral and normalized vectors | H4 actual WSS; keep playground for tuning |
@@ -14,13 +16,13 @@ Test behavior that can break the playable loop. Prefer short deterministic tests
 
 Alan owns canonical valid/invalid fixtures. Richard contributes snapshots through Alan; Ryan and controller owners consume them rather than duplicating types. Schema fixtures cover unknown event/field, wrong version, null/nonfinite vector, bool-as-number, missing nullable fields and unknown phase enum. Python and TS validators must agree on these. Wrong role, valid-but-disallowed phase, stale epoch, duplicate seq and unauthorized host actions are stateful adapter/simulation scenarios, not schema-invalid JSON. Keep one happy-path fixture per event plus these risk-bearing cases; do not build a second validation framework.
 
-Before the first multiplayer merge, add focused regression cases for the amended seams: ready=false during active aborts; pre-reset ready=true is rejected; reset retaining assignments still clears PhoneShell calibration; one sensor stream cannot refresh another; reconnect seq=1 reaches simulation; a superseded socket cannot disconnect its replacement; press+release in one tick remains ordered; winning-round transition bundles never regress epoch. These protect the playable loop, not optional polish.
+Before the first multiplayer merge, manually check the amended seams: ready=false during active aborts; pre-reset ready=true is rejected; reset retaining assignments still clears PhoneShell calibration; one sensor stream cannot refresh another; reconnect seq=1 reaches simulation; a superseded socket cannot disconnect its replacement; press+release in one tick remains ordered; winning-round transition bundles never regress epoch. These protect the playable loop, not optional polish.
 
-## Focused tests
+## Manual verification scenarios
 
 Richard: deterministic movement bounds and stale stop; all four ball spawns; nearest/tied pickup; release outside/inside zone boundary; cancellation; swept collision at maximum speed; simultaneous hit draw; exact 3600-tick timeout; score increments once; reset and first-to-three; every-round role swap; old input epoch rejected.
 
-Alan: REST creation/code uniqueness, four phone/four screen caps, no phone join mid-match, token/Origin checks, welcome and full snapshots, synthetic Legs routed only to its member, no client score authority, ready/start gates, bounded send queue, disconnect→lobby reset and dead-member reservation expiry, in-memory restart behavior. Inject a fake clock for TTLs; avoid real waiting in unit tests.
+Alan: REST creation/code uniqueness, four phone/four screen caps, no phone join mid-match, token/Origin checks, welcome and full snapshots, synthetic Legs routed only to its member, no client score authority, ready/start gates, bounded send queue, disconnect→lobby reset and dead-member reservation expiry, in-memory restart behavior. Observe TTL expiry manually and record the configured durations.
 
 Ryan: scene mounts/unmounts without duplicate loops, interpolation skips round/epoch boundaries, discrete score/possession snap, late viewer baseline, stale overlay, PhoneShell switches components and clears calibration, permission status displayed in lobby. Compare both screens at matching snapshot ticks, not arbitrary screenshot wall times.
 
@@ -43,7 +45,7 @@ Rows cover all 24 master acceptance requirements; combined rows exercise related
 | 13 four balls | Richard + Ryan | Initial and every reset scene/state show four at specified middle positions |
 | 14 no-throw zone | Richard + Ryan | Inside zone release does not launch; incoming valid ball still hits |
 | 15 hit/point/end | Richard + Ryan | Opponent hit produces one point immediately and phase change on all clients |
-| 16 timeout | Richard | 60 seconds without hit produces draw/no score; fake-clock unit test and one live wait |
+| 16 timeout | Richard | 60 seconds without hit produces draw/no score; one live 60-second observation |
 | 17 role switch | Richard + Ryan + both motion owners | After hit AND draw, each phone changes role and requires new calibration/Ready |
 | 18 next round reset | Richard | New countdown has reset positions, four balls, full time; prior commands rejected |
 | 19 multiple screens | Ryan + Alan | Same room on two screens agrees tick-matched state for 5 minutes; no local outcomes |
