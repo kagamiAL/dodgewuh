@@ -1,0 +1,11 @@
+{$DOMAIN} {
+    handle /api/* {
+        reverse_proxy coordinator:8000
+    }
+    handle /ws/* {
+        reverse_proxy coordinator:8000
+    }
+    handle {
+        respond "dodgewuh backend is running. Frontend deployment is pending." 200
+    }
+}

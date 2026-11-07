@@ -1,0 +1,32 @@
+name: dodgewuh-coordinator
+services:
+  coordinator:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to an immutable backend image tag}
+    restart: unless-stopped
+    environment:
+      BUILD_SHA: ${BUILD_SHA:?Set BUILD_SHA}
+      PUBLIC_ORIGIN: https://${DOMAIN:?Set DOMAIN}
+      GAME_WORKER_URL: ${GAME_WORKER_URL:?Set worker private URL}
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      coordinator:
+        condition: service_healthy
+volumes:
+  caddy_data:
+  caddy_config:

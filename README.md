@@ -55,3 +55,8 @@ Compose is for local development: loopback ports, source mounts and reload enabl
 Production will run coordinator and worker containers on separate VMs, without
 reload, behind Caddy HTTPS/WSS, with private authenticated service communication
 and one Uvicorn worker per container. This scaffold does not provision those VMs.
+
+## AWS infrastructure
+
+See [infra/README.md](infra/README.md) for the two-VM Terraform configuration,
+production Compose files, deployment prerequisites and cleanup instructions.
