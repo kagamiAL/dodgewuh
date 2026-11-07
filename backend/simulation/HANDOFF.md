@@ -1,8 +1,17 @@
 # Simulation handoff — Richard
 
-**Freeze commit:** `0a49de1` ("Init plans."), the only commit touching 02/03/04 and HEAD at the time of
-writing. All constants come from [02](../../plans/02-game-specification.md); all wire field names come from
+**Contract commits:** frozen at `0a49de1` ("Init plans."); amended by `ebccfe4` ("Amend MD to not make
+tests."), which is merged into this branch. I re-diffed 02 and 03 across that amendment: **no normative rule
+or wire-schema change** — 02 and 03 received only the project-instruction banner and test→manual-check
+wording. Every constant and field name in this package is therefore still correct. All constants come from
+[02](../../plans/02-game-specification.md); all wire field names come from
 [03](../../plans/03-api-contracts.md).
+
+**Project instruction compliance (dodgewuh):** this package contains no test framework, no test dependency,
+no test file and no test directory, and no milestone or handoff is gated on an automated test command.
+`backend/tests/simulation/**` was removed from my ownership in `ebccfe4` and was never created. Verification
+is a build check plus the synthetic runner, which 06 designates a manual diagnostic tool and the instruction
+explicitly retains as a runtime validator.
 
 **Milestone:** M1 (roadmap H0–1 h). Scope is DTOs, Simulation signatures, reset state, deterministic movement
 and the first fixtures. What is *not* implemented yet is listed at the bottom — please read that section
@@ -12,15 +21,28 @@ before assuming a behaviour exists.
 
 ---
 
-## Run it
+## Manual verification steps
 
 ```sh
+# 1. build check — stdlib only, no dependencies
+PYTHONPATH=backend python -m compileall -q backend/simulation
+
+# 2. runtime diagnostics against the rules in 02/03
 PYTHONPATH=backend python -m simulation.synthetic
+
+# 3. regenerate the fixtures handed to you
 PYTHONPATH=backend python -m simulation.synthetic --fixtures backend/simulation/fixtures
 ```
 
-The runner currently reports **76/76 checks passed**. There is no pytest suite: this project's simulation
-verification is the synthetic runner, by direction of the repo owner.
+Step 2 currently reports **76/76 observations match the specified rules**, printing each rule it observed so
+the output can be read and judged by a person. A deviation prints `DEVIATION` with observed-vs-expected values
+and exits non-zero.
+
+**Python version:** your `backend/pyproject.toml` pins `>=3.12,<3.13` and `.python-version` says `3.12`. My
+machine has 3.14.0 installed, so I ran the diagnostics there; I also verified all six modules parse under
+`ast.parse(..., feature_version=(3,12))`. The package uses no syntax or stdlib feature newer than 3.12, but
+the 3.12 run is still unobserved on my side — please confirm it under the pinned interpreter in your venv or
+container when you wire it up.
 
 No framework import appears anywhere in this package — verified mechanically:
 
@@ -194,6 +216,23 @@ Working now: lobby/reset state, full snapshot projection, `apply_input` validati
 fixed-step movement with half-court clamps and stale stop, `countdown → active`, `reset`/`abort` to lobby,
 and `start` gating on readiness and screen count.
 
-**Not claimed:** no device test, no deployment, no integration through a real adapter or renderer. Neither
-`backend/app/` nor `frontend/` exists in this repository yet, so the H4/H6/H8/H12 integration gates have not
-been attempted, let alone met.
+**Not claimed:** no device check, no deployment, no integration through a real adapter or renderer. The
+H4/H6/H8/H12 integration gates have not been attempted, let alone met.
+
+## Wiring into your bootstrap
+
+I read `origin/backend-alan` at `0329530`. `backend/app/worker.py` says "Richard's simulation will run in this
+process" — that is the right home. From `backend/`, `from simulation import Simulation` resolves with no
+`PYTHONPATH` gymnastics, since `simulation/` sits beside `app/`. Nothing in this package needs to be added to
+`pyproject.toml`: it imports only the standard library, so it has no dependency footprint and no build step.
+
+Two things I noticed while reading your branch, both yours to decide and neither blocking me:
+
+1. Your `compose.yaml` splits a coordinator from a game worker, while
+   [01:3](../../plans/01-architecture.md) describes one FastAPI process holding one simulation object per
+   room. A split is fine for the simulation — it is a plain synchronous object with no shared state between
+   instances — but 01 also requires that **one room's mutations are serialized on a single event loop**. If a
+   room could ever be served by two worker replicas, that invariant breaks and so does authority. Worth
+   pinning a room to exactly one worker.
+2. `.gitignore` on your branch covers `__pycache__/`, which main does not yet have. I had committed six
+   `.pyc` files into my own path; I have untracked them in this branch.
