@@ -77,6 +77,7 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
     renderState: (state) => stateRenderer.render(state),
     destroy() {
       destroyed = true
+      stadium.destroy()
       resizeObserver.disconnect()
       app.destroy()
     },
