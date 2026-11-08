@@ -140,7 +140,18 @@ onBeforeUnmount(() => {
       {{ connection }} <RouterLink v-if="session.data.status === 'closed'" to="/">Rejoin</RouterLink>
     </p>
 
-    <template v-else-if="assignment && state">
+    <section v-if="connected && state?.phase === 'lobby'" class="ready-summary">
+      <h2>Choose your team</h2>
+      <p>Pick a team to join a free role. Changing teams resets player readiness.</p>
+      <button v-for="team in ([1, 2] as const)" :key="team"
+        :disabled="assignment?.team === team || seats.filter(s => s.team === team && s.member).length >= 2"
+        @click="transport.send({ v: 1, type: 'team.choose', payload: { team } })">
+        {{ TEAM_LABEL[team] }}{{ assignment?.team === team ? ' · Your team' : '' }}
+      </button>
+      <button v-if="assignment" @click="transport.send({ v: 1, type: 'team.choose', payload: { team: null } })">Leave team</button>
+      <p v-if="errorText" class="error" role="alert">{{ errorText }}</p>
+    </section>
+    <template v-if="!connection && assignment && state">
       <section v-if="canReady" class="ready-summary" aria-live="polite" aria-atomic="true">
         <p class="setup-status">{{ setupStatus }}</p>
         <p class="count">{{ readyCount }}/4 ready</p>
@@ -178,7 +189,7 @@ onBeforeUnmount(() => {
       </section>
     </template>
 
-    <p v-else-if="state" class="hint">All four phone seats are taken. Join as a screen instead.</p>
+    <p v-else-if="state" class="hint">Choose a team with an open spot to play.</p>
   </main>
 </template>
 

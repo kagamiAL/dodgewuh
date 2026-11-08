@@ -50,7 +50,7 @@ export interface Closed { reason: 'host_left' | 'expired' | 'server_shutdown' }
 export interface ClientPayloads {
   'session.hello': Hello; 'session.ping': Ping; 'controller.ready': Ready;
   'match.start': Empty; 'match.reset': Empty; 'match.rematch': Empty;
-  'input.legs': Legs; 'input.arms': Arms; 'camera.claim': CameraClaim;
+  'input.legs': Legs; 'input.arms': Arms; 'camera.claim': CameraClaim; 'team.choose': CameraClaim;
 }
 export interface ServerPayloads {
   'session.welcome': Welcome; 'session.pong': Ping; 'room.updated': RoomUpdate;

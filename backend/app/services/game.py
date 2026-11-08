@@ -120,6 +120,7 @@ class GameRoom:
         self.sim = Simulation()
         self.peers = {}
         self.status = {}
+        self.team_choices = set()
         self.cameras = {}  # connected screen member_id -> team whose Legs its camera steers
         self.camera_facing = {}  # team -> (Vec2, received_ms): latest facing from that team's camera
         self.turnaround = {}  # team -> 'away', or the now_ms() its turnaround pause ends
@@ -197,7 +198,7 @@ class GameRoom:
         free = [slot for slot in SLOTS if slot not in taken]
         phones = sorted((m for m in self.facts['members'] if m['device'] == 'phone'), key=lambda m: m['slot'])
         added = [Assignment(member_id=m['member_id'], team=team, role=role)
-                 for m, (team, role) in zip((m for m in phones if m['member_id'] not in seated), free)]
+                 for m, (team, role) in zip((m for m in phones if m['member_id'] not in seated and m['member_id'] not in self.team_choices), free)]
         if added or retained != state.assignments:
             self.sim.set_assignments(retained + tuple(added))
             self._clear_readiness()
@@ -352,8 +353,30 @@ class GameRoom:
             self._flush()
         elif kind in ('input.legs', 'input.arms'):
             self._input(peer, kind, payload)
+        elif kind == 'team.choose':
+            self._choose_team(peer, payload)
         elif kind == 'camera.claim':
             self._camera(peer, payload)
+
+    def _choose_team(self, peer, p):
+        state = self.sim.snapshot()
+        if self._device(peer.member_id) != 'phone' or state.phase != 'lobby':
+            return self._error(peer, 'FORBIDDEN', 'Choose a team from your phone in the lobby')
+        current = next((a for a in state.assignments if a.member_id == peer.member_id), None)
+        if current and current.team == p.team:
+            return
+        assignments = tuple(a for a in state.assignments if a.member_id != peer.member_id)
+        if p.team is not None:
+            role = next((role for team, role in SLOTS if team == p.team and
+                         not any(a.team == team and a.role == role for a in assignments)), None)
+            if role is None:
+                return self._error(peer, 'FORBIDDEN', 'That team is full. Choose another team.')
+            assignments += (Assignment(member_id=peer.member_id, team=p.team, role=role),)
+        self.team_choices.add(peer.member_id)
+        self.sim.set_assignments(assignments)
+        self._clear_readiness()
+        self._push_facts()
+        self._flush(room_changed=True)
 
     def _camera(self, peer, p):
         if self._device(peer.member_id) != 'screen':

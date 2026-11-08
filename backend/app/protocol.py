@@ -315,7 +315,7 @@ class Closed(Model):
 CLIENT_PAYLOADS = {
     'session.hello': Hello, 'session.ping': Ping, 'controller.ready': Ready,
     'match.start': Empty, 'match.reset': Empty, 'match.rematch': Empty,
-    'input.legs': Legs, 'input.arms': Arms, 'camera.claim': CameraClaim,
+    'input.legs': Legs, 'input.arms': Arms, 'camera.claim': CameraClaim, 'team.choose': CameraClaim,
 }
 SERVER_PAYLOADS = {
     'session.welcome': Welcome, 'session.pong': Ping, 'room.updated': RoomUpdate,
