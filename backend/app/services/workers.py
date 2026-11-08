@@ -12,8 +12,9 @@ from app.services.rooms import RoomError
 
 
 class WorkerRoom:
-    def __init__(self, hub, code, url):
+    def __init__(self, hub, code, url, allocation_id):
         self.hub, self.code, self.url = hub, code, url
+        self.allocation_id = allocation_id
         self.peers = {}
         self.queue = asyncio.Queue(maxsize=128)
         self.failed = False
@@ -57,6 +58,10 @@ class WorkerRoom:
                 try:
                     async for raw in socket:
                         item = json.loads(raw)
+                        if item['op'] == 'history':
+                            await asyncio.to_thread(self.hub.rooms_service.report, self.code,
+                                                    self.allocation_id, item['seq'], item['state'])
+                            continue
                         if item['op'] == 'inspected':
                             future = self.pending.pop(item['request'], None)
                             if future and not future.done():
@@ -96,6 +101,12 @@ class WorkerRoom:
                     pass
                 peer.close(1012)
             self.peers.clear()
+            try:
+                await asyncio.to_thread(self.hub.rooms_service.end_allocation, self.code,
+                                        self.allocation_id,
+                                        'server_shutdown' if self.hub.stopping else 'worker_lost')
+            except Exception:
+                logging.getLogger(__name__).exception('Failed to end allocation room=%s', self.code)
             if not self.hub.stopping and not self.ended:
                 try:
                     await asyncio.to_thread(self.hub.rooms_service.close_worker_room, self.code)
@@ -118,12 +129,20 @@ class WorkerHub:
         if not self.urls:
             raise ValueError('At least one worker URL is required')
         self.next_worker = 0
+        self.allocation_lock = asyncio.Lock()
 
-    def attach(self, socket, facts):
+    async def attach(self, socket, facts):
+        async with self.allocation_lock:
+            return await self._attach(socket, facts)
+
+    async def _attach(self, socket, facts):
         code = facts['room_code']
         room = self.rooms.get(code)
         if room is None:
-            room = self.rooms[code] = WorkerRoom(self, code, self.urls[self.next_worker % len(self.urls)])
+            url = self.urls[self.next_worker % len(self.urls)]
+            allocation_id = uuid4()
+            await asyncio.to_thread(self.rooms_service.allocate, code, allocation_id, url)
+            room = self.rooms[code] = WorkerRoom(self, code, url, allocation_id)
             self.next_worker += 1
         peer = room.attach(socket, facts)
         self.rooms_service.reservations.pop(peer.member_id, None)

@@ -103,3 +103,7 @@ docker compose exec -T postgres psql -U dodgewuh -d dodgewuh_restore -c 'SELECT 
 Inspect retained records and migration revision before deleting the disposable
 restore database. Backup/restore has not yet been exercised. A Docker volume or
 EBS disk is not an off-host backup. Terraform destroy still deletes all AWS data.
+
+## Match history persistence
+
+Run Alembic through `0002_history` before starting this release. The coordinator records allocations, versioned assignments, match starts/aborts and authoritative final results from the authenticated worker channel. Restart preserves history and revokes old sessions; active matches are aborted rather than resumed. See [section 4 verification](../docs/demo/section4-persistence.md) for duplicate-report behavior, migration compatibility and unverified full-match completion.

@@ -47,13 +47,13 @@ The current simulation includes pickup, ownership, cancellation, flight, respawn
 
 ## 4. Complete the persistence required for the implemented slice
 
-[Plan 11](plans/11-sql-persistence.md) requires more than room/member registration. Current SQL models only cover those two record types; worker allocation is runtime-only.
+[Plan 11](plans/11-sql-persistence.md) requires more than room/member registration. Allocation, assignment and match/result history are now implemented; see [local verification and limits](docs/demo/section4-persistence.md).
 
-- [ ] Add explicit migrations/repositories for assignment and worker-allocation metadata now that allocation exists. Persist initial assignments and subsequent authoritative role changes, without treating SQL as gameplay authority.
-- [ ] Define and implement coordinator-owned match lifecycle/result persistence with an authenticated worker reporting interface. Serialize writes outside the simulation tick; use stable match identity and uniqueness/idempotency so duplicate callbacks cannot award or save results twice.
-- [ ] Record interruption/abort on worker/coordinator loss and preserve history while invalidating old sessions. Never persist raw sensor samples, live ball trajectories, sockets or process-monotonic expiry values.
+- [x] Add explicit migrations/repositories for assignment and worker-allocation metadata now that allocation exists. Persist initial assignments and subsequent authoritative role changes, without treating SQL as gameplay authority.
+- [x] Define and implement coordinator-owned match lifecycle/result persistence with an authenticated worker reporting interface. Serialize writes outside the simulation tick; use stable match identity and uniqueness/idempotency so duplicate callbacks cannot award or save results twice.
+- [x] Record interruption/abort on worker/coordinator loss and preserve history while invalidating old sessions. Never persist raw sensor samples, live ball trajectories, sockets or process-monotonic expiry values.
 - [ ] Coordinate actual completed-result/role-switch emission with Richard. If his lifecycle is unavailable at the second integration, explicitly record that dependency and the unverified result path; do not invent completion events or claim full-match persistence passed.
-- [ ] Apply migrations to a disposable/local PostgreSQL database; verify restart retention, revoked-token rejection and duplicate-report handling where implemented. Check migration compatibility before deploying against retained data.
+- [x] Apply migrations to a disposable/local PostgreSQL database; verify restart retention, revoked-token rejection and duplicate-report handling where implemented. Check migration compatibility before deploying against retained data.
 
 ## 5. Prepare and deploy the public integration environment
 

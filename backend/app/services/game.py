@@ -110,6 +110,7 @@ class Peer:
 class GameRoom:
     def __init__(self, facts):
         self.code = facts['room_code']
+        self.report_history = None
         self.facts = facts
         self.sim = Simulation()
         self.peers = {}
@@ -220,6 +221,8 @@ class GameRoom:
         bundle_open = False
         for event in self.sim.drain_events():
             if isinstance(event, PhaseChanged):
+                if self.report_history:
+                    self.report_history(event.state)
                 if bundle_open:
                     self._broadcast_room()
                 if event.state.phase == 'lobby':
@@ -227,6 +230,8 @@ class GameRoom:
                 self._broadcast(encode('phase.changed', dict(state=plain(event.state))))
                 bundle_open = True
             elif isinstance(event, RolesChanged):
+                if self.report_history:
+                    self.report_history(self.sim.snapshot())
                 self._clear_readiness()
                 self._broadcast(encode('roles.changed', dict(assignments=plain(event.assignments),
                     assignment_version=event.assignment_version, epoch=event.epoch)))
@@ -235,6 +240,8 @@ class GameRoom:
                 peer = self.peers.get(event.member_id)
                 if peer:
                     self._error(peer, event.code, event.message, event.ref_seq)
+        if room_changed and self.report_history:
+            self.report_history(self.sim.snapshot())
         if bundle_open or room_changed:
             self._broadcast_room()
         if bundle_open:

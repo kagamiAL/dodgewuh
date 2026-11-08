@@ -7,7 +7,7 @@ import secrets
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from app.protocol import Health, decode_client
-from app.services.game import GameHub
+from app.services.game import GameHub, plain
 
 
 @asynccontextmanager
@@ -49,6 +49,22 @@ async def room_channel(socket: WebSocket):
     queue = asyncio.Queue(maxsize=128)
     peers = {}
     room = None
+    report_seq = 0
+    last_history = None
+
+    def report_history(state):
+        nonlocal report_seq, last_history
+        data = {key: plain(getattr(state, key)) for key in
+                ('phase', 'assignment_version', 'assignments', 'score', 'winner')}
+        if data != last_history:
+            report_seq += 1
+            try:
+                queue.put_nowait(dict(op='history', seq=report_seq, state=data))
+            except asyncio.QueueFull:
+                asyncio.create_task(socket.close(code=1013))
+                raise
+            last_history = data
+
     async def send():
         while True:
             await socket.send_json(await queue.get())
@@ -80,6 +96,8 @@ async def room_channel(socket: WebSocket):
                 if connection_id in peers:
                     raise ValueError('Duplicate connection')
                 room, peer = hub.attach(RelaySocket(queue, connection_id), facts)
+                room.report_history = report_history
+                report_history(room.sim.snapshot())
                 peers[connection_id] = peer
             elif item['op'] == 'detach':
                 peer = peers.pop(connection_id, None)

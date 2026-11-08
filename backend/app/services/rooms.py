@@ -6,7 +6,8 @@ from uuid import uuid4
 from time import monotonic
 from sqlalchemy import select
 
-from app.db.models import MemberRecord, RoomRecord
+from app.db.models import AllocationRecord, MemberRecord, RoomRecord
+from app.repositories.history import HistoryRepository
 from app.protocol import Registration
 from app.repositories.members import MemberRepository
 from app.repositories.rooms import RoomRepository
@@ -46,6 +47,8 @@ class Rooms:
         """
         with self.sessions.begin() as db:
             now = datetime.now(timezone.utc)
+            for room in db.scalars(select(RoomRecord).where(RoomRecord.closed_at.is_(None))):
+                HistoryRepository(db).end(room.id, 'server_restart')
             RoomRepository(db).close_open(at=now, reason="server_restart")
             MemberRepository(db).revoke_active(at=now)
 
@@ -159,6 +162,7 @@ class Rooms:
             if room and room.runtime_id == self.runtime_id and room.closed_at is None:
                 now = datetime.now(timezone.utc)
                 room.closed_at, room.closed_reason = now, 'worker_lost'
+                HistoryRepository(db).end(room.id, 'worker_lost')
                 for member in MemberRepository(db).active(room.id):
                     member.revoked_at = now
 
@@ -199,6 +203,7 @@ class Rooms:
             reason = 'host_left' if str(room.host_id) == remove else 'expired'
             if expired or str(room.host_id) in removed:
                 room.closed_at, room.closed_reason = now, reason
+                HistoryRepository(db).end(room.id, reason)
                 for member in members:
                     member.revoked_at, member.slot = now, None
                     self.reservations.pop(str(member.id), None)
@@ -214,3 +219,27 @@ class Rooms:
         with self.sessions() as db:
             return list(db.scalars(select(RoomRecord.code).where(
                 RoomRecord.runtime_id == self.runtime_id, RoomRecord.closed_at.is_(None))))
+
+    def allocate(self, code, allocation_id, url):
+        with self.sessions.begin() as db:
+            room = RoomRepository(db).get_by_code_for_update(code)
+            self._validate_join(room, 'screen', datetime.now(timezone.utc))
+            db.add(AllocationRecord(id=allocation_id, room_id=room.id, worker_url=url,
+                                    created_at=datetime.now(timezone.utc), report_seq=0))
+
+    def report(self, code, allocation_id, seq, state):
+        with self.sessions.begin() as db:
+            room = RoomRepository(db).get_by_code_for_update(code)
+            self._validate_join(room, 'screen', datetime.now(timezone.utc))
+            allocation = db.get(AllocationRecord, allocation_id)
+            if allocation is None or allocation.room_id != room.id or allocation.ended_at:
+                raise ValueError('Inactive allocation')
+            HistoryRepository(db).report(allocation, seq, state)
+
+    def end_allocation(self, code, allocation_id, reason):
+        """End history even when another lifecycle policy already closed the room."""
+        with self.sessions.begin() as db:
+            room = RoomRepository(db).get_by_code_for_update(code)
+            allocation = db.get(AllocationRecord, allocation_id)
+            if room and room.runtime_id == self.runtime_id and allocation and allocation.room_id == room.id:
+                HistoryRepository(db).end(room.id, room.closed_reason or reason)

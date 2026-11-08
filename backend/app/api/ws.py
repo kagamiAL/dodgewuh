@@ -35,7 +35,7 @@ async def websocket(socket: WebSocket, room_code: str):
             async with hub.lock:
                 await hub.refresh(room_code.strip().upper())
                 facts = await asyncio.to_thread(rooms.authenticate, room_code, hello.payload.token)
-                room, peer = hub.attach(socket, facts)
+                room, peer = await hub.attach(socket, facts)
         except RoomError as exc:
             await socket.close(code=4404 if exc.status == 404 else 4401)
             return
