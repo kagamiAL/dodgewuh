@@ -10,7 +10,8 @@
 // See pocketFrame.ts / jogTracker.ts.
 
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import type { RoleComponentProps } from '@/phone/roleComponent'
+import '@/phone/controllerSetup.css'
+import type { RoleComponentProps, SetupStage } from '@/phone/roleComponent'
 import type { Permission, Vec2 } from '@/contracts/pending'
 import { SENSOR_STALE_MS, type SensorSample } from '@/sensors/sensorService'
 import { session } from '@/stores/session'
@@ -20,7 +21,7 @@ import { createJogTracker, type JogState } from './jogTracker'
 import { beep, say, silence, unlockAudio } from './voice'
 
 const props = defineProps<RoleComponentProps>()
-const emit = defineEmits<{ calibrated: [value: boolean]; availability: [value: Permission] }>()
+const emit = defineEmits<{ ready: []; 'setup-stage': [value: SetupStage]; calibrated: [value: boolean]; availability: [value: Permission] }>()
 
 const POCKET_MS = 6000 // time to pocket the phone while the instruction plays
 const SETTLE_MS = 1200 // after "stand still" before sampling
@@ -31,6 +32,7 @@ const STOP_HOLD_MS = 1500
 
 type Stage = 'start' | 'pocketing' | 'calibrating' | 'live' | 'blocked'
 const stage = ref<Stage>('start')
+watch(stage, (value) => emit('setup-stage', value), { immediate: true })
 const note = ref('')
 const live = ref<JogState>({ jogging: false, heading_deg: 0, intensity: 0, dir: null })
 const stopping = ref(false)
@@ -108,6 +110,7 @@ function onSample(s: SensorSample): void {
 }
 
 function start(): void {
+  emit('ready')
   // Everything gesture-gated starts synchronously inside this tap.
   unlockAudio()
   navigator.wakeLock?.request('screen').then((w) => (wakeLock = w)).catch(() => {})
@@ -161,7 +164,7 @@ function finishCalibration(): void {
     later(0, beginCalibration)
     return
   }
-  stop('Could not calibrate. Take the phone out and tap Start again.')
+  stop('Could not calibrate. Take the phone out and tap Ready to start again.')
   say('Calibration failed. Take out your phone and try again.')
 }
 
@@ -197,7 +200,7 @@ function releaseStop(): void {
 
 function onVisibility(): void {
   if (document.hidden && stage.value !== 'start' && stage.value !== 'blocked') {
-    stop('The screen turned off. Take the phone out and tap Start again.')
+    stop('The screen turned off. Take the phone out and tap Ready to start again.')
   }
 }
 document.addEventListener('visibilitychange', onVisibility)
@@ -223,19 +226,20 @@ onBeforeUnmount(() => {
     <template v-if="stage === 'start' || stage === 'blocked'">
       <h1>Legs{{ cameraMode ? ' · camera' : '' }}</h1>
       <ol v-if="cameraMode">
-        <li>Tap <strong>Start</strong> and put the phone in your <strong>front pocket</strong>. It senses when you jog.</li>
+        <li>Tap <strong>Ready to start</strong> and put the phone in your <strong>front pocket</strong>. It senses when you jog.</li>
         <li><strong>Face the screen</strong> and stand still when the voice says so.</li>
         <li>Stand in the <strong>right half</strong> of the camera view (Arms takes the left half). The camera sees which way you face.</li>
         <li><strong>Jog in place</strong> to move. Face the way you want to go: the screen = forward; turn to steer.</li>
       </ol>
       <ol v-else>
-        <li>Tap <strong>Start</strong>.</li>
+        <li>Tap <strong>Ready to start</strong>.</li>
         <li>Put the phone in your <strong>front pocket</strong> (any way round).</li>
         <li><strong>Face the screen</strong> and stand still when the voice says so.</li>
         <li><strong>Jog in place</strong> to move. Face the way you want to go: screen = forward, turn left = left, turn right = right, turn around = back. Turn while standing, then jog.</li>
       </ol>
       <p v-if="note" class="note">{{ note }}</p>
-      <button v-if="stage === 'start'" class="start" @click="start">Start</button>
+      <p v-if="stage === 'start'" class="setup-help">Calibrates your controller and readies you for the game.</p>
+      <button v-if="stage === 'start'" class="setup-action" @click="start">Ready to start</button>
     </template>
 
     <template v-else-if="stage === 'pocketing' || stage === 'calibrating'">
@@ -244,6 +248,7 @@ onBeforeUnmount(() => {
     </template>
 
     <div v-else class="lock">
+      <p v-if="state.phase === 'lobby' || state.phase === 'role_switch'" class="pocket-ready" role="status">{{ ready ? 'Ready — waiting for the other players.' : 'Calibrated — waiting for ready confirmation…' }}</p>
       <div class="arrow" :class="{ moving: live.jogging }" :style="{ transform: `rotate(${-live.heading_deg}deg)` }">↑</div>
       <p>{{ live.jogging ? 'Jogging' : 'Standing' }} · facing {{ Math.round(live.heading_deg) }}° · intensity {{ live.intensity.toFixed(1) }}</p>
       <button
@@ -263,10 +268,9 @@ onBeforeUnmount(() => {
 <style scoped>
 .legs {
   min-height: 100%;
-  padding: 1.5rem max(1rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom))
+  padding: 1rem max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom))
     max(1rem, env(safe-area-inset-left));
   box-sizing: border-box;
-  border-top: 6px solid var(--team);
   overflow-wrap: break-word;
 }
 h1 {
@@ -279,17 +283,7 @@ ol {
 .note {
   color: #fb4;
 }
-.start {
-  width: 100%;
-  min-width: 0;
-  min-height: min(120px, 22vh);
-  font-size: clamp(1.25rem, 6vw, 1.6rem);
-  font-weight: 700;
-  border: 0;
-  border-radius: 14px;
-  background: var(--team);
-  color: #000;
-}
+
 .lock {
   position: fixed;
   inset: 0;

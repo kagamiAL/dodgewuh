@@ -1,0 +1,23 @@
+/* Shared primary action for both phone controller setup flows. */
+.setup-action {
+  width: 100%;
+  min-width: 0;
+  min-height: clamp(64px, 18svh, 120px);
+  padding: 1rem;
+  font: inherit;
+  font-size: clamp(1.25rem, 6vw, 1.6rem);
+  font-weight: 700;
+  border: 0;
+  border-radius: 14px;
+  background: var(--team);
+  color: #000;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+@media (hover: hover) {
+  .setup-action:hover:not(:disabled) { filter: brightness(1.08); }
+}
+.setup-action:active:not(:disabled) { filter: brightness(0.9); }
+.setup-action:disabled { cursor: wait; }
+.setup-action:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+.setup-help { margin: 0.75rem 0; font-size: 0.9rem; line-height: 1.5; }

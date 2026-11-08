@@ -4,7 +4,7 @@
 //
 // Ready is an explicit tap that arms an intent for the current epoch/assignment_version.
 // ready=true is sent once the role component reports calibrated + granted, so a Legs player
-// can tap Ready, then Start and pocket the phone. Losing either sends ready=false at once.
+// starts calibration with the same tap. Losing either sends ready=false at once.
 // The shell never sends gameplay input.
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import type { Permission, ServerMessage } from '@/contracts/pending'
@@ -12,6 +12,7 @@ import { createSensorService } from '@/sensors/sensorService'
 import { session } from '@/stores/session'
 import { connect, transport } from '@/stores/connection'
 import { TEAM_HEX, TEAM_LABEL } from '@/theme'
+import type { SetupStage } from '@/phone/roleComponent'
 import LegsController from '@/controllers/legs/LegsController.vue'
 import ArmsPending from './ArmsPending.vue'
 
@@ -45,6 +46,16 @@ const readyCount = computed(() => seats.value.filter((s) => s.member?.connected 
 // pointer state never carry over (roleComponent.ts lifecycle).
 const generation = ref(0)
 const calibrated = ref(false)
+const setupStage = ref<SetupStage>('start')
+const setupStatus = computed(() => {
+  if (me.value?.ready) return 'Ready — waiting for the other players.'
+  if (setupStage.value === 'blocked') return 'Motion access needed. Follow the instructions below.'
+  if (setupStage.value === 'pocketing') return 'Pocket your phone, then face the screen.'
+  if (setupStage.value === 'calibrating') return 'Calibrating… Hold still.'
+  if (setupStage.value === 'live') return availability.value === 'granted' ? 'Calibration complete. Getting ready…' : 'Waiting for motion sensors…'
+  if (intent.value) return 'Setup incomplete. Follow the instructions below to try again.'
+  return state.value?.phase === 'role_switch' ? 'Roles swapped. Set up your controller for the next round.' : 'Set up your controller to join the game.'
+})
 const availability = ref<Permission>('unknown')
 const intent = ref<{ epoch: number; assignment_version: number } | null>(null)
 let reported: { ready: boolean; permission: Permission; calibrated: boolean; epoch: number; version: number } | null = null
@@ -56,6 +67,7 @@ function onMessage(message: ServerMessage): void {
     (message.type === 'phase.changed' && message.payload.state.phase === 'lobby')
   if (!fresh) return
   generation.value++
+  setupStage.value = 'start'
   calibrated.value = false
   availability.value = 'unknown'
   intent.value = null
@@ -91,7 +103,7 @@ watch([calibrated, availability, intent, connected, () => state.value?.epoch, ()
 function tapReady(): void {
   const st = state.value
   if (!st) return
-  intent.value = intent.value ? null : { epoch: st.epoch, assignment_version: st.assignment_version }
+  intent.value = { epoch: st.epoch, assignment_version: st.assignment_version }
 }
 
 const roleComponent = computed(() => (assignment.value?.role === 'arms' ? ArmsController : LegsController))
@@ -129,18 +141,9 @@ onBeforeUnmount(() => {
     </p>
 
     <template v-else-if="assignment && state">
-      <section v-if="canReady" class="ready">
-        <button :class="{ on: intent }" @click="tapReady">{{ intent ? (me?.ready ? 'Ready ✓' : 'Ready — finish setup below') : 'Tap when ready' }}</button>
-        <p class="hint">{{ state.phase === 'role_switch' ? 'Roles swapped. Recalibrate, then tap Ready.' : 'Tap Ready, then set up your controller below.' }}</p>
-        <ul class="seats" :aria-label="`${readyCount} of 4 ready`">
-          <li v-for="s in seats" :key="`${s.team}${s.role}`" :class="{ ok: s.member?.ready, me: s.me }" :style="{ '--seat': TEAM_HEX[s.team] }">
-            <span class="dot" />
-            <span class="slot">T{{ s.team }} {{ s.role === 'arms' ? 'Arms' : 'Legs' }}</span>
-            <span class="who">{{ s.member?.name ?? '—' }}{{ s.me ? ' (you)' : '' }}</span>
-            <span class="status">{{ s.status }}</span>
-          </li>
-        </ul>
-        <p class="hint count">{{ readyCount }}/4 ready{{ state.phase === 'role_switch' ? ` · round ${state.round + 1} starts when all 4 are` : '' }}</p>
+      <section v-if="canReady" class="ready-summary" aria-live="polite" aria-atomic="true">
+        <p class="setup-status">{{ setupStatus }}</p>
+        <p class="count">{{ readyCount }}/4 ready</p>
       </section>
       <p v-else class="phase">{{ state.phase === 'active' ? 'Playing' : state.phase.replace('_', ' ') }}</p>
       <p v-if="errorText" class="error">{{ errorText }}</p>
@@ -156,9 +159,23 @@ onBeforeUnmount(() => {
         :assignment_version="state.assignment_version"
         :state="state"
         :connected="connected"
+        :ready="!!me?.ready"
+        @setup-stage="setupStage = $event"
+        @ready="tapReady"
         @calibrated="calibrated = $event"
         @availability="availability = $event"
       />
+      <section v-if="canReady" class="ready" aria-label="Player readiness">
+        <ul class="seats" :aria-label="`${readyCount} of 4 ready`">
+          <li v-for="s in seats" :key="`${s.team}${s.role}`" :class="{ ok: s.member?.ready, me: s.me }" :style="{ '--seat': TEAM_HEX[s.team] }">
+            <span class="dot" />
+            <span class="slot">T{{ s.team }} {{ s.role === 'arms' ? 'Arms' : 'Legs' }}</span>
+            <span class="who">{{ s.member?.name ?? '—' }}{{ s.me ? ' (you)' : '' }}</span>
+            <span class="status">{{ s.status }}</span>
+          </li>
+        </ul>
+        <p v-if="state.phase === 'role_switch'" class="round-hint">Round {{ state.round + 1 }} starts when all 4 players are ready.</p>
+      </section>
     </template>
 
     <p v-else-if="state" class="hint">All four phone seats are taken. Join as a screen instead.</p>
@@ -170,9 +187,6 @@ onBeforeUnmount(() => {
   .seats li { grid-template-columns: auto auto minmax(0, 1fr); }
   .seats .status { grid-column: 2 / -1; }
 }
-.ready button { cursor: pointer; font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-size: 1.5rem; text-transform: uppercase; }
-.ready button:hover { background: var(--surface); }
-.ready button.on:hover { background: var(--team); filter: brightness(1.1); }
 .seats .slot { color: var(--seat); }
 
 .phone {
@@ -202,23 +216,19 @@ header span:first-child {
   font-family: ui-monospace, monospace;
   letter-spacing: 0.15em;
 }
-.ready {
-  padding: 1rem 1rem 0;
+.ready { padding: 0 1rem 1rem; }
+.ready-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.75rem 1rem 0;
 }
-.ready button {
-  width: 100%;
-  min-height: 3.5rem;
-  font: inherit;
-  font-weight: 700;
-  border: 2px solid var(--team);
-  border-radius: 12px;
-  background: transparent;
-  color: inherit;
-}
-.ready button.on {
-  background: var(--team);
-  color: #000;
-}
+.setup-status, .count, .round-hint { margin: 0; font-size: 0.9rem; }
+.setup-status { flex: 1 1 14rem; }
+.count { font-weight: 700; white-space: nowrap; }
+.round-hint { margin-top: 0.75rem; color: var(--muted); }
 .seats {
   list-style: none;
   margin: 0.75rem 0 0;
@@ -265,11 +275,6 @@ header span:first-child {
 }
 .seats li.ok .status {
   color: #6d6;
-}
-.hint.count {
-  margin: 0.4rem 0 0;
-  font-weight: 700;
-  color: #ddd;
 }
 .hint,
 .phase {

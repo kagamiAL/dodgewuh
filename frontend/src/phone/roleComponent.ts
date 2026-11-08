@@ -4,6 +4,8 @@
 
 import type { ID, Permission, SensorService, State, Team, Transport } from '@/contracts/pending'
 
+export type SetupStage = 'start' | 'aim' | 'pocketing' | 'calibrating' | 'live' | 'blocked'
+
 /** Props PhoneShell passes to whichever role component is mounted. */
 export interface RoleComponentProps {
   transport: Transport
@@ -17,6 +19,8 @@ export interface RoleComponentProps {
   state: State
   /** True only while the transport status is 'connected'. Gate controls on it. */
   connected: boolean
+  /** Authoritative ready confirmation, also visible in the pocket screen. */
+  ready?: boolean
 }
 
 /**
@@ -26,6 +30,9 @@ export interface RoleComponentProps {
  * PhoneShell turns these into controller.ready messages; role components never send ready themselves.
  */
 export interface RoleComponentEmits {
+  /** The calibration tap also records the player's ready intent. */
+  (e: 'ready'): void
+  (e: 'setup-stage', value: SetupStage): void
   (e: 'calibrated', value: boolean): void
   (e: 'availability', value: Permission): void
 }
@@ -36,7 +43,7 @@ export interface RoleComponentEmits {
  *   so calibration and pointer state never carry over. Clean up listeners on unmount.
  * - Countdown/active epoch changes arrive as a new `epoch` prop without remounting: clear input
  *   latches (Hold) but keep calibration.
- * - PhoneShell sends ready=true only after the player taps Ready with availability 'granted' and
+ * - PhoneShell sends ready=true only after the player starts calibration with availability 'granted' and
  *   calibrated true, and sends ready=false immediately if either drops.
  * - PhoneShell never sends gameplay input; the role component owns input.legs / input.arms.
  */
