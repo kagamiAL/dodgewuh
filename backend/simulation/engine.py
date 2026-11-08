@@ -10,7 +10,8 @@ state, full snapshot projection, apply_input validation with room-wide ordinal
 defense, fixed-step movement with half-court clamps and stale-input stop, Hold
 acquisition and ownership, safe cancel and the no-throw zone, constant-speed
 flight with relative-motion swept collision, wall/expiry respawn and
-earliest-hit resolution, and the complete lifecycle: exactly-once scoring, the
+earliest-hit resolution, ballistic arcs that land and stay where they land, and
+the complete lifecycle: exactly-once scoring, the
 3600-tick timeout draw, lobby -> countdown -> active -> round_end ->
 role_switch -> countdown ... -> match_end, every-round role swapping, readiness
 gating of the next round, best-of-3 match end, reset/abort/rematch to lobby, and the
@@ -89,6 +90,10 @@ class _Ball:
     shooter_team: int | None = None
     respawn_ticks: int = 0
     flight_ticks: int = 0
+    # Ballistic height state. Cosmetic for gameplay (collision is flat 2D) but
+    # authoritative, so every screen draws the same arc.
+    height: float = K.GROUND_HEIGHT
+    vertical_velocity: float = 0.0
 
 
 @dataclass(slots=True)
@@ -102,6 +107,23 @@ class _ArmsState:
     hold: bool
     aim: Vec2
     received_ms: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class _FlightPlan:
+    """One flying ball's resolved tick: where it ends and why it stops there.
+
+    `limit` is the fraction of the tick actually travelled after clipping to
+    the floor, a wall or the lifetime endpoint. `ending` is None while the ball
+    stays airborne, 'ground' when it touches down, 'wall' when it leaves the
+    court. `hit_at` is the swept-circle impact fraction, or None.
+    """
+
+    ball_id: str
+    endpoint: Vec2
+    limit: float
+    ending: str | None
+    hit_at: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -535,6 +557,9 @@ class Simulation:
         ball.respawn_ticks = 0
         ball.flight_ticks = 0
         ball.pos = char.pos
+        # Carried at the height it will be released from.
+        ball.height = K.THROW_HEIGHT
+        ball.vertical_velocity = 0.0
         char.held_ball_id = best_id
 
     def _release(
@@ -574,6 +599,11 @@ class Simulation:
         ball.shooter_team = team  # only the opposing character can be hit
         ball.flight_ticks = 0
         ball.respawn_ticks = 0
+        # The throw itself is unchanged: aim is a 2D direction and there is no
+        # vertical-aim channel, so the ball leaves the hands horizontally and
+        # gravity takes over from there.
+        ball.height = K.THROW_HEIGHT
+        ball.vertical_velocity = 0.0
         char.held_ball_id = None
 
     def _sync_held_balls(self) -> None:
@@ -590,10 +620,14 @@ class Simulation:
         caller owns the consequences (scoring and the round_end transition), so
         this stays a pure physics step.
 
-        Flight is constant-speed and flat: velocity never changes, there is no
-        bounce, and y height never enters a collision decision. Each ball is
-        clipped to its wall/lifetime endpoint for this tick BEFORE the hit test,
-        and a hit at or before that endpoint counts.
+        Flight is ballistic: horizontal velocity never changes, while gravity
+        pulls the ball down from its release height. There is no bounce, and
+        height never enters a collision decision -- a horizontally released
+        ball cannot rise, so it stays inside a 1.8 m character's vertical
+        extent for its whole flight and the flat 2D swept circle remains
+        exactly right. Each ball is clipped to the earliest of its floor, wall
+        and lifetime endpoint BEFORE the hit test, and a hit at or before that
+        endpoint counts.
 
         Only a flying ball can hit, and only the character opposing its shooter:
         grounded, held and respawning balls damage nobody, and because the test
@@ -610,15 +644,28 @@ class Simulation:
 
         # --- Advance each flying ball and collect its hit candidate.
         # K.BALL_IDS is a fixed tuple, so iteration order is stable by ball ID.
-        plans: list[tuple[str, Vec2, bool, float | None]] = []
+        plans: list[_FlightPlan] = []
         for ball_id in K.BALL_IDS:
             ball = self._balls[ball_id]
             if ball.mode != "flying":
                 continue
 
             disp = G.scale(ball.velocity, K.DT)
+
+            # Clip the tick to the earliest of: hitting the floor, crossing a
+            # wall, or running out of lifetime. The hit test then runs over
+            # that same window, so a hit at or before the endpoint counts.
             exit_at = G.wall_exit_fraction(ball.pos, disp)
-            limit = 1.0 if exit_at is None else exit_at
+            land_at = G.ground_impact_fraction(ball.height, ball.vertical_velocity)
+            limit = 1.0
+            ending: str | None = None
+            if exit_at is not None:
+                limit, ending = exit_at, "wall"
+            if land_at is not None and land_at < limit:
+                # A tie goes to the wall: a ball touching down exactly as it
+                # leaves the court must not come to rest outside it.
+                limit, ending = land_at, "ground"
+
             endpoint = G.add(ball.pos, G.scale(disp, limit))
 
             # _release is the only writer of mode='flying' and always records a
@@ -631,11 +678,14 @@ class Simulation:
                 self._characters[victim].pos,
                 limit,
             )
-            plans.append((ball_id, endpoint, exit_at is not None, hit_at))
+            plans.append(_FlightPlan(ball_id, endpoint, limit, ending, hit_at))
 
-        for ball_id, endpoint, _, _ in plans:
-            ball = self._balls[ball_id]
-            ball.pos = endpoint
+        for plan in plans:
+            ball = self._balls[plan.ball_id]
+            ball.pos = plan.endpoint
+            ball.height, ball.vertical_velocity = G.fall(
+                ball.height, ball.vertical_velocity, K.DT * plan.limit
+            )
             ball.flight_ticks += 1
 
         # --- Earliest valid hit. Ties use ball ID; opposing hits within 1e-9
@@ -647,10 +697,14 @@ class Simulation:
             # where the advance left it, matching the round_end example in 03.
             return decided
 
-        # --- Endpoint consequences: wall exit or lifetime expiry respawns.
-        for ball_id, _, left_court, _ in plans:
-            ball = self._balls[ball_id]
-            if left_court or ball.flight_ticks >= K.FLIGHT_TICKS:
+        # --- Endpoint consequences.
+        # Touching down leaves the ball lying where it landed; leaving the
+        # court or running out of lifetime respawns it.
+        for plan in plans:
+            ball = self._balls[plan.ball_id]
+            if plan.ending == "ground":
+                self._land(ball)
+            elif plan.ending == "wall" or ball.flight_ticks >= K.FLIGHT_TICKS:
                 self._begin_respawn(ball)
 
         # --- Then respawns, per the step order in 02.
@@ -662,12 +716,12 @@ class Simulation:
                 ball.mode = "ground"
                 spawn_x, spawn_z = K.BALL_SPAWNS[ball_id]
                 ball.pos = Vec2(spawn_x, spawn_z)
+                ball.height = K.GROUND_HEIGHT
+                ball.vertical_velocity = 0.0
 
         return None
 
-    def _resolve_hit(
-        self, plans: list[tuple[str, Vec2, bool, float | None]]
-    ) -> ResultDTO | None:
+    def _resolve_hit(self, plans: list[_FlightPlan]) -> ResultDTO | None:
         """Pick the one outcome this tick, or None if nothing connected.
 
         02: compute the earliest time of impact in the tick, break equal times
@@ -675,7 +729,7 @@ class Simulation:
         within 1e-9 of each other. Later candidates are ignored outright.
         """
         candidates = [
-            (hit_at, ball_id) for ball_id, _, _, hit_at in plans if hit_at is not None
+            (plan.hit_at, plan.ball_id) for plan in plans if plan.hit_at is not None
         ]
         if not candidates:
             return None
@@ -705,6 +759,23 @@ class Simulation:
             victim_team=K.opponent(shooter),  # type: ignore[arg-type]
         )
 
+    def _land(self, ball: _Ball) -> None:
+        """A thrown ball touches down and stays there. No bounce, no roll.
+
+        It becomes an ordinary grounded ball at the point of impact, so it
+        damages nobody and can be picked up again by whoever reaches it. This
+        is the amended ballistic rule: a ball that runs out of height is no
+        longer respawned, it is simply lying on the court.
+        """
+        ball.mode = "ground"
+        ball.velocity = G.ZERO
+        ball.owner_team = None
+        ball.shooter_team = None
+        ball.height = K.GROUND_HEIGHT
+        ball.vertical_velocity = 0.0
+        ball.flight_ticks = 0
+        ball.respawn_ticks = 0
+
     def _begin_respawn(self, ball: _Ball) -> None:
         """Start the 1 second respawn at this ball's own original spawn.
 
@@ -721,6 +792,8 @@ class Simulation:
         ball.shooter_team = None
         ball.respawn_ticks = K.RESPAWN_TICKS
         ball.flight_ticks = 0
+        ball.height = K.GROUND_HEIGHT
+        ball.vertical_velocity = 0.0
 
     # --- Seam: snapshot -----------------------------------------------------
     def snapshot(self) -> StateDTO:
@@ -745,6 +818,7 @@ class Simulation:
                 respawn_in_ms=(
                     self._ticks_to_ms(b.respawn_ticks) if b.mode == "respawning" else 0
                 ),
+                height=b.height,
             )
             for b in (self._balls[bid] for bid in sorted(self._balls))
         )
@@ -989,6 +1063,9 @@ class Simulation:
         ball.velocity = G.ZERO
         ball.owner_team = None
         ball.shooter_team = None
+        # Dropped, not thrown: it is on the floor, with no velocity of any kind.
+        ball.height = K.GROUND_HEIGHT
+        ball.vertical_velocity = 0.0
         char.held_ball_id = None
 
     # --- Internal: clocks ---------------------------------------------------

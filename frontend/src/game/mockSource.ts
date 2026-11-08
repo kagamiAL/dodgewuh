@@ -102,34 +102,51 @@ function insideCourt(p: Vec2): boolean {
   return Math.abs(p.x) <= 6 && Math.abs(p.z) <= 9
 }
 
+// Ballistic flight, mirrored from plans/02-game-specification.md so the mock
+// screen shows the same arc the real server produces. 02 is the authority.
+const GRAVITY = 3.5
+const THROW_HEIGHT = 1.5
+const RESTING_HEIGHT = 0.15
+/** Seconds a horizontally released ball takes to reach the floor. */
+const FALL_S = Math.sqrt((2 * (THROW_HEIGHT - RESTING_HEIGHT)) / GRAVITY)
+
+function heightAt(since: number): number {
+  return Math.max(RESTING_HEIGHT, THROW_HEIGHT - 0.5 * GRAVITY * since * since)
+}
+
 function ballAt(id: string, t: number | null): Ball {
   const ground: Ball = {
     ball_id: id, mode: 'ground', pos: BALL_SPAWNS[id], velocity: { x: 0, z: 0 },
-    owner_team: null, shooter_team: null, respawn_in_ms: 0,
+    owner_team: null, shooter_team: null, respawn_in_ms: 0, height: RESTING_HEIGHT,
   }
   const plan = THROWS.find((p) => p.ball === id)
   if (!plan || t === null || t < plan.grabAt) return ground
 
   const self = along(plan.path, Math.min(t, plan.throwAt))
   if (t < plan.throwAt) {
-    return { ...ground, mode: 'held', pos: self, owner_team: plan.team }
+    return { ...ground, mode: 'held', pos: self, owner_team: plan.team, height: THROW_HEIGHT }
   }
 
   const aim = aimToward(self, along(plan.targetPath, plan.throwAt))
   const start = { x: self.x + aim.x * 0.65, z: self.z + aim.z * 0.65 }
   const velocity = { x: aim.x * THROW_SPEED, z: aim.z * THROW_SPEED }
-  // Find when the ball leaves the court (or the 2 s lifetime ends).
-  let exit = 2
-  for (let s = 0; s <= 2; s += 0.01) {
+  // The flight ends at whichever comes first: leaving the court, or landing.
+  let exit = FALL_S
+  for (let s = 0; s <= FALL_S; s += 0.01) {
     if (!insideCourt({ x: start.x + velocity.x * s, z: start.z + velocity.z * s })) { exit = s; break }
   }
+  const landed = exit >= FALL_S
   const since = t - plan.throwAt
+  const at = (s: number) => ({ x: start.x + velocity.x * s, z: start.z + velocity.z * s })
   if (since < exit) {
     return {
       ...ground, mode: 'flying', velocity, shooter_team: plan.team,
-      pos: { x: start.x + velocity.x * since, z: start.z + velocity.z * since },
+      pos: at(since), height: heightAt(since),
     }
   }
+  // A ball that touched down stays where it landed; one that left the court
+  // respawns at its spawn after the delay.
+  if (landed) return { ...ground, pos: at(exit) }
   if (since < exit + RESPAWN_S) {
     return { ...ground, mode: 'respawning', respawn_in_ms: Math.ceil((exit + RESPAWN_S - since) * 1000) }
   }

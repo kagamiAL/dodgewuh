@@ -5,7 +5,6 @@ import {
   BALL_RADIUS,
   CHARACTER_HEIGHT,
   CHARACTER_RADIUS,
-  FLYING_BALL_HEIGHT,
   HELD_BALL_FORWARD,
   HELD_BALL_HEIGHT,
   HELD_BALL_SIDE,
@@ -298,8 +297,10 @@ export class StateRenderer {
         ),
       )
     } else {
-      const y = b.mode === 'flying' ? FLYING_BALL_HEIGHT : BALL_RADIUS
-      const pos = toScene(b.pos.x, b.pos.z, y)
+      // Height is authoritative: the server simulates the ball's arc, so both
+      // screens draw the same curve without timing anything locally. Only x
+      // and z are extrapolated between snapshots below; y comes from here.
+      const pos = toScene(b.pos.x, b.pos.z, b.height)
       view.entity.setPosition(pos)
       if (b.mode === 'flying') view.flight = { from: pos, vel: toScene(b.velocity.x, b.velocity.z), at: now }
     }

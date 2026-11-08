@@ -136,6 +136,7 @@ class Ball(Model):
     owner_team: Team | None
     shooter_team: Team | None
     respawn_in_ms: UInt
+    height: Fin
 
     @model_validator(mode='after')
     def valid_ownership(self):
