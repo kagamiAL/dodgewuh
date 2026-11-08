@@ -170,22 +170,8 @@ class Simulation:
         slots: dict[tuple[int, str], str] = {
             (a.team, a.role): a.member_id for a in supplied
         }
-        placed = {a.member_id for a in supplied}
-        for slot in CANONICAL_SLOTS:
-            if slot in slots:
-                continue
-            existing = next(
-                (
-                    a.member_id
-                    for a in self._assignments
-                    if (a.team, a.role) == slot and a.member_id not in placed
-                ),
-                None,
-            )
-            if existing is not None:
-                slots[slot] = existing
-                placed.add(existing)
-
+        # The adapter supplies the complete live membership mapping. Omitted
+        # members have released their seats; retaining them prevents expiry/leave.
         merged = tuple(
             Assignment(member_id=slots[slot], team=slot[0], role=slot[1])  # type: ignore[arg-type]
             for slot in CANONICAL_SLOTS

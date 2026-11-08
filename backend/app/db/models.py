@@ -47,3 +47,48 @@ class MemberRecord(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AllocationRecord(Base):
+    """Durable identity of a single, never resumed worker channel."""
+    __tablename__ = 'worker_allocations'
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    room_id: Mapped[UUID] = mapped_column(ForeignKey('rooms.id'), unique=True)
+    report_seq: Mapped[int] = mapped_column(Integer, default=0)
+    worker_url: Mapped[str] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[str | None] = mapped_column(String(32))
+
+
+class AssignmentRecord(Base):
+    __tablename__ = 'assignments'
+    __table_args__ = (UniqueConstraint('allocation_id', 'version', 'member_id'),)
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    allocation_id: Mapped[UUID] = mapped_column(ForeignKey('worker_allocations.id'))
+    member_id: Mapped[UUID] = mapped_column(ForeignKey('members.id'))
+    version: Mapped[int] = mapped_column(Integer)
+    team: Mapped[int] = mapped_column(Integer)
+    role: Mapped[str] = mapped_column(String(4))
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MatchRecord(Base):
+    __tablename__ = 'matches'
+    __table_args__ = (UniqueConstraint('allocation_id', 'ordinal'),)
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    allocation_id: Mapped[UUID] = mapped_column(ForeignKey('worker_allocations.id'))
+    ordinal: Mapped[int] = mapped_column(Integer)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16))
+    reason: Mapped[str | None] = mapped_column(String(32))
+
+
+class ResultRecord(Base):
+    __tablename__ = 'results'
+    match_id: Mapped[UUID] = mapped_column(ForeignKey('matches.id'), primary_key=True)
+    winner: Mapped[int] = mapped_column(Integer)
+    team1: Mapped[int] = mapped_column(Integer)
+    team2: Mapped[int] = mapped_column(Integer)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

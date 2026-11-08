@@ -5,8 +5,7 @@ mirrors readiness/connection facts into it and broadcasts what it decides (plan 
 "Pure simulation integration seam"). Everything here runs on one event loop and no
 GameRoom method awaits, so each room's mutations are serialized by construction.
 
-This currently runs inside the coordinator for local integration. Moving a GameRoom
-onto the worker VM (plan 11) changes where it runs, not what it does.
+This runs on the game worker; the coordinator relays authenticated commands.
 """
 import asyncio
 from collections import deque
@@ -111,6 +110,7 @@ class Peer:
 class GameRoom:
     def __init__(self, facts):
         self.code = facts['room_code']
+        self.report_history = None
         self.facts = facts
         self.sim = Simulation()
         self.peers = {}
@@ -147,20 +147,23 @@ class GameRoom:
     def _sync_assignments(self):
         """Seat newly registered phones in free slots, in registration slot order.
 
-        Only in lobby, and only additions: after the simulation swaps roles, its
-        mapping is authoritative and is never overwritten from SQL slot order.
+        Only in lobby: preserve live occupied roles after simulation swaps, remove
+        released members and fill missing team/role pairs from registration order.
         """
         state = self.sim.snapshot()
         if state.phase != 'lobby':
             return
-        taken = {(a.team, a.role) for a in state.assignments}
-        seated = {a.member_id for a in state.assignments}
+        active = {m['member_id'] for m in self.facts['members']}
+        retained = tuple(a for a in state.assignments if a.member_id in active)
+        taken = {(a.team, a.role) for a in retained}
+        seated = {a.member_id for a in retained}
         free = [slot for slot in SLOTS if slot not in taken]
         phones = sorted((m for m in self.facts['members'] if m['device'] == 'phone'), key=lambda m: m['slot'])
         added = [Assignment(member_id=m['member_id'], team=team, role=role)
                  for m, (team, role) in zip((m for m in phones if m['member_id'] not in seated), free)]
-        if added:
-            self.sim.set_assignments(state.assignments + tuple(added))
+        if added or retained != state.assignments:
+            self.sim.set_assignments(retained + tuple(added))
+            self._clear_readiness()
 
     def _push_facts(self):
         ready = frozenset(mid for mid, st in self.status.items() if st['ready'] and mid in self.peers)
@@ -182,8 +185,8 @@ class GameRoom:
             self.sim.control('abort', reason)
 
     # --- outbound ------------------------------------------------------------
-    def _room(self):
-        state = self.sim.snapshot()
+    def _room(self, state=None):
+        state = state if state is not None else self.sim.snapshot()
         members = []
         for m in self.facts['members']:
             st = self.status.get(m['member_id'], {})
@@ -200,9 +203,9 @@ class GameRoom:
             if peer.welcomed:
                 peer.send(text)
 
-    def _broadcast_room(self):
+    def _broadcast_room(self, state=None):
         self.revision += 1
-        self._broadcast(encode('room.updated', dict(room=self._room())))
+        self._broadcast(encode('room.updated', dict(room=self._room(state))))
 
     def _broadcast_snapshot(self):
         text = encode('state.snapshot', dict(state=plain(self.sim.snapshot())))
@@ -216,15 +219,23 @@ class GameRoom:
     def _flush(self, room_changed=False):
         """Drain exactly once after every mutation and publish ordered transition bundles."""
         bundle_open = False
+        bundle_state = None
         for event in self.sim.drain_events():
             if isinstance(event, PhaseChanged):
+                if self.report_history:
+                    self.report_history(event.state)
                 if bundle_open:
-                    self._broadcast_room()
+                    self._broadcast_room(bundle_state)
                 if event.state.phase == 'lobby':
                     self._clear_readiness()
                 self._broadcast(encode('phase.changed', dict(state=plain(event.state))))
                 bundle_open = True
+                # A winning step captures role_switch and match_end. Keep each
+                # room update paired with its own captured transition state.
+                bundle_state = event.state
             elif isinstance(event, RolesChanged):
+                if self.report_history:
+                    self.report_history(self.sim.snapshot())
                 self._clear_readiness()
                 self._broadcast(encode('roles.changed', dict(assignments=plain(event.assignments),
                     assignment_version=event.assignment_version, epoch=event.epoch)))
@@ -233,8 +244,10 @@ class GameRoom:
                 peer = self.peers.get(event.member_id)
                 if peer:
                     self._error(peer, event.code, event.message, event.ref_seq)
+        if room_changed and self.report_history:
+            self.report_history(self.sim.snapshot())
         if bundle_open or room_changed:
-            self._broadcast_room()
+            self._broadcast_room(bundle_state)
         if bundle_open:
             self._broadcast_snapshot()
 
@@ -261,6 +274,18 @@ class GameRoom:
         peer.welcomed = True
         return peer
 
+    def membership(self, facts):
+        active = {m['member_id'] for m in facts['members']}
+        for mid, peer in list(self.peers.items()):
+            if mid not in active:
+                self.detach(peer)
+                peer.close(4401)
+        self.facts = facts
+        self.status = {mid: st for mid, st in self.status.items() if mid in active}
+        self._sync_assignments()
+        self._push_facts()
+        self._flush(room_changed=True)
+
     def detach(self, peer):
         if self.peers.get(peer.member_id) is not peer:
             return  # superseded: the replacement owns this seat now
@@ -275,6 +300,8 @@ class GameRoom:
 
     # --- inbound ----------------------------------------------------------------
     def handle(self, peer, message):
+        if self.peers.get(peer.member_id) is not peer:
+            return
         kind, payload = message.type, message.payload
         if kind == 'controller.ready':
             self._ready(peer, payload)

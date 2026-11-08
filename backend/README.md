@@ -10,15 +10,23 @@ Directory boundaries:
 - `migrations/versions/`: immutable, explicit Alembic schema revisions.
 - `app/worker.py` and `simulation/`: worker entry point and Richard-owned pure simulation.
 
-Run one coordinator process. Local Compose enables `IN_PROCESS_SIMULATION=true`,
-so live rooms currently run in the coordinator. The separate worker is healthy,
-but room allocation and coordinator-to-worker routing are not implemented.
+Run one coordinator process and one process per worker. The coordinator pins each
+room to one worker over a private WebSocket channel. Set the same nonempty
+`GAME_WORKER_SECRET` on both services. `GAME_WORKER_URL` selects the worker;
+optional comma-separated `GAME_WORKER_URLS` distributes new rooms round robin.
+Only the coordinator authenticates public tokens; workers receive membership facts
+and validated commands, never tokens or SQL credentials. Keep worker ports private.
+Channels use ping/pong to detect loss; failure closes all affected sockets and
+marks the room closed (`worker_lost`) in SQL, revoking memberships. Failed room
+allocations remain blocked in memory even if SQL is unavailable. Create a new room
+after failure; interrupted games never resume. Empty rooms retain their channel
+and allocation until coordinator shutdown. Allocation is runtime-only.
 Startup closes previous runtime rooms and revokes old memberships, retaining
 records. Do not overlap coordinator instances or use
 multiple Uvicorn workers. Local auto-reload also ends rooms. There is no match
 resume. Initial phone registration slots are in order T1 Arms, T1 Legs, T2 Arms,
 T2 Legs; the simulation owns current assignments and swaps roles after rounds.
-Local gameplay runs in-process through `app/services/game.py`.
+Worker gameplay runs through `app/services/game.py`.
 
 ## Migrations
 
@@ -60,8 +68,8 @@ Registration returns a secret bearer token once; only its SHA-256 hash is stored
 Do not paste responses into logs or commit them. `ws_path` is the authenticated
 socket route. The first message must be `session.hello` with the token; welcome
 includes complete room and game state. Readiness, host start/reset/rematch, input
-routing, snapshots and `camera.claim` are implemented for the local in-process
-simulation. DELETE membership and worker allocation remain unimplemented.
+routing, snapshots and `camera.claim` are forwarded to the worker.
+DELETE membership remains unimplemented.
 Registered lobbies expire after 30 minutes without activity and all rooms after
 four hours. Cleanup runs every 30 seconds and during health
 checks; joins independently reject expired rooms. Closed records are retained.
@@ -95,3 +103,7 @@ docker compose exec -T postgres psql -U dodgewuh -d dodgewuh_restore -c 'SELECT 
 Inspect retained records and migration revision before deleting the disposable
 restore database. Backup/restore has not yet been exercised. A Docker volume or
 EBS disk is not an off-host backup. Terraform destroy still deletes all AWS data.
+
+## Match history persistence
+
+Run Alembic through `0002_history` before starting this release. The coordinator records allocations, versioned assignments, match starts/aborts and authoritative final results from the authenticated worker channel. Restart preserves history and revokes old sessions; active matches are aborted rather than resumed. See [section 4 verification](../docs/demo/section4-persistence.md) for duplicate-report behavior, migration compatibility and unverified full-match completion.

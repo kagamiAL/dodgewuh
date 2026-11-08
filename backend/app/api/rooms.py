@@ -1,4 +1,5 @@
 """Public registration routes and bounded, process-local rate windows."""
+import asyncio
 from collections import OrderedDict, deque
 from threading import Lock
 from time import monotonic
@@ -35,17 +36,33 @@ def limit(request, action, maximum):
 
 
 @router.post("/api/rooms", status_code=201, response_model=Registration)
-def create(body: CreateRoom, request: Request, response: Response):
+async def create(body: CreateRoom, request: Request, response: Response):
     """Create a room and register its immutable host screen in one transaction."""
     limit(request, "create", 5)
     # Registration includes a bearer secret and must not be cached.
     response.headers["Cache-Control"] = "no-store"
-    return request.app.state.rooms.register(body.name)
+    async with request.app.state.game_hub.lock:
+        return await asyncio.to_thread(request.app.state.rooms.register, body.name)
 
 
 @router.post("/api/rooms/{room_code}/members", status_code=201, response_model=Registration)
-def join(room_code: str, body: JoinRoom, request: Request, response: Response):
+async def join(room_code: str, body: JoinRoom, request: Request, response: Response):
     """Register a screen or phone; the service enforces phase and seat capacity."""
     limit(request, "join", 30)
     response.headers["Cache-Control"] = "no-store"
-    return request.app.state.rooms.register(body.name, body.device, room_code)
+    hub = request.app.state.game_hub
+    async with hub.lock:
+        await hub.refresh(room_code.strip().upper())
+        return await asyncio.to_thread(request.app.state.rooms.register, body.name, body.device, room_code)
+
+
+@router.delete('/api/rooms/{room_code}/members/me', status_code=204)
+async def leave(room_code: str, request: Request):
+    authorization = request.headers.get('authorization', '')
+    scheme, _, token = authorization.partition(' ')
+    if scheme.lower() != 'bearer' or not token or ' ' in token:
+        raise RoomError(401, 'UNAUTHORIZED', 'Bearer membership required')
+    hub = request.app.state.game_hub
+    async with hub.lock:
+        await hub.refresh(room_code.strip().upper(), token=token)
+    return Response(status_code=204, headers={'Cache-Control': 'no-store'})
