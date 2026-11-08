@@ -12,7 +12,7 @@ import { SENSOR_STALE_MS, type SensorSample, type SensorService } from '@/sensor
 import {
   DEFAULT_SWING, MAX_YAW_DEG, MIN_SIDEWAYS, angleDiff, screenNormal, createSwingDetector, pointingHeading, rotationSpeed,
   yawToWorldAim, type Swing, type SwingConfig,
-} from '@/controllers/arms/throwMath'
+} from '@/controllers/arms/throwGesture'
 import { createRecordingTransport, type SentMessage } from './recordingTransport'
 
 const props = defineProps<{ sensors: SensorService }>()
