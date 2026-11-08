@@ -107,6 +107,8 @@ interface BallView {
   entity: pc.Entity
   material: pc.StandardMaterial
   tint: string
+  /** While flying: last server position/velocity (scene space) and when it arrived. */
+  flight: { from: pc.Vec3; vel: pc.Vec3; at: number } | null
 }
 
 function createBall(id: string): BallView {
@@ -114,8 +116,15 @@ function createBall(id: string): BallView {
   const entity = new pc.Entity(`Ball_${id}`)
   entity.addComponent('render', { type: 'sphere', material: m })
   entity.setLocalScale(BALL_RADIUS * 2, BALL_RADIUS * 2, BALL_RADIUS * 2)
-  return { entity, material: m, tint: '' }
+  return { entity, material: m, tint: '', flight: null }
 }
+
+/**
+ * Flying balls are drawn ahead of the last snapshot along their velocity so a 20 Hz feed
+ * looks smooth up close. Capped so a ball that just hit or expired doesn't sail on.
+ * Display only: the server's next position always replaces it.
+ */
+const FLIGHT_EXTRAPOLATE_MAX_MS = 120
 
 /**
  * Draws server State. Holds no game logic: every position, possession and mode comes
@@ -131,6 +140,8 @@ export class StateRenderer {
   private readonly heldBy = new Map<string, Team>()
   /** The first-person viewer's own character is not drawn. */
   private hiddenTeam: Team | null = null
+  /** The ball the first-person viewer holds; the scene draws it in front of the camera. */
+  private ownHeld: pc.Entity | null = null
 
   constructor(parent: pc.Entity) {
     parent.addChild(this.characterRoot)
@@ -147,7 +158,8 @@ export class StateRenderer {
     const now = performance.now()
     for (const c of state.characters) this.renderCharacter(c, state, now)
     this.heldBy.clear()
-    for (const b of state.balls) this.renderBall(b, state.characters)
+    this.ownHeld = null
+    for (const b of state.balls) this.renderBall(b, state.characters, now)
   }
 
   /** Hide one team's character (the first-person viewer's own body); null shows both. */
@@ -160,11 +172,16 @@ export class StateRenderer {
    * Where a team's character is and which way it faces (scene space), for a camera to
    * follow. Facing comes from movement; before the first move it is the team's forward.
    */
-  pointOfView(team: Team): { pos: pc.Vec3; forward: pc.Vec3 } | null {
+  pointOfView(team: Team): { pos: pc.Vec3; forward: pc.Vec3; aim: pc.Vec3; holding: boolean } | null {
     const view = this.characters.get(team)
     if (!view) return null
     const forward = view.heading ?? toScene(0, team === 1 ? 1 : -1)
-    return { pos: view.root.getPosition(), forward }
+    return { pos: view.root.getPosition(), forward, aim: view.aimPivot.forward, holding: view.holding }
+  }
+
+  /** The hidden (first-person) team's held ball, for the scene to place by the camera. */
+  ownHeldBall(): pc.Entity | null {
+    return this.ownHeld
   }
 
   /** Per-frame cosmetic animation. Never changes where anything is in the game. */
@@ -185,6 +202,12 @@ export class StateRenderer {
       const armR = this.characters.get(team)?.rig?.armR
       const ball = this.balls.get(ballId)
       if (armR && ball) ball.entity.setPosition(armR.getWorldTransform().transformPoint(RIGHT_HAND_LOCAL))
+    }
+    for (const ball of this.balls.values()) {
+      const f = ball.flight
+      if (!f) continue
+      const s = Math.min(now - f.at, FLIGHT_EXTRAPOLATE_MAX_MS) / 1000
+      ball.entity.setPosition(f.from.x + f.vel.x * s, f.from.y, f.from.z + f.vel.z * s)
     }
   }
 
@@ -235,7 +258,7 @@ export class StateRenderer {
     view.epoch = epoch
   }
 
-  private renderBall(b: Ball, characters: Character[]): void {
+  private renderBall(b: Ball, characters: Character[], now: number): void {
     let view = this.balls.get(b.ball_id)
     if (!view) {
       view = createBall(b.ball_id)
@@ -244,6 +267,13 @@ export class StateRenderer {
     }
 
     view.entity.enabled = b.mode !== 'respawning'
+    view.flight = null
+
+    if (b.mode === 'held' && b.owner_team !== null && b.owner_team === this.hiddenTeam) {
+      this.ownHeld = view.entity // positioned by the scene, in front of the camera
+      this.tintBall(view, b)
+      return
+    }
 
     if (b.mode === 'held') {
       // Held pose comes from the owner in state, never from proximity.
@@ -269,7 +299,9 @@ export class StateRenderer {
       )
     } else {
       const y = b.mode === 'flying' ? FLYING_BALL_HEIGHT : BALL_RADIUS
-      view.entity.setPosition(toScene(b.pos.x, b.pos.z, y))
+      const pos = toScene(b.pos.x, b.pos.z, y)
+      view.entity.setPosition(pos)
+      if (b.mode === 'flying') view.flight = { from: pos, vel: toScene(b.velocity.x, b.velocity.z), at: now }
     }
 
     this.tintBall(view, b)

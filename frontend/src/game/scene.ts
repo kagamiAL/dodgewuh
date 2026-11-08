@@ -1,11 +1,12 @@
 import * as pc from 'playcanvas'
-import { COURT_HALF_DEPTH } from './constants'
+import { COURT_HALF_DEPTH, TEAM_COLORS } from './constants'
 import { toScene } from './coords'
 import { loadCharacterModel, MODEL_URL } from './characterModel'
 import { ragdollConfig } from './ragdoll'
 import { loadSpringExtras } from './springConfig'
 import { createCourt } from './court'
 import { createStadium } from './stadium'
+import { instantiateFirstPersonHand, loadFirstPersonHand, type FirstPersonHand } from './firstPersonHand'
 import { StateRenderer } from './entities'
 import type { State, Team } from './state'
 
@@ -31,6 +32,47 @@ const FIRST_PERSON_FOV = 75
 const OVERVIEW_FOV = 45
 /** Higher = camera catches up to the 20 Hz snapshots faster (1/s). */
 const FIRST_PERSON_FOLLOW = 12
+/** Your held ball in first person: metres ahead of, right of and below the eye. */
+const HELD_VIEW_OFFSET = { forward: 0.7, right: 0.26, down: 0.27 }
+/** Floor aim guide in first person: where it starts and ends ahead of you (metres). */
+const AIM_GUIDE_START = 0.8
+const AIM_GUIDE_END = 5.5
+
+/**
+ * First-person aim guide: a translucent arrow on the floor pointing where a throw would go
+ * (the Arms player's aim, which can differ from where Legs faces). Brighter while holding.
+ */
+function createAimGuide(): { root: pc.Entity; setStyle(team: Team, holding: boolean): void } {
+  const mat = new pc.StandardMaterial()
+  mat.blendType = pc.BLEND_NORMAL
+  mat.depthWrite = false
+  mat.useLighting = false
+  const root = new pc.Entity('AimGuide')
+  const length = AIM_GUIDE_END - AIM_GUIDE_START - 0.4
+  const shaft = new pc.Entity('Shaft')
+  shaft.addComponent('render', { type: 'box', material: mat })
+  shaft.setLocalScale(0.12, 0.01, length)
+  shaft.setLocalPosition(0, 0, -(AIM_GUIDE_START + length / 2))
+  const head = new pc.Entity('Head')
+  head.addComponent('render', { type: 'cone', material: mat })
+  head.setLocalScale(0.45, 0.4, 0.45)
+  head.setLocalEulerAngles(-90, 0, 0) // tip from +Y to -Z
+  head.setLocalPosition(0, 0, -(AIM_GUIDE_END - 0.2))
+  root.addChild(shaft)
+  root.addChild(head)
+  let style = ''
+  return {
+    root,
+    setStyle(team, holding) {
+      const key = `${team}${holding}`
+      if (key === style) return
+      style = key
+      mat.emissive = TEAM_COLORS[team]
+      mat.opacity = holding ? 0.8 : 0.3
+      mat.update()
+    },
+  }
+}
 
 /**
  * Creates the PlayCanvas application on `canvas`. The canvas's CSS box decides its
@@ -90,10 +132,27 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   let yaw = 0 // radians; forward = (sin, 0, cos) in scene space
   const facing = new Map<Team, pc.Vec3>()
   let haveEye = false
+  const aimGuide = createAimGuide()
+  aimGuide.root.enabled = false
+  app.root.addChild(aimGuide.root)
+
+  // First-person hand gripping the ball, fixed in view as a camera child. Until it loads
+  // (or if it fails) the plain held ball is placed at the same spot instead.
+  let hand: FirstPersonHand | null = null
+  const o = HELD_VIEW_OFFSET
+  void loadFirstPersonHand(app).then((asset) => {
+    if (!asset || destroyed) return
+    hand = instantiateFirstPersonHand(asset)
+    hand.entity.setLocalPosition(o.right, -o.down, -o.forward)
+    hand.entity.enabled = false
+    camera.addChild(hand.entity)
+  })
 
   app.on('update', (dt: number) => {
     stateRenderer.update(dt)
     stadium.update(dt)
+    aimGuide.root.enabled = false
+    if (hand) hand.entity.enabled = false
     if (!povTeam) return
     const pov = stateRenderer.pointOfView(povTeam)
     if (!pov) return
@@ -108,6 +167,27 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
     haveEye = true
     camera.setPosition(eye)
     camera.lookAt(eye.x + Math.sin(yaw), EYE_HEIGHT - 0.1, eye.z + Math.cos(yaw))
+
+    // Aim guide on the floor under you, pointing along the Arms player's aim.
+    aimGuide.root.enabled = true
+    aimGuide.setStyle(povTeam, pov.holding)
+    aimGuide.root.setPosition(eye.x, 0.02, eye.z)
+    aimGuide.root.lookAt(eye.x + pov.aim.x, 0.02, eye.z + pov.aim.z)
+
+    // Your own held ball sits in view, bottom right, like a held item in a shooter: the
+    // hand model (it has its own ball) or, as a fallback, the plain ball at the same spot.
+    const held = stateRenderer.ownHeldBall()
+    if (held && hand) {
+      hand.setTeam(povTeam)
+      hand.entity.enabled = true
+      held.enabled = false
+    } else if (held) {
+      const p = eye.clone()
+        .add(camera.forward.clone().mulScalar(o.forward))
+        .add(camera.right.clone().mulScalar(o.right))
+        .add(camera.up.clone().mulScalar(-o.down))
+      held.setPosition(p)
+    }
   })
   app.start()
 
