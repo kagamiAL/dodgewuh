@@ -11,7 +11,7 @@ import type { Permission, ServerMessage } from '@/contracts/pending'
 import { createSensorService } from '@/sensors/sensorService'
 import { session } from '@/stores/session'
 import { connect, transport } from '@/stores/connection'
-import { TEAM_HEX, TEAM_LABEL } from '@/theme'
+import { TEAM_HEX, TEAM_LABEL, TEAM_NAME } from '@/theme'
 import type { SetupStage } from '@/phone/roleComponent'
 import LegsController from '@/controllers/legs/LegsController.vue'
 import ArmsPending from './ArmsPending.vue'
@@ -41,6 +41,32 @@ const seats = computed(() => {
   })
 })
 const readyCount = computed(() => seats.value.filter((s) => s.member?.connected && s.member.ready).length)
+
+// Team choice (lobby only; the server rejects it in any other phase).
+const inLobby = computed(() => connected.value && state.value?.phase === 'lobby')
+const teams = computed(() =>
+  ([1, 2] as const).map((team) => {
+    const roster = seats.value.filter((s) => s.team === team)
+    return { team, roster, full: roster.every((s) => s.member && !s.me), mine: assignment.value?.team === team }
+  }),
+)
+const otherTeam = computed(() => teams.value.find((t) => assignment.value && !t.mine) ?? null)
+// The server answers team.choose with roles.changed or an error; until then the buttons hold.
+const pendingTeam = ref<{ team: 1 | 2 | null } | null>(null)
+let pendingTimer: ReturnType<typeof setTimeout> | null = null
+function clearPending(): void {
+  pendingTeam.value = null
+  if (pendingTimer) clearTimeout(pendingTimer)
+  pendingTimer = null
+}
+function chooseTeam(team: 1 | 2 | null): void {
+  if (pendingTeam.value) return
+  pendingTeam.value = { team }
+  pendingTimer = setTimeout(clearPending, 5000)
+  transport.send({ v: 1, type: 'team.choose', payload: { team } })
+}
+watch(() => assignment.value?.team ?? null, clearPending)
+watch(() => session.data.lastError, (e) => e && clearPending())
 
 // Remount the role component on welcome, lobby reset or role change so calibration and
 // pointer state never carry over (roleComponent.ts lifecycle).
@@ -168,6 +194,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   unsubscribe?.()
   clearGrace()
+  clearPending()
   transport.close()
   sensors.stop()
 })
@@ -185,15 +212,35 @@ onBeforeUnmount(() => {
       {{ connection }} <RouterLink v-if="session.data.status === 'closed'" to="/">Rejoin</RouterLink>
     </p>
 
-    <section v-if="connected && state?.phase === 'lobby'" class="ready-summary">
-      <h2>Choose your team</h2>
-      <p>Pick a team to join a free role. Changing teams resets player readiness.</p>
-      <button v-for="team in ([1, 2] as const)" :key="team"
-        :disabled="assignment?.team === team || seats.filter(s => s.team === team && s.member).length >= 2"
-        @click="transport.send({ v: 1, type: 'team.choose', payload: { team } })">
-        {{ TEAM_LABEL[team] }}{{ assignment?.team === team ? ' · Your team' : '' }}
-      </button>
-      <button v-if="assignment" @click="transport.send({ v: 1, type: 'team.choose', payload: { team: null } })">Leave team</button>
+    <section v-if="inLobby && !assignment" class="pick" aria-labelledby="pick-title">
+      <h2 id="pick-title">Pick a side</h2>
+      <p class="pick-lede">Each team is two phones: Arms throws, Legs runs. You take whichever spot is open.</p>
+      <div class="teams">
+        <button
+          v-for="t in teams"
+          :key="t.team"
+          type="button"
+          class="team-card"
+          :class="{ full: t.full, busy: pendingTeam?.team === t.team }"
+          :style="{ '--seat': TEAM_HEX[t.team] }"
+          :disabled="t.full || !!pendingTeam"
+          :aria-busy="pendingTeam?.team === t.team"
+          :aria-label="`Join ${TEAM_LABEL[t.team]}${t.full ? ', full' : ''}`"
+          @click="chooseTeam(t.team)"
+        >
+          <span class="team-head">
+            <span class="team-name">{{ TEAM_NAME[t.team] }}</span>
+            <span class="team-num">Team {{ t.team }}</span>
+          </span>
+          <span class="team-roster">
+            <span v-for="s in t.roster" :key="s.role" class="spot" :class="{ open: !s.member }">
+              <span class="spot-role">{{ s.role === 'arms' ? 'Arms' : 'Legs' }}</span>
+              <span class="spot-who">{{ s.member ? s.member.name || 'Player' : 'Open' }}</span>
+            </span>
+          </span>
+          <span class="team-cta">{{ pendingTeam?.team === t.team ? 'Joining…' : t.full ? 'Full' : 'Join' }}</span>
+        </button>
+      </div>
       <p v-if="errorText" class="error" role="alert">{{ errorText }}</p>
     </section>
     <template v-if="!connection && assignment && state">
@@ -231,10 +278,29 @@ onBeforeUnmount(() => {
           </li>
         </ul>
         <p v-if="state.phase === 'role_switch'" class="round-hint">Round {{ state.round + 1 }} starts when all 4 players are ready.</p>
+
+        <div v-if="inLobby" class="team-bar">
+          <button
+            v-if="otherTeam"
+            type="button"
+            class="team-switch"
+            :style="{ '--seat': TEAM_HEX[otherTeam.team] }"
+            :disabled="otherTeam.full || !!pendingTeam"
+            :aria-busy="pendingTeam?.team === otherTeam.team"
+            @click="chooseTeam(otherTeam.team)"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" /></svg>
+            {{ pendingTeam?.team === otherTeam.team ? 'Switching…' : otherTeam.full ? `${TEAM_NAME[otherTeam.team]} is full` : `Switch to ${TEAM_NAME[otherTeam.team]}` }}
+          </button>
+          <button type="button" class="team-leave" :disabled="!!pendingTeam" :aria-busy="pendingTeam?.team === null" @click="chooseTeam(null)">
+            {{ pendingTeam?.team === null ? 'Leaving…' : 'Leave team' }}
+          </button>
+          <p class="team-note">Switching or leaving clears everyone's Ready.</p>
+        </div>
       </section>
     </template>
 
-    <p v-else-if="state" class="hint">Choose a team with an open spot to play.</p>
+    <p v-else-if="state && !connection && !inLobby" class="hint">This match is underway. You can pick a team when it's back in the lobby.</p>
   </main>
 </template>
 
@@ -332,6 +398,171 @@ header span:first-child {
 .seats li.ok .status {
   color: #6d6;
 }
+/* Team picker: two big cards, one per side. */
+.pick {
+  padding: 1.75rem max(1rem, env(safe-area-inset-right)) 1.25rem max(1rem, env(safe-area-inset-left));
+}
+.pick h2 {
+  margin: 0 0 0.5rem;
+  font: italic 900 clamp(2.5rem, 12vw, 3.25rem)/0.92 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.pick-lede {
+  margin: 0 0 1.5rem;
+  max-width: 38ch;
+  color: var(--muted);
+  font-size: 0.95rem;
+  text-wrap: pretty;
+}
+.teams {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.team-card {
+  --ink: color-mix(in oklab, var(--seat) 70%, white);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1rem 0.85rem 0.85rem;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: color-mix(in oklab, var(--seat) 13%, var(--bg));
+  border: 1px solid color-mix(in oklab, var(--seat) 45%, transparent);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), border-color 160ms ease-out, box-shadow 220ms ease-out, opacity 160ms ease-out;
+}
+@media (hover: hover) {
+  .team-card:hover:not(:disabled) {
+    border-color: var(--seat);
+    box-shadow: 0 12px 28px -14px color-mix(in oklab, var(--seat) 70%, transparent);
+    transform: translateY(-2px);
+  }
+}
+.team-card:active:not(:disabled) { transform: scale(0.97); }
+.team-card:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.team-card:disabled { cursor: not-allowed; }
+.team-card:disabled:not(.full):not(.busy) { opacity: 0.5; }
+.team-card.busy { cursor: progress; border-color: var(--seat); }
+.team-head { display: grid; gap: 0.15rem; }
+.team-name {
+  font: italic 900 clamp(2rem, 10vw, 2.75rem)/0.9 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.team-num { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.team-roster { display: grid; gap: 0.35rem; }
+.spot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--bg) 75%, transparent);
+  font-size: 0.85rem;
+}
+.spot-role {
+  flex: none;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.spot-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.spot.open .spot-who { color: var(--ink); font-weight: 500; }
+.team-cta {
+  margin-top: auto;
+  padding: 0.65rem 0.5rem;
+  border-radius: 10px;
+  background: var(--seat);
+  color: #0b1118;
+  font: italic 900 1.4rem/1 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+.team-card.busy .team-cta { animation: team-pending 900ms ease-in-out infinite alternate; }
+@keyframes team-pending { to { opacity: 0.6; } }
+.team-card.full { background: var(--surface); border-color: var(--line); }
+.team-card.full .team-name { color: var(--muted); }
+.team-card.full .team-cta { background: #2c394a; color: #a3b0c2; }
+@media (max-width: 330px) {
+  .teams { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Switch / leave, once seated: secondary to Ready, so it sits under the roster. */
+.team-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+.team-switch,
+.team-leave {
+  min-height: 3rem;
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+}
+.team-switch {
+  flex: 1 1 12rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  color: var(--text);
+  background: color-mix(in oklab, var(--seat) 14%, var(--bg));
+  border: 1px solid color-mix(in oklab, var(--seat) 55%, transparent);
+}
+.team-switch svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: none;
+  stroke: var(--seat);
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.team-leave {
+  flex: 0 1 auto;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+}
+@media (hover: hover) {
+  .team-switch:hover:not(:disabled) { border-color: var(--seat); background: color-mix(in oklab, var(--seat) 22%, var(--bg)); }
+  .team-leave:hover:not(:disabled) { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 60%, transparent); }
+}
+.team-switch:active:not(:disabled),
+.team-leave:active:not(:disabled) { transform: scale(0.98); }
+.team-switch:disabled,
+.team-leave:disabled { cursor: not-allowed; opacity: 0.55; }
+.team-switch[aria-busy='true'],
+.team-leave[aria-busy='true'] { cursor: progress; opacity: 1; }
+.team-note { flex-basis: 100%; margin: 0.25rem 0 0; font-size: 0.8rem; color: var(--muted); }
+
 .hint,
 .phase {
   margin: 0.5rem 1rem;

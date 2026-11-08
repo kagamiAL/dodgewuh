@@ -10,3 +10,8 @@ export const TEAM_LABEL: Record<1 | 2, string> = {
   1: 'Team 1 (Blue)',
   2: 'Team 2 (Orange)',
 }
+
+export const TEAM_NAME: Record<1 | 2, string> = {
+  1: 'Blue',
+  2: 'Orange',
+}
