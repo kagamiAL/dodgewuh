@@ -24,26 +24,26 @@ Current status: **section 1 complete for local backend verification**, routing s
 
 Implementation and local verification limits: [lifecycle record](docs/demo/section2-room-lifecycle.md).
 
-Use [plan 03](plans/03-api-contracts.md) for exact behavior. Lifecycle implementation is complete; the record distinguishes routed checks, isolated deadline checks and remaining device/transition acceptance.
+Use [plan 03](plans/03-api-contracts.md) for exact behavior. Lifecycle implementation is complete; the record distinguishes routed checks, isolated deadline checks and completed local device-loss/transition checks and remaining physical-device acceptance. The winning-round adapter bundle mismatch was fixed; see the final follow-up in the record.
 
 - [x] Implement authenticated DELETE /api/rooms/{room_code}/members/me. Revoke membership, release its slot and notify live worker peers. Host leave closes the room; phone leave during play safely aborts to lobby.
 - [x] Implement the 30-second unconnected-registration/disconnected-lobby reservation expiry and host-expiry closure. Coordinate SQL slot release with worker assignment/status removal; preserve occupied assignments and fill vacant team/role pairs in canonical order.
 - [x] Implement five-minute empty-room cleanup alongside the existing 30-minute idle-lobby and four-hour hard expiry. Close live sockets/channels and cancel worker runners/sender tasks when a room expires. The current worker relay retains empty channels until shutdown, so SQL expiry alone is insufficient.
 - [x] Synchronize the live phase into coordinator registration policy so a new phone cannot join an active match; screens may join in any phase. Keep blocking SQL outside the 60 Hz tick and serialize phase changes with registration decisions.
 - [x] Manually verify four-phone/four-screen caps, host-only controls, wrong-role rejection, malformed/oversized/rate-limited input, stale epoch/assignment/sequence handling and reconnect with a fresh input sequence.
-- [ ] Verify ready=false or required-device loss during play aborts safely, stops movement/Hold and clears readiness. A replacement socket must not be controlled or detached by the superseded socket. Reconnection restores identity but requires fresh calibration/readiness/start.
-- [ ] Verify late-screen welcome and phase/role bundles are consistent and never regress epoch/assignment version. Retain camera.claim authorization and current camera-driven Legs behavior.
+- [x] Verify ready=false or required-device loss during play aborts safely, stops movement/Hold and clears readiness. A replacement socket must not be controlled or detached by the superseded socket. Reconnection restores identity but requires fresh calibration/readiness/start.
+- [x] Verify late-screen welcome and phase/role bundles are consistent and never regress epoch/assignment version. Retain camera.claim authorization and current camera-driven Legs behavior.
 - [x] Confirm protocol models, generated TypeScript types/validators, JSON Schema and shared fixtures agree. If a wire change is necessary, coordinate it and update all representations together.
 
 ## 3. Verify Richard's physics through the real routing path
 
-The current simulation includes pickup, ownership, cancellation, flight, respawn and hit results. It freezes on a decided hit without advancing score/round; Richard's lifecycle tasks remain pending.
+Completed for **local synthetic backend verification** on 2026-11-08 UTC. Richard's delivered scoring/round/role/match lifecycle is present; it no longer freezes indefinitely on a hit. See the [verification record](docs/demo/section3-physics-routing.md) for the exact frozen image and working-tree source identity. This does not certify public HTTPS/WSS or physical controllers. Richard's task 8 device-loss guard has since landed (`ccbc156`, merged by `aafcb11`); follow-up diagnostics on `8f2b17e` pass 413/413 observations, including the simulation-owned guard. The earlier frozen-image routed checks used the adapter's explicit abort.
 
-- [ ] Run Richard's existing manual diagnostics (`PYTHONPATH=backend backend/.venv/bin/python -m simulation.synthetic`) and validate the committed snapshot fixtures against the public protocol models.
-- [ ] Through coordinator → worker, verify movement, nearest-ball pickup, held ownership, release strength/aim, flight, collision/hit result, wall/expiry respawn and cancellation.
-- [ ] Confirm NO_THROW_ZONE reaches only the responsible controller with the correct ref_seq, without producing a throw. Compare snapshots/results to Richard's fixtures.
-- [ ] Verify press and release received in one tick retain order; reset/disconnect cancels held controls; invalid/stale commands cannot change gameplay.
-- [ ] Give Richard concrete adapter/fixture discrepancies with the SHA and sanitized messages. Do not patch simulation rules in Alan's adapter.
+- [x] Run Richard's existing manual diagnostics (`PYTHONPATH=backend backend/.venv/bin/python -m simulation.synthetic`) and validate the committed snapshot fixtures against the public protocol models. Initial frozen image: 262/262 observations; follow-up with delivered task 8: 413/413. All eight fixtures validate; initial fixture regeneration was identical.
+- [x] Through coordinator → worker, verify movement, nearest-ball pickup, held ownership, release strength/aim, flight, collision/hit result, wall/expiry respawn and cancellation.
+- [x] Confirm NO_THROW_ZONE reaches only the responsible controller with the correct ref_seq, without producing a throw. Compare snapshots/results to Richard's fixtures.
+- [x] Verify press and release received in one tick retain order; reset/disconnect cancels held controls; invalid/stale commands cannot change gameplay. Routed back-to-back edges plus a deterministic direct-adapter same-tick probe; routed OLD_SEQ, STALE_EPOCH and WRONG_ROLE rejected without changing held ownership.
+- [x] Review adapter/fixture discrepancies and prepare Richard's handoff with source identity and sanitized observations in the verification record. None found in this scope; task 8 delivery and follow-up verification are recorded. No simulation rules patched and no external message sent.
 
 ## 4. Complete the persistence required for the implemented slice
 

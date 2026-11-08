@@ -185,8 +185,8 @@ class GameRoom:
             self.sim.control('abort', reason)
 
     # --- outbound ------------------------------------------------------------
-    def _room(self):
-        state = self.sim.snapshot()
+    def _room(self, state=None):
+        state = state if state is not None else self.sim.snapshot()
         members = []
         for m in self.facts['members']:
             st = self.status.get(m['member_id'], {})
@@ -203,9 +203,9 @@ class GameRoom:
             if peer.welcomed:
                 peer.send(text)
 
-    def _broadcast_room(self):
+    def _broadcast_room(self, state=None):
         self.revision += 1
-        self._broadcast(encode('room.updated', dict(room=self._room())))
+        self._broadcast(encode('room.updated', dict(room=self._room(state))))
 
     def _broadcast_snapshot(self):
         text = encode('state.snapshot', dict(state=plain(self.sim.snapshot())))
@@ -219,16 +219,20 @@ class GameRoom:
     def _flush(self, room_changed=False):
         """Drain exactly once after every mutation and publish ordered transition bundles."""
         bundle_open = False
+        bundle_state = None
         for event in self.sim.drain_events():
             if isinstance(event, PhaseChanged):
                 if self.report_history:
                     self.report_history(event.state)
                 if bundle_open:
-                    self._broadcast_room()
+                    self._broadcast_room(bundle_state)
                 if event.state.phase == 'lobby':
                     self._clear_readiness()
                 self._broadcast(encode('phase.changed', dict(state=plain(event.state))))
                 bundle_open = True
+                # A winning step captures role_switch and match_end. Keep each
+                # room update paired with its own captured transition state.
+                bundle_state = event.state
             elif isinstance(event, RolesChanged):
                 if self.report_history:
                     self.report_history(self.sim.snapshot())
@@ -243,7 +247,7 @@ class GameRoom:
         if room_changed and self.report_history:
             self.report_history(self.sim.snapshot())
         if bundle_open or room_changed:
-            self._broadcast_room()
+            self._broadcast_room(bundle_state)
         if bundle_open:
             self._broadcast_snapshot()
 
