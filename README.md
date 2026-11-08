@@ -2,8 +2,8 @@
 
 Four phones cooperate to control two characters. A FastAPI coordinator owns room
 registration and PostgreSQL records; Richard's pure Python simulation decides the
-game. Local Compose runs the simulation in the coordinator (`IN_PROCESS_SIMULATION=true`);
-production worker allocation and routing remain unimplemented. The screen has
+game. The coordinator allocates each live room to a game worker and relays authenticated
+commands, snapshots and events over a private channel. Worker loss closes affected rooms. The screen has
 stadium and crowd visuals, an optional team first-person view, and a camera-based
 Legs controller. Arms remains a placeholder. See [Local play](#local-play).
 
@@ -36,8 +36,7 @@ docker compose logs -f
 ```
 
 Edits in `backend/app/` reload both services. Simulation source is mounted in the
-worker. Reloads restart the process and will discard live game state once it is
-implemented. Rebuild after dependency or Dockerfile changes.
+worker. Reloads restart the process and close affected live rooms. Rebuild after dependency or Dockerfile changes.
 
 Stop with `docker compose down`. PostgreSQL data remains in `postgres_data`.
 `docker compose down -v` deletes that data. The password default is for local

@@ -17,11 +17,15 @@ instruction explicitly retains.
 Covered so far: the deterministic movement surface (four directions, diagonal
 speed cap, both half-court clamps, all four ball spawns, stale-input stop,
 replay determinism, epoch/ordinal/role rejection); Hold acquisition, ownership,
-safe cancel and the no-throw zone; and constant-speed flight, wall/expiry
-respawn, swept-circle collision and earliest-hit resolution.
+safe cancel and the no-throw zone; constant-speed flight, wall/expiry respawn,
+swept-circle collision and earliest-hit resolution; the full lifecycle --
+exactly-once scoring, the 3600-tick timeout draw, round_end/role_switch/
+match_end, every-round role swapping, readiness gating, first-to-three and a
+complete four-round match with rematch; and the device guard -- abort to lobby
+on phone/host/screen loss or revoked readiness, reset from every phase, and
+rematch restricted to match_end.
 
-The score, the timeout draw and the round/match/role lifecycle arrive in tasks
-7-8 and get their scenarios then.
+Every ordered task in plans/agents/richard.md through task 8 is covered here.
 """
 
 from __future__ import annotations
@@ -37,7 +41,7 @@ from typing import Any
 from . import constants as K
 from .engine import Simulation
 from .types import (ArmsCommand, Assignment, InputRejected, LegsCommand,
-                    SimulationError, Vec2)
+                    PhaseChanged, RolesChanged, SimulationError, Vec2)
 
 # Readable substitutes for opaque production IDs, as used in 03's examples.
 P1, P2, P3, P4 = "p1", "p2", "p3", "p4"
@@ -225,6 +229,73 @@ def step_until_result(sim: Simulation, limit: int = 120) -> int:
         sim.step(0)
         ticks += 1
     return ticks
+
+
+def ready_all(sim: Simulation, screens: int = 1) -> None:
+    """Supply the adapter facts for four connected, ready phones."""
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3, P4}),
+        screen_count=screens,
+        host_connected=True,
+    )
+
+
+def assignment_map(sim: Simulation) -> dict[tuple[int, str], str]:
+    """Current (team, role) -> member_id mapping."""
+    return {(a.team, a.role): a.member_id for a in sim.snapshot().assignments}
+
+
+def win_round(sim: Simulation, team: int = 1) -> None:
+    """Land a hit for `team`. Leaves the simulation in round_end."""
+    opponent = 2 if team == 1 else 1
+    sign = 1.0 if team == 1 else -1.0
+    place(sim, team, 0.0, -3.0 * sign)
+    place(sim, opponent, 0.0, 3.0 * sign)
+    launch_ball(sim, "b1", 0.0, -2.0 * sign, 0.0, 14.0 * sign, shooter_team=team)
+    step_until_result(sim)
+
+
+def draw_round(sim: Simulation) -> None:
+    """Land two opposing hits at the same instant. Leaves round_end."""
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    launch_ball(sim, "b1", 0.0, -1.0, 0.0, 10.0, shooter_team=1)
+    launch_ball(sim, "b2", 0.0, 1.0, 0.0, -10.0, shooter_team=2)
+    step_until_result(sim)
+
+
+def run_out_phase(sim: Simulation, phase: str, limit: int = 400) -> int:
+    """Step while the simulation is still in `phase`. Returns ticks spent."""
+    ticks = 0
+    while sim.snapshot().phase == phase and ticks < limit:
+        sim.step(0)
+        ticks += 1
+    return ticks
+
+
+def advance_to_next_active(sim: Simulation) -> None:
+    """From round_end, reach the next round's active phase.
+
+    Runs out the result display, supplies readiness at role_switch, then runs
+    out the countdown — the same path four real phones take.
+    """
+    run_out_phase(sim, "round_end")
+    if sim.snapshot().phase == "role_switch":
+        ready_all(sim)
+        run_out_phase(sim, "role_switch")
+    run_out_phase(sim, "countdown")
+
+
+def event_epochs(events: list[Any]) -> list[tuple[str, int]]:
+    """Label and epoch of each transition event, in emission order."""
+    out: list[tuple[str, int]] = []
+    for e in events:
+        if isinstance(e, PhaseChanged):
+            out.append((f"phase:{e.state.phase}", e.state.epoch))
+        elif isinstance(e, RolesChanged):
+            out.append(("roles", e.epoch))
+    return out
 
 
 def clear_ground_balls(sim: Simulation, keep: tuple[str, ...]) -> None:
@@ -1343,21 +1414,17 @@ def scenario_round_decided(d: Diagnostics) -> None:
         f"{s.tick} vs {tick_before + 10}",
     )
     d.observe("no command changes a decided round", s.result == decided)
-    d.note(
-        "score stays 0-0 and phase stays active: the round_end transition and "
-        "the point itself are task 7, not task 6"
+    d.observe(
+        "a decided round has left active for round_end",
+        s.phase == "round_end",
+        s.phase,
     )
 
-    # The next round clears the result and re-arms the arena. Reset clears the
+    # A lobby reset clears the result and re-arms the arena. Reset clears the
     # ready set, so readiness has to be supplied again before start, exactly as
     # a real lobby would.
     sim.control("reset")
-    sim.set_readiness(
-        ready_member_ids=frozenset({P1, P2, P3, P4}),
-        connected_member_ids=frozenset({P1, P2, P3, P4}),
-        screen_count=1,
-        host_connected=True,
-    )
+    ready_all(sim)
     sim.control("start")
     s = sim.snapshot()
     d.observe("a new round clears the result", s.result is None, str(s.result))
@@ -1367,6 +1434,814 @@ def scenario_round_decided(d: Diagnostics) -> None:
         "a new round restores all four ball spawns",
         all((b.pos.x, b.pos.z) == K.BALL_SPAWNS[b.ball_id] for b in s.balls),
     )
+
+
+# --- Task 7: round and match lifecycle --------------------------------------
+def scenario_round_end(d: Diagnostics) -> None:
+    print("\n[round_end: one point, result held for 2 seconds]")
+    sim = boot_to_active()
+    epoch_before = sim.snapshot().epoch
+    sim.drain_events()
+    win_round(sim, team=1)
+    s = sim.snapshot()
+    events = sim.drain_events()
+
+    d.observe("a hit enters round_end", s.phase == "round_end", s.phase)
+    d.observe("a hit awards exactly one point", (s.score.t1, s.score.t2) == (1, 0),
+              f"{s.score.t1}-{s.score.t2}")
+    d.observe("the result names the hit", s.result is not None and s.result.reason == "hit",
+              str(s.result))
+    d.observe("phase_remaining_ms is the specified 2000",
+              s.phase_remaining_ms == 2000, str(s.phase_remaining_ms))
+    d.observe("the phase transition increments epoch", s.epoch > epoch_before,
+              f"{epoch_before} -> {s.epoch}")
+    d.observe("round_end clears held balls",
+              all(c.held_ball_id is None for c in s.characters))
+    d.observe("round_end does NOT reset the arena yet, so the result stays readable",
+              any(b.mode == "flying" for b in s.balls),
+              str([b.mode for b in s.balls]))
+    d.observe("the transition is published as a phase change",
+              [n for n, _ in event_epochs(events)] == ["phase:round_end"],
+              str(event_epochs(events)))
+
+    # The result display runs exactly 2 seconds, then roles swap.
+    ticks = run_out_phase(sim, "round_end")
+    d.observe(f"round_end lasts exactly {K.RESULT_TICKS} ticks", ticks == K.RESULT_TICKS,
+              str(ticks))
+    d.observe("round_end hands over to role_switch",
+              sim.snapshot().phase == "role_switch", sim.snapshot().phase)
+    d.observe("role_switch resets the arena",
+              all(b.mode == "ground" for b in sim.snapshot().balls)
+              and all((b.pos.x, b.pos.z) == K.BALL_SPAWNS[b.ball_id]
+                      for b in sim.snapshot().balls))
+    d.observe("role_switch restores both spawns",
+              [(c.pos.x, c.pos.z) for c in sim.snapshot().characters]
+              == [K.T1_SPAWN, K.T2_SPAWN],
+              str([(c.pos.x, c.pos.z) for c in sim.snapshot().characters]))
+    d.observe("role_switch has no phase timer: it waits on readiness",
+              sim.snapshot().phase_remaining_ms is None,
+              str(sim.snapshot().phase_remaining_ms))
+    d.observe("the result persists through role_switch",
+              sim.snapshot().result is not None, str(sim.snapshot().result))
+
+
+def scenario_score_once(d: Diagnostics) -> None:
+    print("\n[scoring: exactly once per round]")
+    sim = boot_to_active()
+    win_round(sim, team=1)
+    d.observe("one point after the hit", sim.snapshot().score.t1 == 1,
+              str(sim.snapshot().score.t1))
+
+    # Sitting in round_end must not re-score, and neither must role_switch.
+    run_out_phase(sim, "round_end")
+    d.observe("round_end does not score again", sim.snapshot().score.t1 == 1,
+              str(sim.snapshot().score.t1))
+    for _ in range(200):
+        sim.step(0)
+    d.observe("waiting in role_switch does not score again",
+              sim.snapshot().score.t1 == 1, str(sim.snapshot().score.t1))
+
+    ready_all(sim)
+    run_out_phase(sim, "role_switch")
+    run_out_phase(sim, "countdown")
+    d.observe("the next round starts from the same score",
+              (sim.snapshot().score.t1, sim.snapshot().score.t2) == (1, 0),
+              f"{sim.snapshot().score.t1}-{sim.snapshot().score.t2}")
+    d.observe("the next round is active", sim.snapshot().phase == "active",
+              sim.snapshot().phase)
+    d.observe("the next round number is 2", sim.snapshot().round == 2,
+              str(sim.snapshot().round))
+    d.observe("the next round has the full timer",
+              sim.snapshot().remaining_ms == K.ROUND_MS,
+              str(sim.snapshot().remaining_ms))
+    d.observe("the next round clears the previous result",
+              sim.snapshot().result is None, str(sim.snapshot().result))
+
+    # A draw awards nothing to either side.
+    sim = boot_to_active()
+    draw_round(sim)
+    s = sim.snapshot()
+    d.observe("a simultaneous draw awards no point",
+              (s.score.t1, s.score.t2) == (0, 0), f"{s.score.t1}-{s.score.t2}")
+    d.observe("a draw still enters round_end", s.phase == "round_end", s.phase)
+
+
+def scenario_timeout(d: Diagnostics) -> None:
+    print("\n[timeout: the exact 3600-tick boundary]")
+    sim = boot_to_active()
+    for _ in range(K.ROUND_TICKS):
+        sim.step(0)
+    s = sim.snapshot()
+    d.observe(f"still active after exactly {K.ROUND_TICKS} ticks",
+              s.phase == "active", s.phase)
+    d.observe("the clock reads zero at that point", s.remaining_ms == 0,
+              str(s.remaining_ms))
+    d.observe("no result yet", s.result is None, str(s.result))
+
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("the next tick ends the round as a timeout",
+              s.result is not None and s.result.reason == "timeout", str(s.result))
+    d.observe("a timeout awards no point", (s.score.t1, s.score.t2) == (0, 0),
+              f"{s.score.t1}-{s.score.t2}")
+    d.observe("a timeout names no winner or victim",
+              s.result is not None and s.result.winner is None
+              and s.result.victim_team is None and s.result.hit_ball_id is None)
+    d.observe("a timeout enters round_end", s.phase == "round_end", s.phase)
+
+    # 02: a throw arriving at the deadline is ineligible, but a hit during the
+    # last valid step counts. Land one on tick 3600 exactly.
+    sim = boot_to_active()
+    for _ in range(K.ROUND_TICKS - 1):
+        sim.step(0)
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    launch_ball(sim, "b1", 0.0, 2.3, 0.0, 14.0, shooter_team=1)  # hits immediately
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("a hit on the last valid step counts as a hit, not a timeout",
+              s.result is not None and s.result.reason == "hit", str(s.result))
+    d.observe("and it scores", (s.score.t1, s.score.t2) == (1, 0),
+              f"{s.score.t1}-{s.score.t2}")
+
+    # Input arriving after the round has ended is refused.
+    stale_epoch = s.epoch - 1
+    try:
+        sim.apply_input(
+            legs_member(sim, 1),
+            LegsCommand(seq=9999, epoch=stale_epoch, move=Vec2(0.0, 1.0)),
+            received_ms=0,
+            ordinal=9999,
+        )
+        refused = "accepted"
+    except SimulationError as exc:
+        refused = exc.code
+    d.observe("a command from the ended round is refused",
+              refused in ("STALE_EPOCH", "INVALID_PHASE"), refused)
+
+    # 02: "a throw received at the deadline is ineligible". The timeout is
+    # decided at tick start, BEFORE queued commands are accepted, so a release
+    # that arrives on the deadline tick never launches.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -4.0)
+    put_ball(sim, "b1", 0.0, -4.0)
+    hands = Hands(sim, 1).send("press").step()
+    d.observe("a ball is held going into the deadline",
+              character(sim, 1).held_ball_id == "b1",
+              str(character(sim, 1).held_ball_id))
+    while sim.snapshot().remaining_ms > 0:
+        place(sim, 1, 0.0, -4.0)
+        sim.step(0)
+    d.observe("the clock is exhausted but the round has not ended yet",
+              sim.snapshot().phase == "active" and sim.snapshot().result is None,
+              sim.snapshot().phase)
+    hands.send("release", strength=1.0)  # queued on the deadline tick
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("a release queued at the deadline does not launch",
+              ball(sim, "b1").mode != "flying", ball(sim, "b1").mode)
+    d.observe("and the round still ends as a timeout draw",
+              s.result is not None and s.result.reason == "timeout"
+              and (s.score.t1, s.score.t2) == (0, 0), str(s.result))
+
+
+def scenario_role_swap(d: Diagnostics) -> None:
+    print("\n[role swap: after EVERY round, including draws]")
+
+    for label, finish in (("a hit", lambda s: win_round(s, 1)),
+                          ("a draw", draw_round)):
+        sim = boot_to_active()
+        before = assignment_map(sim)
+        version_before = sim.snapshot().assignment_version
+        finish(sim)
+        sim.drain_events()
+        run_out_phase(sim, "round_end")
+        after = assignment_map(sim)
+        events = sim.drain_events()
+
+        swapped = (
+            after[(1, "arms")] == before[(1, "legs")]
+            and after[(1, "legs")] == before[(1, "arms")]
+            and after[(2, "arms")] == before[(2, "legs")]
+            and after[(2, "legs")] == before[(2, "arms")]
+        )
+        d.observe(f"{label} swaps arms and legs within each team", swapped,
+                  f"{before} -> {after}")
+        d.observe(f"{label} keeps every phone on its own team",
+                  {m for (t, _), m in before.items() if t == 1}
+                  == {m for (t, _), m in after.items() if t == 1},
+                  str(after))
+        d.observe(f"{label} increments assignment_version",
+                  sim.snapshot().assignment_version == version_before + 1,
+                  f"{version_before} -> {sim.snapshot().assignment_version}")
+        labels = [n for n, _ in event_epochs(events)]
+        d.observe(f"{label} publishes phase.changed then roles.changed",
+                  labels == ["phase:role_switch", "roles"], str(labels))
+        epochs = [e for _, e in event_epochs(events)]
+        d.observe(f"{label} never regresses epoch across the bundle",
+                  epochs == sorted(epochs), str(epochs))
+
+
+def scenario_readiness_gate(d: Diagnostics) -> None:
+    print("\n[readiness gates the next round]")
+    sim = boot_to_active()
+    win_round(sim, team=1)
+    run_out_phase(sim, "round_end")
+    d.observe("role_switch reached", sim.snapshot().phase == "role_switch",
+              sim.snapshot().phase)
+
+    # The swap cleared readiness, so nothing may start.
+    for _ in range(300):
+        sim.step(0)
+    d.observe("role_switch waits indefinitely without readiness",
+              sim.snapshot().phase == "role_switch", sim.snapshot().phase)
+
+    # Three of four ready is not enough: never force-start an unready phone.
+    # Everyone is still connected with a screen present, so this is a pure
+    # readiness wait and NOT a device loss — role_switch holds rather than
+    # aborting. The device-loss cases live in scenario_device_guard, because in
+    # a non-lobby phase 02 makes them resets, not waits.
+    for ready_subset in (frozenset({P1, P2, P3}), frozenset({P1}), frozenset()):
+        sim.set_readiness(
+            ready_member_ids=ready_subset,
+            connected_member_ids=frozenset({P1, P2, P3, P4}),
+            screen_count=1,
+            host_connected=True,
+        )
+        sim.step(0)
+        d.observe(
+            f"{len(ready_subset)} of four ready keeps role_switch waiting",
+            sim.snapshot().phase == "role_switch",
+            sim.snapshot().phase,
+        )
+
+    # All four ready, connected, with a screen: the NEXT step begins the round.
+    ready_all(sim)
+    d.observe("set_readiness alone does not change phase",
+              sim.snapshot().phase == "role_switch", sim.snapshot().phase)
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("the step after readiness enters countdown", s.phase == "countdown", s.phase)
+    d.observe("countdown shows the specified 3000 ms", s.phase_remaining_ms == 3000,
+              str(s.phase_remaining_ms))
+    d.observe("the new round number is 2", s.round == 2, str(s.round))
+    d.observe("countdown clears the previous result", s.result is None, str(s.result))
+    ticks = run_out_phase(sim, "countdown")
+    d.observe(f"countdown lasts exactly {K.COUNTDOWN_TICKS} ticks",
+              ticks == K.COUNTDOWN_TICKS, str(ticks))
+    d.observe("countdown hands over to active", sim.snapshot().phase == "active",
+              sim.snapshot().phase)
+
+
+def scenario_first_to_three(d: Diagnostics) -> None:
+    print("\n[first to three: winning-round swap and match_end]")
+    sim = boot_to_active()
+    for round_number in (1, 2):
+        win_round(sim, team=1)
+        d.observe(f"round {round_number} scores for team 1",
+                  sim.snapshot().score.t1 == round_number,
+                  str(sim.snapshot().score.t1))
+        d.observe(f"round {round_number} does not end the match",
+                  sim.snapshot().winner is None, str(sim.snapshot().winner))
+        advance_to_next_active(sim)
+
+    # The deciding round.
+    before = assignment_map(sim)
+    win_round(sim, team=1)
+    d.observe("the third point is scored", sim.snapshot().score.t1 == 3,
+              str(sim.snapshot().score.t1))
+    d.observe("the match does not end until the result has been shown",
+              sim.snapshot().phase == "round_end", sim.snapshot().phase)
+    sim.drain_events()
+    run_out_phase(sim, "round_end")
+    s = sim.snapshot()
+    events = sim.drain_events()
+
+    d.observe("the match ends at match_end", s.phase == "match_end", s.phase)
+    d.observe("the winner is team 1", s.winner == 1, str(s.winner))
+    d.observe("the final score is 3-0", (s.score.t1, s.score.t2) == (3, 0),
+              f"{s.score.t1}-{s.score.t2}")
+    d.observe("match_end retains the deciding result",
+              s.result is not None and s.result.reason == "hit", str(s.result))
+    d.observe("match_end has no phase timer", s.phase_remaining_ms is None,
+              str(s.phase_remaining_ms))
+
+    after = assignment_map(sim)
+    d.observe(
+        "the winning round still swaps roles",
+        after[(1, "arms")] == before[(1, "legs")]
+        and after[(2, "arms")] == before[(2, "legs")],
+        f"{before} -> {after}",
+    )
+    labels = [n for n, _ in event_epochs(events)]
+    d.observe("the winning bundle is role_switch, roles, then match_end",
+              labels == ["phase:role_switch", "roles", "phase:match_end"], str(labels))
+    epochs = [e for _, e in event_epochs(events)]
+    d.observe("the winning bundle never regresses epoch", epochs == sorted(epochs),
+              str(epochs))
+
+    # match_end holds; it does not wander into another round.
+    for _ in range(300):
+        sim.step(0)
+    d.observe("match_end holds without readiness", sim.snapshot().phase == "match_end",
+              sim.snapshot().phase)
+    ready_all(sim)
+    for _ in range(10):
+        sim.step(0)
+    d.observe("match_end does not restart even when every phone readies",
+              sim.snapshot().phase == "match_end", sim.snapshot().phase)
+    d.observe("match_end keeps the winner", sim.snapshot().winner == 1,
+              str(sim.snapshot().winner))
+
+    # Draws do not end a match, so all-draw play continues (02 accepts this).
+    sim2 = boot_to_active()
+    for _ in range(4):
+        draw_round(sim2)
+        advance_to_next_active(sim2)
+    s2 = sim2.snapshot()
+    d.observe("four draws award nothing and the match continues",
+              (s2.score.t1, s2.score.t2) == (0, 0) and s2.winner is None,
+              f"{s2.score.t1}-{s2.score.t2} winner {s2.winner}")
+    d.observe("and the round number has advanced to 5", s2.round == 5, str(s2.round))
+
+
+def scenario_full_match(d: Diagnostics) -> None:
+    print("\n[a complete match through the real seam]")
+    sim = boot_to_active()
+    start_map = assignment_map(sim)
+    violations: list[str] = []
+    epochs: list[int] = []
+    ticks: list[int] = []
+    role_history: list[dict[tuple[int, str], str]] = []
+
+    def audit(where: str) -> None:
+        s = sim.snapshot()
+        ticks.append(s.tick)
+        if [c.team for c in s.characters] != [1, 2]:
+            violations.append(f"{where}: characters")
+        if [b.ball_id for b in s.balls] != list(K.BALL_IDS):
+            violations.append(f"{where}: balls")
+        for b in s.balls:
+            if (b.owner_team is not None) != (b.mode == "held"):
+                violations.append(f"{where}: owner_team on {b.ball_id}")
+            if (b.shooter_team is not None) != (b.mode == "flying"):
+                violations.append(f"{where}: shooter_team on {b.ball_id}")
+            if (b.respawn_in_ms != 0) != (b.mode == "respawning"):
+                violations.append(f"{where}: respawn_in_ms on {b.ball_id}")
+            if b.mode != "flying" and (b.velocity.x or b.velocity.z):
+                violations.append(f"{where}: velocity on {b.ball_id}")
+        if s.phase_remaining_ms is not None and s.phase not in ("countdown", "round_end"):
+            violations.append(f"{where}: phase_remaining_ms in {s.phase}")
+        if s.winner is not None and s.phase != "match_end":
+            violations.append(f"{where}: winner in {s.phase}")
+        if len(s.assignments) != 4:
+            violations.append(f"{where}: assignments")
+        if not 0 <= s.remaining_ms <= K.ROUND_MS:
+            violations.append(f"{where}: remaining_ms {s.remaining_ms}")
+        epochs.extend(e for _, e in event_epochs(sim.drain_events()))
+
+    # Team 1 takes three rounds, with a draw in the middle for good measure.
+    audit("active round 1")
+    for finisher in (lambda: win_round(sim, 1), lambda: draw_round(sim),
+                     lambda: win_round(sim, 1), lambda: win_round(sim, 1)):
+        finisher()
+        audit("round_end")
+        run_out_phase(sim, "round_end")
+        audit("after result display")
+        role_history.append(assignment_map(sim))
+        if sim.snapshot().phase == "role_switch":
+            ready_all(sim)
+            run_out_phase(sim, "role_switch")
+            audit("countdown")
+            run_out_phase(sim, "countdown")
+            audit("active")
+
+    s = sim.snapshot()
+    d.observe("a full match reaches a winner", s.phase == "match_end", s.phase)
+    d.observe("the winner is the team with three points",
+              s.winner == 1 and s.score.t1 == 3, f"winner {s.winner} score {s.score.t1}")
+    d.observe("the draw cost nobody a point", s.score.t2 == 0, str(s.score.t2))
+    d.observe("four rounds were played", s.round == 4, str(s.round))
+    d.observe("no state invariant was broken at any boundary",
+              not violations, "; ".join(violations[:4]))
+    d.observe("epoch never regressed across the whole match",
+              epochs == sorted(epochs), str(epochs))
+    d.observe("tick never reset across the whole match",
+              all(b >= a for a, b in zip(ticks, ticks[1:])), str(ticks[:6]))
+
+    # Rematch is the only way out of match_end. Formally task 8, but match_end
+    # only became reachable here, so its one exit is checked now.
+    final_map = assignment_map(sim)
+    sim.control("rematch")
+    s = sim.snapshot()
+    d.observe("rematch returns to lobby", s.phase == "lobby", s.phase)
+    d.observe("rematch resets the score", (s.score.t1, s.score.t2) == (0, 0),
+              f"{s.score.t1}-{s.score.t2}")
+    d.observe("rematch clears the winner and result",
+              s.winner is None and s.result is None, f"{s.winner} {s.result}")
+    d.observe("rematch retains the final assignments",
+              assignment_map(sim) == final_map, str(assignment_map(sim)))
+    d.observe("rematch resets the arena",
+              all(b.mode == "ground" for b in s.balls)
+              and all((b.pos.x, b.pos.z) == K.BALL_SPAWNS[b.ball_id] for b in s.balls))
+    d.observe("rematch requires readiness again before a new match",
+              s.round == 0, str(s.round))
+    ready_all(sim)
+    sim.control("start")
+    d.observe("a fresh match starts after rematch",
+              sim.snapshot().phase == "countdown" and sim.snapshot().round == 1,
+              f"{sim.snapshot().phase} round {sim.snapshot().round}")
+    d.note(f"assignments after a four-round match: {final_map}")
+    # 05 H8-10 gate: both teammates use both roles. Over the match each phone
+    # must have occupied arms AND legs at some point.
+    roles_held: dict[str, set[str]] = {}
+    for mapping in [start_map] + role_history:
+        for (_, role), member_id in mapping.items():
+            roles_held.setdefault(member_id, set()).add(role)
+    d.observe(
+        "every phone occupied both roles during the match",
+        all(held == {"arms", "legs"} for held in roles_held.values())
+        and len(roles_held) == 4,
+        str({m: sorted(r) for m, r in roles_held.items()}),
+    )
+
+
+# --- Task 8: abort to lobby, device guard, reset and rematch ----------------
+def lobby_reset_observations(d: Diagnostics, sim: Simulation, label: str,
+                            epoch_before: int, assignments_before,
+                            version_before: int) -> None:
+    """Check every clause 02 requires of a reset/abort to lobby."""
+    s = sim.snapshot()
+    d.observe(f"{label}: phase is lobby", s.phase == "lobby", s.phase)
+    d.observe(f"{label}: score cleared", (s.score.t1, s.score.t2) == (0, 0),
+              f"{s.score.t1}-{s.score.t2}")
+    d.observe(f"{label}: round cleared", s.round == 0, str(s.round))
+    d.observe(f"{label}: timer restored", s.remaining_ms == K.ROUND_MS,
+              str(s.remaining_ms))
+    d.observe(f"{label}: result and winner cleared",
+              s.result is None and s.winner is None, f"{s.result} {s.winner}")
+    d.observe(f"{label}: epoch incremented", s.epoch > epoch_before,
+              f"{epoch_before} -> {s.epoch}")
+    d.observe(f"{label}: no held balls", all(c.held_ball_id is None
+                                             for c in s.characters))
+    d.observe(f"{label}: arena reset to spawns",
+              all(b.mode == "ground" for b in s.balls)
+              and all((b.pos.x, b.pos.z) == K.BALL_SPAWNS[b.ball_id] for b in s.balls)
+              and [(c.pos.x, c.pos.z) for c in s.characters] == [K.T1_SPAWN, K.T2_SPAWN])
+    d.observe(f"{label}: assignments kept", s.assignments == assignments_before,
+              str(s.assignments))
+    d.observe(f"{label}: no role swap, so assignment_version is unchanged",
+              s.assignment_version == version_before,
+              f"{version_before} -> {s.assignment_version}")
+    d.observe(f"{label}: phase_remaining_ms null", s.phase_remaining_ms is None,
+              str(s.phase_remaining_ms))
+
+
+def scenario_device_guard(d: Diagnostics) -> None:
+    print("\n[device guard: required-device loss aborts to lobby]")
+
+    cases = (
+        ("a phone disconnects", dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+                                     connected_member_ids=frozenset({P1, P2, P3}),
+                                     screen_count=1, host_connected=True)),
+        ("the original host disconnects",
+         dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+              connected_member_ids=frozenset({P1, P2, P3, P4}),
+              screen_count=1, host_connected=False)),
+        ("every screen is lost", dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+                                      connected_member_ids=frozenset({P1, P2, P3, P4}),
+                                      screen_count=0, host_connected=True)),
+        ("a phone revokes readiness",
+         dict(ready_member_ids=frozenset({P1, P2, P3}),
+              connected_member_ids=frozenset({P1, P2, P3, P4}),
+              screen_count=1, host_connected=True)),
+    )
+
+    for label, facts in cases:
+        sim = boot_to_active()
+        epoch_before = sim.snapshot().epoch
+        assignments_before = sim.snapshot().assignments
+        version_before = sim.snapshot().assignment_version
+        sim.set_readiness(**facts)  # type: ignore[arg-type]
+        d.observe(f"{label}: set_readiness alone does not abort",
+                  sim.snapshot().phase == "active", sim.snapshot().phase)
+        sim.step(0)
+        lobby_reset_observations(d, sim, label, epoch_before, assignments_before,
+                                 version_before)
+
+    # Losing one screen while another remains is a membership change only.
+    sim = boot_to_active()
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3, P4}),
+        screen_count=1,  # down from 2, but one remains
+        host_connected=True,
+    )
+    for _ in range(10):
+        sim.step(0)
+    d.observe("losing one screen while another remains does not abort",
+              sim.snapshot().phase == "active", sim.snapshot().phase)
+
+    # An aborted round awards no point and triggers no role swap, even when a
+    # hit had already been scored in it.
+    sim = boot_to_active()
+    version_before = sim.snapshot().assignment_version
+    win_round(sim, team=1)
+    d.observe("a point was scored before the interruption",
+              sim.snapshot().score.t1 == 1, str(sim.snapshot().score.t1))
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("an aborted round keeps no point", (s.score.t1, s.score.t2) == (0, 0),
+              f"{s.score.t1}-{s.score.t2}")
+    d.observe("an aborted round triggers no role swap",
+              s.assignment_version == version_before,
+              f"{version_before} -> {s.assignment_version}")
+
+    # The guard fires in every non-lobby phase.
+    def reach(phase: str) -> Simulation:
+        sim = boot_to_active()
+        if phase == "countdown":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+            ready_all(sim)
+            sim.step(0)
+        elif phase == "round_end":
+            win_round(sim, 1)
+        elif phase == "role_switch":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+        elif phase == "match_end":
+            for _ in range(2):
+                win_round(sim, 1)
+                advance_to_next_active(sim)
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+        return sim
+
+    for phase in ("countdown", "active", "round_end", "role_switch", "match_end"):
+        sim = reach(phase)
+        d.observe(f"reached {phase} for the guard check",
+                  sim.snapshot().phase == phase, sim.snapshot().phase)
+        sim.set_readiness(
+            ready_member_ids=frozenset({P1, P2, P3, P4}),
+            connected_member_ids=frozenset({P1, P2, P3}),
+            screen_count=1,
+            host_connected=True,
+        )
+        sim.step(0)
+        d.observe(f"a disconnect during {phase} aborts to lobby",
+                  sim.snapshot().phase == "lobby", sim.snapshot().phase)
+
+    # Readiness revocation aborts ONLY in countdown and active. Elsewhere it
+    # just clears that member's readiness.
+    for phase, expected in (("countdown", "lobby"), ("active", "lobby"),
+                            ("round_end", "round_end"),
+                            ("role_switch", "role_switch"),
+                            ("match_end", "match_end")):
+        sim = reach(phase)
+        sim.set_readiness(
+            ready_member_ids=frozenset({P1, P2, P3}),
+            connected_member_ids=frozenset({P1, P2, P3, P4}),
+            screen_count=1,
+            host_connected=True,
+        )
+        sim.step(0)
+        d.observe(
+            f"ready=false during {phase} -> {expected}",
+            sim.snapshot().phase == expected,
+            sim.snapshot().phase,
+        )
+
+    # No duplicate abort: once in lobby the guard stops, and the adapter's own
+    # abort call afterwards is a plain lobby reset rather than a second abort.
+    sim = boot_to_active()
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    sim.drain_events()
+    for _ in range(20):
+        sim.step(0)
+    events = sim.drain_events()
+    d.observe("the guard does not fire again once in lobby", not events,
+              f"{len(events)} further events")
+    epoch_before = sim.snapshot().epoch
+    sim.control("abort")
+    d.observe("a redundant adapter abort is a safe lobby reset",
+              sim.snapshot().phase == "lobby"
+              and sim.snapshot().epoch == epoch_before + 1,
+              f"epoch {epoch_before} -> {sim.snapshot().epoch}")
+
+    # Old-epoch input cannot leak through an abort.
+    sim = boot_to_active()
+    stale_epoch = sim.snapshot().epoch
+    member = legs_member(sim, 1)
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    try:
+        sim.apply_input(
+            member,
+            LegsCommand(seq=1, epoch=stale_epoch, move=Vec2(0.0, 1.0)),
+            received_ms=0,
+            ordinal=5000,
+        )
+        refused = "accepted"
+    except SimulationError as exc:
+        refused = exc.code
+    d.observe("input from before the abort is refused",
+              refused in ("STALE_EPOCH", "INVALID_PHASE"), refused)
+
+    # 06's end-to-end script: disconnect a phone while it is holding a ball.
+    # The ball must not fly, and the match must reset with readiness cleared.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -4.0)
+    put_ball(sim, "b1", 0.0, -4.0)
+    Hands(sim, 1).send("press").step()
+    d.observe("a ball is held before the disconnect",
+              character(sim, 1).held_ball_id == "b1",
+              str(character(sim, 1).held_ball_id))
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P2, P3, P4}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    d.observe("disconnecting while holding does not launch the ball",
+              ball(sim, "b1").mode == "ground", ball(sim, "b1").mode)
+    d.observe("the held ball returns to its spawn with the arena reset",
+              (ball(sim, "b1").pos.x, ball(sim, "b1").pos.z) == K.BALL_SPAWNS["b1"],
+              str(ball(sim, "b1").pos))
+
+    # A disconnect on the same tick a hit would land: the guard is evaluated
+    # first, so the aborted round awards nothing.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    launch_ball(sim, "b1", 0.0, 2.3, 0.0, 14.0, shooter_team=1)  # would hit next step
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("a disconnect beats a hit landing on the same tick",
+              s.phase == "lobby" and s.result is None
+              and (s.score.t1, s.score.t2) == (0, 0),
+              f"{s.phase} {s.result} {s.score.t1}-{s.score.t2}")
+
+    # There is no resume: play restarts from round 1 after re-readying.
+    ready_all(sim)
+    sim.control("start")
+    run_out_phase(sim, "countdown")
+    s = sim.snapshot()
+    d.observe("after an abort the match restarts at round 1",
+              s.round == 1 and s.phase == "active", f"round {s.round} {s.phase}")
+    d.observe("and from a zero score", (s.score.t1, s.score.t2) == (0, 0),
+              f"{s.score.t1}-{s.score.t2}")
+
+    # Reconnection on its own resumes nothing: a fresh host start is required.
+    sim = boot_to_active()
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    ready_all(sim)  # everyone is back and ready again
+    for _ in range(120):
+        sim.step(0)
+    d.observe("reconnecting and re-readying does not resume the match",
+              sim.snapshot().phase == "lobby" and sim.snapshot().round == 0,
+              f"{sim.snapshot().phase} round {sim.snapshot().round}")
+
+    # Start is refused while a required device is missing.
+    for label, facts in (
+        ("no screen", dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+                           connected_member_ids=frozenset({P1, P2, P3, P4}),
+                           screen_count=0, host_connected=True)),
+        ("no host", dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+                         connected_member_ids=frozenset({P1, P2, P3, P4}),
+                         screen_count=1, host_connected=False)),
+        ("a phone absent", dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+                                connected_member_ids=frozenset({P1, P2, P3}),
+                                screen_count=1, host_connected=True)),
+        ("a phone unready", dict(ready_member_ids=frozenset({P1, P2, P3}),
+                                 connected_member_ids=frozenset({P1, P2, P3, P4}),
+                                 screen_count=1, host_connected=True)),
+    ):
+        fresh = Simulation(FOUR)
+        fresh.set_readiness(**facts)  # type: ignore[arg-type]
+        try:
+            fresh.control("start")
+            code = "accepted"
+        except SimulationError as exc:
+            code = exc.code
+        d.observe(f"start refused with {label}", code == "NOT_READY", code)
+
+
+def scenario_reset_and_rematch(d: Diagnostics) -> None:
+    print("\n[reset and rematch]")
+
+    # Host reset performs the same lobby reset from every phase.
+    for phase in ("countdown", "active", "round_end", "role_switch", "match_end"):
+        sim = boot_to_active()
+        if phase == "countdown":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+            ready_all(sim)
+            sim.step(0)
+        elif phase == "round_end":
+            win_round(sim, 1)
+        elif phase == "role_switch":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+        elif phase == "match_end":
+            for _ in range(2):
+                win_round(sim, 1)
+                advance_to_next_active(sim)
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+        epoch_before = sim.snapshot().epoch
+        assignments_before = sim.snapshot().assignments
+        version_before = sim.snapshot().assignment_version
+        d.observe(f"reset: reached {phase}", sim.snapshot().phase == phase,
+                  sim.snapshot().phase)
+        sim.control("reset")
+        lobby_reset_observations(d, sim, f"reset from {phase}", epoch_before,
+                                 assignments_before, version_before)
+
+    # A reset while already in lobby still invalidates the old epoch.
+    sim = Simulation(FOUR)
+    epoch_before = sim.snapshot().epoch
+    sim.control("reset")
+    events = sim.drain_events()
+    d.observe("a reset in lobby still increments epoch",
+              sim.snapshot().epoch == epoch_before + 1,
+              f"{epoch_before} -> {sim.snapshot().epoch}")
+    d.observe("a reset in lobby still publishes PhaseChanged(lobby)",
+              [n for n, _ in event_epochs(events)] == ["phase:lobby"],
+              str(event_epochs(events)))
+
+    # Rematch is valid only at match_end.
+    for phase in ("lobby", "countdown", "active", "round_end", "role_switch"):
+        sim = boot_to_active()
+        if phase == "lobby":
+            sim.control("reset")
+        elif phase == "countdown":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+            ready_all(sim)
+            sim.step(0)
+        elif phase == "round_end":
+            win_round(sim, 1)
+        elif phase == "role_switch":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+        try:
+            sim.control("rematch")
+            code = "accepted"
+        except SimulationError as exc:
+            code = exc.code
+        d.observe(f"rematch refused in {phase}", code == "INVALID_PHASE", code)
+
+    # Abort and reset are the same reset, as 03 specifies.
+    sim_a, sim_b = boot_to_active(), boot_to_active()
+    sim_a.control("abort", reason="transport failure")
+    sim_b.control("reset")
+    d.observe("abort and reset produce the same lobby state",
+              sim_a.snapshot() == sim_b.snapshot(),
+              "snapshots differ")
+    d.observe("abort accepts a reason without needing it in state",
+              sim_a.snapshot().phase == "lobby")
+
+    # An unknown control action is refused.
+    sim = boot_to_active()
+    try:
+        sim.control("pause")  # type: ignore[arg-type]
+        code = "accepted"
+    except SimulationError as exc:
+        code = exc.code
+    d.observe("an unknown control action is refused", code == "INVALID_INPUT", code)
 
 
 # --- Fixture emission -------------------------------------------------------
@@ -1420,17 +2295,29 @@ def write_fixtures(directory: str) -> list[str]:
         sim.step(0)
     fixtures.append(("active-flying.json", envelope(sim.snapshot(), 6000)))
 
-    # A resolved hit. NOTE for consumers: task 6 resolves the outcome into
-    # state.result and freezes the round, so this fixture still reads
-    # phase=active with score 0-0. Task 7 replaces it with a round_end state
-    # carrying the point. Build result UI against the result object, which is
-    # final, not against the phase in this file.
+    # Round end after a hit: one point, result visible, 2 second display.
     sim = boot_to_active()
-    place(sim, 1, 0.0, -3.0)
-    place(sim, 2, 0.0, 3.0)
-    launch_ball(sim, "b1", 0.0, -2.0, 0.0, 14.0, shooter_team=1)
-    step_until_result(sim)
-    fixtures.append(("hit-resolved-task6.json", envelope(sim.snapshot(), 7000)))
+    win_round(sim, team=1)
+    fixtures.append(("round-end-hit.json", envelope(sim.snapshot(), 7000)))
+
+    # Role switch: arena reset, roles swapped, waiting on readiness.
+    run_out_phase(sim, "round_end")
+    fixtures.append(("role-switch.json", envelope(sim.snapshot(), 9000)))
+
+    # Round end after a timeout draw: no point to either side.
+    timeout_sim = boot_to_active()
+    for _ in range(K.ROUND_TICKS + 1):
+        timeout_sim.step(0)
+    fixtures.append(("round-end-timeout.json", envelope(timeout_sim.snapshot(), 70000)))
+
+    # Match end: winner and final score.
+    won = boot_to_active()
+    for _ in range(2):
+        win_round(won, 1)
+        advance_to_next_active(won)
+    win_round(won, 1)
+    run_out_phase(won, "round_end")
+    fixtures.append(("match-end-winner.json", envelope(won.snapshot(), 120000)))
 
     for name, payload in fixtures:
         path = os.path.join(directory, name)
@@ -1460,8 +2347,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     print("Authoritative gameplay simulation - synthetic runner")
-    print("Tasks 1-6: DTOs, reset state, movement, input defense, acquisition,")
-    print("ownership, no-throw zone, flight, respawn and swept collision")
+    print("Tasks 1-8: DTOs, reset state, movement, input defense, acquisition,")
+    print("ownership, no-throw zone, flight, respawn, swept collision, scoring,")
+    print("timeout draw, round/match lifecycle, role swapping, readiness, and")
+    print("abort-to-lobby with the simulation-owned device guard")
 
     diagnostics = Diagnostics()
     scenario_reset_snapshot(diagnostics)
@@ -1485,6 +2374,15 @@ def main(argv: list[str] | None = None) -> int:
     scenario_collision(diagnostics)
     scenario_earliest_hit(diagnostics)
     scenario_round_decided(diagnostics)
+    scenario_round_end(diagnostics)
+    scenario_score_once(diagnostics)
+    scenario_timeout(diagnostics)
+    scenario_role_swap(diagnostics)
+    scenario_readiness_gate(diagnostics)
+    scenario_first_to_three(diagnostics)
+    scenario_full_match(diagnostics)
+    scenario_device_guard(diagnostics)
+    scenario_reset_and_rematch(diagnostics)
 
     total = diagnostics.matched + len(diagnostics.deviations)
     print(f"\n{diagnostics.matched}/{total} observations match the specified rules")
@@ -1493,11 +2391,13 @@ def main(argv: list[str] | None = None) -> int:
         for rule in diagnostics.deviations:
             print(f"  - {rule}")
         return 1
-    print("\nNot yet implemented (task 7 onward): the point itself, the")
-    print("3600-tick timeout draw, round_end/role_switch/match_end, role")
-    print("swapping, first-to-three, rematch and the readiness abort guard.")
-    print("A hit or draw IS resolved and published in state.result, and the")
-    print("round then freezes; task 7 turns that into round_end and the score.")
+    print("\nEvery ordered task through task 8 is implemented. Task 9 is the")
+    print("remaining item: run this runner as a full-match diagnostic, then")
+    print("the real four-phone integration. Neither adds engine mechanics.")
+    print("\nADAPTER NOTE: the device guard reads only set_readiness facts.")
+    print("03 clears readiness at swap/reset/abort/rematch, NOT at countdown")
+    print("or active entry. Clearing it there aborts every match instantly,")
+    print("because ready=true is only legal in lobby/role_switch.")
     return 0
 
 

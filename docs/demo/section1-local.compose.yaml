@@ -1,0 +1,55 @@
+# Manual local verification topology; separate from the development/production stacks.
+services:
+  coordinator:
+    image: eggwuh-htc-2026-coordinator:6b02f9c
+    command: ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    ports: ["127.0.0.1:18000:8000"]
+    environment:
+      BUILD_SHA: 6b02f9cae29a808650b06190352a255ec5c486e4
+      GAME_WORKER_SECRET: ${SECTION1_WORKER_SECRET:?Set an isolated local worker secret}
+      GAME_WORKER_URLS: http://game-worker:8000,http://game-worker-b:8000
+      PUBLIC_ORIGIN: http://localhost:5173
+      DEV_ORIGINS: ""
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: dodgewuh
+      PGUSER: dodgewuh
+      PGPASSWORD: ${SECTION1_POSTGRES_PASSWORD:?Set an isolated local database password}
+    depends_on:
+      postgres: {condition: service_healthy}
+      game-worker: {condition: service_healthy}
+      game-worker-b: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health',timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+  game-worker: &worker
+    image: eggwuh-htc-2026-game-worker:6b02f9c
+    command: ["/app/.venv/bin/uvicorn", "app.worker:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    ports: ["127.0.0.1:18001:8000"]
+    environment:
+      BUILD_SHA: 6b02f9cae29a808650b06190352a255ec5c486e4
+      GAME_WORKER_SECRET: ${SECTION1_WORKER_SECRET:?Set an isolated local worker secret}
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health',timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+  game-worker-b:
+    <<: *worker
+    ports: ["127.0.0.1:18002:8000"]
+  postgres:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_DB: dodgewuh
+      POSTGRES_USER: dodgewuh
+      POSTGRES_PASSWORD: ${SECTION1_POSTGRES_PASSWORD:?Set an isolated local database password}
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dodgewuh -d dodgewuh"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+volumes:
+  postgres_data:

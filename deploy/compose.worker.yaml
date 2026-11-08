@@ -8,6 +8,7 @@ services:
       - "${WORKER_PRIVATE_IP:?Set worker private IP}:8000:8000"
     environment:
       BUILD_SHA: ${BUILD_SHA:?Set BUILD_SHA}
+      GAME_WORKER_SECRET: ${GAME_WORKER_SECRET:?Set shared worker authentication secret}
     healthcheck:
       test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=2)"]
       interval: 10s

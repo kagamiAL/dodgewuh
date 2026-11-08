@@ -5,6 +5,7 @@ services:
     restart: unless-stopped
     environment:
       BUILD_SHA: ${BUILD_SHA:?Set BUILD_SHA}
+      GAME_WORKER_SECRET: ${GAME_WORKER_SECRET:?Set shared worker authentication secret}
       PUBLIC_ORIGIN: https://${DOMAIN:?Set DOMAIN}
       GAME_WORKER_URL: ${GAME_WORKER_URL:?Set worker private URL}
       PGHOST: postgres

@@ -6,9 +6,8 @@ services:
       - "127.0.0.1:${COORDINATOR_PORT:-8000}:8000"
     environment:
       BUILD_SHA: ${BUILD_SHA:-dev}
+      GAME_WORKER_SECRET: ${GAME_WORKER_SECRET:-local-worker-only-change-in-production}
       GAME_WORKER_URL: http://game-worker:8000
-      # Local integration: live simulations run in the coordinator until worker routing exists.
-      IN_PROCESS_SIMULATION: "true"
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:5173}
       # Comma-separated extra origins, e.g. a phone-facing HTTPS tunnel URL; '*' allows any.
       DEV_ORIGINS: ${DEV_ORIGINS:-*}
@@ -39,6 +38,7 @@ services:
       - "127.0.0.1:8001:8000"
     environment:
       BUILD_SHA: ${BUILD_SHA:-dev}
+      GAME_WORKER_SECRET: ${GAME_WORKER_SECRET:-local-worker-only-change-in-production}
     volumes:
       - ./backend/app:/app/app:ro
       - ./backend/simulation:/app/simulation:ro
