@@ -6,6 +6,12 @@ import type { Team } from './state'
 export const MODEL_URL = `${import.meta.env.BASE_URL}models/redguy.glb`
 // The red body material in the .blend; recoloured per team so screens match phones.
 const BODY_MATERIAL = 'RG_Red'
+/** The body glows in its team colour so characters pop against the dark arena (0 = off). */
+export const CHARACTER_GLOW = 0.6
+/** Eye whites glow a soft, calm green; pupils stay black. */
+const EYE_MATERIAL = 'RG_EyeWhite'
+const EYE_COLOR = new pc.Color(0.55, 0.9, 0.6)
+const EYE_GLOW = 0.8
 
 /** Loads the character model once. Resolves null on failure so callers keep the capsule. */
 export function loadCharacterModel(app: pc.Application): Promise<pc.Asset | null> {
@@ -70,6 +76,15 @@ export function instantiateCharacterModel(asset: pc.Asset, team: Team): Characte
         const m = mi.material.clone() as pc.StandardMaterial
         m.diffuse = TEAM_COLORS[team].clone()
         m.diffuseMap = null
+        m.emissive = TEAM_COLORS[team].clone()
+        m.emissiveIntensity = CHARACTER_GLOW
+        m.update()
+        mi.material = m
+      } else if (mi.material?.name === EYE_MATERIAL) {
+        const m = mi.material.clone() as pc.StandardMaterial
+        m.diffuse = EYE_COLOR.clone()
+        m.emissive = EYE_COLOR.clone()
+        m.emissiveIntensity = EYE_GLOW
         m.update()
         mi.material = m
       }

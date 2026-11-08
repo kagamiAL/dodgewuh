@@ -1,5 +1,6 @@
 import * as pc from 'playcanvas'
 import { TEAM_COLORS } from './constants'
+import { litAsActor } from './lighting'
 import type { Team } from './state'
 
 // First-person view model: RedGuy's right hand gripping the dodgeball, built by
@@ -44,6 +45,7 @@ export function instantiateFirstPersonHand(asset: pc.Asset): FirstPersonHand {
   const container = asset.resource as pc.ContainerResource
   const entity = container.instantiateRenderEntity()
   entity.setLocalScale(FP_HAND_SCALE, FP_HAND_SCALE, FP_HAND_SCALE)
+  litAsActor(entity)
   for (const name of BALL_NODES) {
     const node = entity.findByName(name)
     node?.setLocalScale(FP_BALL_SCALE, FP_BALL_SCALE, FP_BALL_SCALE)

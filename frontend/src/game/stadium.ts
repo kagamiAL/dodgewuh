@@ -1,17 +1,14 @@
 import * as pc from 'playcanvas'
 import { COURT_HALF_DEPTH, COURT_HALF_WIDTH, TEAM_COLORS } from './constants'
 import { toScene } from './coords'
-import { loadCrowdModel, type CrowdModel, type CrowdPart } from './crowdModel'
 import { buildCardCrowd, crowdCardMaterial, type CardFan } from './crowdCards'
 import { createWoodTexture, woodMaterial } from './woodFloor'
 
 // Cosmetic stadium around the court: apron, ad boards, stepped bleachers full of
 // low-poly fans, and floodlight towers. Purely decoration; nothing here reads game
-// state. Fans are merged into a few vertex-coloured meshes (one draw call per
-// section) and seeded, so every screen shows the same crowd. Box fans draw at once
-// and are swapped for the crowd model (crowdguy.glb) when it loads: 3D models in the front
-// rows, flat cards further back (far cheaper, and hard to tell apart at that distance).
-// Both are animated in the vertex shader (jumps, arm pumps), two draw calls per section.
+// state. Fans are flat cards (crowdCards.ts) merged into one mesh per section (one draw
+// call each) and seeded, so every screen shows the same crowd. They are animated in the
+// vertex shader (jumps, arm pumps).
 
 const RUNOFF = 2.5 // court line -> ad boards
 const BOARD_HEIGHT = 1
@@ -25,13 +22,10 @@ const EMPTY_SEAT_CHANCE = 0.15
 const STANDING_CHANCE = 0.12
 const SECTIONS_PER_STAND = 4
 const CROWD_SEED = 20261107
-/** crowdguy.glb units -> metres: body radius 0.62 -> ~0.2 m, filling one seat. */
-const FAN_SCALE = 0.33
+/** Fan size varies ±8% around the card's base size (crowdCards.ts). */
 const FAN_SCALE_JITTER = 0.08
 const FAN_YAW_JITTER = 0.3 // radians, either way
 const ARM_PUMPER_CHANCE = 0.35 // seated fans who pump their arms when excited
-/** Rows from the front drawn as 3D models; every row behind them is flat cards. */
-const MODEL_ROWS = 2
 
 /** How each fan's arms move: blend weight between the idle and cheer poses over time. */
 const enum ArmStyle { Seated = 0, Pumps = 1, Up = 2 }
@@ -161,12 +155,10 @@ function addStandBox(
   else out.add(p.x, y, p.z, sAlong, sy, sBack, color)
 }
 
-/** One seated fan, in scene space; the same record drives the box and model crowds. */
+/** One seated fan, in scene space. */
 interface Fan {
-  /** 0 = front row. */
-  row: number
   pos: pc.Vec3
-  /** Rotation about scene +Y that turns the model's front (+Z) toward the court. */
+  /** Rotation about scene +Y that turns the card's front (+Z) toward the court. */
   yaw: number
   scale: number
   cheer: boolean
@@ -179,8 +171,7 @@ interface Fan {
 }
 
 // Per-fan animation, evaluated per vertex. Every fan is baked in the idle pose with a
-// per-vertex offset to the cheer pose (the two meshes share topology), so arms blend
-// between down and up. Excitement swells and fades on two slow, incommensurate waves
+// per-vertex offset to the cheer pose (arm quads only), so arms blend between down and up. Excitement swells and fades on two slow, incommensurate waves
 // per fan, so jumps come in irregular bursts rather than a uniform bounce.
 const CROWD_VS = `
 attribute vec4 crowd_cheer;  // xyz: cheer pose minus idle pose (scene metres)
@@ -203,51 +194,6 @@ vec3 crowdOffset(vec3 p) {
 }
 `
 
-
-/** Bakes every fan in a section into one vertex-coloured, shader-animated mesh. */
-function buildModelCrowd(device: pc.GraphicsDevice, model: CrowdModel, fans: Fan[]): pc.Mesh {
-  const positions: number[] = []
-  const normals: number[] = []
-  const colors: number[] = []
-  const cheerDelta: number[] = []
-  const params: number[] = []
-  const indices: number[] = []
-  for (const fan of fans) {
-    const cos = Math.cos(fan.yaw), sin = Math.sin(fan.yaw)
-    const arms = fan.cheer ? ArmStyle.Up : fan.arms
-    model.idle.forEach((part, k) => {
-      const cheer: CrowdPart | undefined = model.cheer[k]
-      const posed = cheer && cheer.positions.length === part.positions.length ? cheer.positions : part.positions
-      const [r, g, b] = part.material === 'CG_Body' ? fan.shirt : model.colors[part.material] ?? [1, 1, 1]
-      const base = positions.length / 3
-      for (let i = 0; i < part.positions.length; i += 3) {
-        const x = part.positions[i] * fan.scale, y = part.positions[i + 1] * fan.scale, z = part.positions[i + 2] * fan.scale
-        positions.push(fan.pos.x + cos * x + sin * z, fan.pos.y + y, fan.pos.z - sin * x + cos * z)
-        const dx = (posed[i] - part.positions[i]) * fan.scale
-        const dy = (posed[i + 1] - part.positions[i + 1]) * fan.scale
-        const dz = (posed[i + 2] - part.positions[i + 2]) * fan.scale
-        cheerDelta.push(cos * dx + sin * dz, dy, -sin * dx + cos * dz, 0)
-        const nx = part.normals[i], ny = part.normals[i + 1], nz = part.normals[i + 2]
-        normals.push(cos * nx + sin * nz, ny, -sin * nx + cos * nz)
-        colors.push(r, g, b, 1)
-        params.push(fan.phase, fan.tempo, fan.energy, arms)
-      }
-      for (const index of part.indices) indices.push(base + index)
-    })
-  }
-  const mesh = new pc.Mesh(device)
-  mesh.setPositions(positions)
-  mesh.setNormals(normals)
-  mesh.setColors(colors)
-  mesh.setVertexStream(pc.SEMANTIC_ATTR8, cheerDelta, 4)
-  mesh.setVertexStream(pc.SEMANTIC_ATTR9, params, 4)
-  mesh.setIndices(indices)
-  mesh.update()
-  // Leave room for jumps and raised arms so sections aren't culled mid-air.
-  const { center, halfExtents: h } = mesh.aabb
-  mesh.aabb = new pc.BoundingBox(center.clone(), new pc.Vec3(h.x + 0.3, h.y + 0.6, h.z + 0.3))
-  return mesh
-}
 
 /** Adds the CROWD_VS animation to a crowd material; `crowd_time` drives it. */
 function animateCrowd(m: pc.StandardMaterial, device: pc.GraphicsDevice): pc.StandardMaterial {
@@ -272,7 +218,7 @@ function toCardFan(fan: Fan): CardFan {
   return {
     pos: fan.pos,
     yaw: fan.yaw,
-    size: fan.scale / FAN_SCALE,
+    size: fan.scale,
     shirt: fan.shirt,
     params: [fan.phase, fan.tempo, fan.energy, fan.cheer ? ArmStyle.Up : fan.arms],
   }
@@ -280,17 +226,16 @@ function toCardFan(fan: Fan): CardFan {
 
 interface Stands {
   root: pc.Entity
-  /** Crowd sections in wave order, each with the fans it draws. */
-  sections: { entity: pc.Entity; fans: Fan[] }[]
+  /** Crowd sections in wave order. */
+  sections: pc.Entity[]
 }
 
-function buildStands(device: pc.GraphicsDevice): Stands {
+function buildStands(device: pc.GraphicsDevice, crowdMaterial: pc.Material): Stands {
   const root = new pc.Entity('Stands')
   const sections: Stands['sections'] = []
   const rand = seeded(CROWD_SEED)
   const pick = <T,>(list: T[]): T => list[Math.floor(rand() * list.length)]
   const concrete = vertexColorMaterial()
-  const crowdMaterial = vertexColorMaterial()
 
   const frames = standFrames()
   frames.forEach((f, standIndex) => {
@@ -304,14 +249,13 @@ function buildStands(device: pc.GraphicsDevice): Stands {
     addStandBox(steps, f, f.length / 2, STAND_DEPTH + 0.15, 0, f.length, ROWS * ROW_RISE + 1.2, 0.3, [0.25, 0.26, 0.3])
     root.addChild(steps.build(device, concrete, `Steps${standIndex}`))
 
-    // Model front (+Z) rotated by yaw is (sin, 0, cos) in scene space; aim it at the court.
+    // Card front (+Z) rotated by yaw is (sin, 0, cos) in scene space; aim it at the court.
     const inward = toScene(f.inward.x, f.inward.z)
     const faceCourt = Math.atan2(inward.x, inward.z)
 
     // Fans, split into sections along the stand so they can bob out of phase.
     const sectionLen = f.length / SECTIONS_PER_STAND
     for (let s = 0; s < SECTIONS_PER_STAND; s++) {
-      const crowd = new BoxBuilder()
       const fans: Fan[] = []
       for (let row = 0; row < ROWS; row++) {
         const seatY = (row + 1) * ROW_RISE
@@ -325,10 +269,9 @@ function buildStands(device: pc.GraphicsDevice): Stands {
           const arms = rand() < ARM_PUMPER_CHANCE ? ArmStyle.Pumps : ArmStyle.Seated
           const p = f.place(along, back)
           fans.push({
-            row,
             pos: toScene(p.x, p.z, seatY),
             yaw: faceCourt + (rand() * 2 - 1) * FAN_YAW_JITTER,
-            scale: FAN_SCALE * (1 + (rand() * 2 - 1) * FAN_SCALE_JITTER),
+            scale: 1 + (rand() * 2 - 1) * FAN_SCALE_JITTER,
             cheer,
             shirt,
             phase: rand() * Math.PI * 2,
@@ -337,19 +280,12 @@ function buildStands(device: pc.GraphicsDevice): Stands {
             arms,
           })
 
-          // Box stand-in until the model loads (or if it never does).
-          const bodyH = cheer ? 0.8 : 0.5 + rand() * 0.08
-          const bodyW = 0.38 + rand() * 0.08
-          addStandBox(crowd, f, along, back, seatY, bodyW, bodyH, 0.28, shirt)
-          addStandBox(crowd, f, along, back, seatY + bodyH, 0.22, 0.24, 0.22, shirt)
-          if (cheer) {
-            addStandBox(crowd, f, along - bodyW / 2 - 0.04, back, seatY + bodyH - 0.1, 0.08, 0.45, 0.08, shirt)
-            addStandBox(crowd, f, along + bodyW / 2 + 0.04, back, seatY + bodyH - 0.1, 0.08, 0.45, 0.08, shirt)
-          }
         }
       }
-      const entity = crowd.build(device, crowdMaterial, `Crowd${standIndex}_${s}`)
-      sections.push({ entity, fans })
+      const entity = new pc.Entity(`Crowd${standIndex}_${s}`)
+      const mesh = buildCardCrowd(device, fans.map(toCardFan))
+      entity.addComponent('render', { meshInstances: mesh ? [new pc.MeshInstance(mesh, crowdMaterial)] : [] })
+      sections.push(entity)
       root.addChild(entity)
     }
   })
@@ -425,8 +361,6 @@ export interface Stadium {
   root: pc.Entity
   /** Per-frame crowd animation (cosmetic). */
   update(dt: number): void
-  /** Stops a pending crowd-model swap; call before the app is destroyed. */
-  destroy(): void
 }
 
 export function createStadium(app: pc.Application): Stadium {
@@ -435,27 +369,9 @@ export function createStadium(app: pc.Application): Stadium {
   root.addChild(buildApron(device))
   root.addChild(buildBoards(device))
   root.addChild(buildFloodlights())
-  const stands = buildStands(device)
+  const crowdMaterial = animateCrowd(crowdCardMaterial(device), device)
+  const stands = buildStands(device, crowdMaterial)
   root.addChild(stands.root)
-
-  // Swap each section's boxes for the baked, animated crowd model once it arrives.
-  let destroyed = false
-  let crowdMaterials: pc.StandardMaterial[] = []
-  void loadCrowdModel().then((model) => {
-    if (!model || destroyed) return
-    const modelMat = animateCrowd(vertexColorMaterial(), device)
-    const cardMat = animateCrowd(crowdCardMaterial(device), device)
-    for (const { entity, fans } of stands.sections) {
-      if (!entity.render) continue
-      const near = fans.filter((fan) => fan.row < MODEL_ROWS)
-      const cards = buildCardCrowd(device, fans.filter((fan) => fan.row >= MODEL_ROWS).map(toCardFan))
-      const instances = [new pc.MeshInstance(buildModelCrowd(device, model, near), modelMat)]
-      if (cards) instances.push(new pc.MeshInstance(cards, cardMat))
-      // The setter destroys the box mesh instances it replaces.
-      entity.render.meshInstances = instances
-    }
-    crowdMaterials = [modelMat, cardMat]
-  })
 
   // A slow wave travels around the stadium; each section hops a few centimetres.
   let t = 0
@@ -463,14 +379,11 @@ export function createStadium(app: pc.Application): Stadium {
     root,
     update(dt) {
       t += dt
-      for (const m of crowdMaterials) m.setParameter('crowd_time', t)
-      stands.sections.forEach(({ entity }, i) => {
+      crowdMaterial.setParameter('crowd_time', t)
+      stands.sections.forEach((entity, i) => {
         const hop = Math.max(0, Math.sin(t * 1.6 - i * 0.55))
         entity.setLocalPosition(0, hop * hop * 0.12, 0)
       })
-    },
-    destroy() {
-      destroyed = true
     },
   }
 }

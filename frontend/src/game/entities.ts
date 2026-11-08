@@ -10,8 +10,9 @@ import {
   HELD_BALL_SIDE,
   TEAM_COLORS,
 } from './constants'
-import { instantiateCharacterModel, RIGHT_HAND_LOCAL, type CharacterRig } from './characterModel'
+import { CHARACTER_GLOW, instantiateCharacterModel, RIGHT_HAND_LOCAL, type CharacterRig } from './characterModel'
 import { toScene } from './coords'
+import { litAsActor } from './lighting'
 import { headingDeg, Ragdoll, type RagdollConfig } from './ragdoll'
 import type { Ball, Character, State, Team } from './state'
 
@@ -65,7 +66,7 @@ function createCharacter(team: Team): CharacterView {
 
   // Capsule primitive is radius 0.5 / height 2 at unit scale.
   const body = new pc.Entity('Body')
-  body.addComponent('render', { type: 'capsule', material: material(color) })
+  body.addComponent('render', { type: 'capsule', material: material(color, color.clone().mulScalar(CHARACTER_GLOW)) })
   body.setLocalScale(CHARACTER_RADIUS * 2, CHARACTER_HEIGHT / 2, CHARACTER_RADIUS * 2)
   body.setLocalPosition(0, CHARACTER_HEIGHT / 2, 0)
   root.addChild(body)
@@ -90,6 +91,7 @@ function createCharacter(team: Team): CharacterView {
   const facing = new pc.Entity('Facing')
   root.addChild(facing)
 
+  litAsActor(root)
   return {
     team, root, body, aimPivot, facing, rig: null, ragdoll: null,
     lastPos: null, lastSnapshotMs: 0, velX: 0, velZ: 0, aimHeading: 0, armPitch: null, thrownAt: -Infinity,
@@ -100,6 +102,7 @@ function createCharacter(team: Team): CharacterView {
 /** Replaces the placeholder capsule with the character model. */
 function attachModel(view: CharacterView, asset: pc.Asset, cfg: RagdollConfig): void {
   const model = instantiateCharacterModel(asset, view.team)
+  litAsActor(model.entity)
   view.facing.addChild(model.entity)
   view.rig = model.rig
   view.ragdoll = new Ragdoll(model.rig, cfg)
@@ -119,6 +122,7 @@ function createBall(id: string): BallView {
   const entity = new pc.Entity(`Ball_${id}`)
   entity.addComponent('render', { type: 'sphere', material: m })
   entity.setLocalScale(BALL_RADIUS * 2, BALL_RADIUS * 2, BALL_RADIUS * 2)
+  litAsActor(entity)
   return { entity, material: m, tint: '', flight: null }
 }
 

@@ -6,6 +6,7 @@ import { ragdollConfig } from './ragdoll'
 import { loadSpringExtras } from './springConfig'
 import { createCourt } from './court'
 import { createStadium } from './stadium'
+import { ACTOR_LIGHT_MASK } from './lighting'
 import { instantiateFirstPersonHand, loadFirstPersonHand, type FirstPersonHand } from './firstPersonHand'
 import { StateRenderer } from './entities'
 import type { State, Team } from './state'
@@ -32,6 +33,18 @@ const FIRST_PERSON_FOV = 75
 const OVERVIEW_FOV = 45
 /** Higher = camera catches up to the 20 Hz snapshots faster (1/s). */
 const FIRST_PERSON_FOLLOW = 12
+/**
+ * Overhead spotlights, one above each half (metres / degrees from straight down). Tuned so
+ * the cone covers the court and fades out around the ad boards, before the stands.
+ */
+const SPOT_HEIGHT = 14
+const SPOT_INNER_DEG = 22
+const SPOT_OUTER_DEG = 30
+const SPOT_INTENSITY = 2.6
+const SPOT_RANGE = 30
+/** Actor key lights: degrees from straight down (60 = 30° above the horizon), brightness. */
+const ACTOR_KEY_TILT_DEG = 60
+const ACTOR_KEY_INTENSITY = 0.7
 /** Your held ball in first person: metres ahead of, right of and below the eye. */
 const HELD_VIEW_OFFSET = { forward: 0.7, right: 0.26, down: 0.27 }
 
@@ -103,7 +116,8 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   const resizeObserver = new ResizeObserver(() => app.updateCanvasSize())
   resizeObserver.observe(canvas)
 
-  app.scene.ambientLight = new pc.Color(0.35, 0.35, 0.4)
+  // Dark arena: only the overhead spotlights (below) properly light anything.
+  app.scene.ambientLight = new pc.Color(0.09, 0.09, 0.12)
   // Night sky; distant stands fade into it.
   const sky = new pc.Color(0.03, 0.04, 0.08)
   app.scene.fog.type = pc.FOG_LINEAR
@@ -125,9 +139,42 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   useOverview()
   app.root.addChild(camera)
 
+  // Arena lighting: two spotlights hung above the court, out of shot, pool warm light on
+  // each half. The stands sit outside their cones, so the crowd stays in near darkness,
+  // lifted only by the ambient and a faint cool fill so it still reads.
   const lights = new pc.Entity('Lights')
-  lights.addComponent('light', { type: 'directional', intensity: 1 })
-  lights.setEulerAngles(50, 30, 0)
+  const fill = new pc.Entity('Fill')
+  fill.addComponent('light', { type: 'directional', color: new pc.Color(0.6, 0.65, 0.9), intensity: 0.2 })
+  fill.setEulerAngles(50, 30, 0)
+  lights.addChild(fill)
+  for (const z of [-COURT_HALF_DEPTH / 2, COURT_HALF_DEPTH / 2]) {
+    const spot = new pc.Entity('Spotlight')
+    // A spot light shines down its entity's -Y, so straight down needs no rotation.
+    spot.addComponent('light', {
+      type: 'spot',
+      color: new pc.Color(1, 0.95, 0.85),
+      intensity: SPOT_INTENSITY,
+      range: SPOT_RANGE,
+      innerConeAngle: SPOT_INNER_DEG,
+      outerConeAngle: SPOT_OUTER_DEG,
+    })
+    spot.setPosition(toScene(0, z, SPOT_HEIGHT))
+    lights.addChild(spot)
+  }
+  // Key lights for characters and balls only (lighting.ts): low and warm from behind each
+  // baseline, so whichever end you watch from, the opponent's front and the ball are lit.
+  for (const tilt of [-ACTOR_KEY_TILT_DEG, ACTOR_KEY_TILT_DEG]) {
+    const key = new pc.Entity('ActorKey')
+    key.addComponent('light', {
+      type: 'directional',
+      color: new pc.Color(1, 0.95, 0.88),
+      intensity: ACTOR_KEY_INTENSITY,
+      mask: ACTOR_LIGHT_MASK,
+    })
+    // A directional light shines down its -Y; tilting about X swings it toward ±z.
+    key.setEulerAngles(tilt, 0, 0)
+    lights.addChild(key)
+  }
   app.root.addChild(lights)
 
   app.root.addChild(createCourt(app.graphicsDevice))
@@ -237,7 +284,6 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
     },
     destroy() {
       destroyed = true
-      stadium.destroy()
       resizeObserver.disconnect()
       app.destroy()
     },
