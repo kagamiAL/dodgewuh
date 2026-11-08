@@ -19,3 +19,9 @@ terraform.tfvars
 *.auto.tfvars
 *.auto.tfvars.json
 secrets/
+
+# Local Impeccable skill installation and runtime state
+/.agents/skills/impeccable/
+/.github/skills/impeccable/
+/.github/agents/impeccable-*.agent.md
+/.impeccable/

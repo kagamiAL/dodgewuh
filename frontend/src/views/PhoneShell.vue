@@ -166,10 +166,21 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+@media (max-width: 380px) {
+  .seats li { grid-template-columns: auto auto minmax(0, 1fr); }
+  .seats .status { grid-column: 2 / -1; }
+}
+.ready button { cursor: pointer; font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-size: 1.5rem; text-transform: uppercase; }
+.ready button:hover { background: var(--surface); }
+.ready button.on:hover { background: var(--team); filter: brightness(1.1); }
+.seats .slot { color: var(--seat); }
+
 .phone {
   min-height: 100%;
   box-sizing: border-box;
-  border-top: 6px solid var(--team);
+  border-top: 3px solid var(--team);
+  max-width: 42rem;
+  margin-inline: auto;
   padding-bottom: env(safe-area-inset-bottom);
   overflow-x: hidden;
 }
@@ -181,7 +192,7 @@ header {
   gap: 0.25rem 1rem;
   padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
   font-size: 0.9rem;
-  background: #181818;
+  background: var(--surface);
 }
 header > * {
   min-width: 0;
@@ -220,14 +231,16 @@ header span:first-child {
   grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.45rem 0.6rem;
-  border-left: 4px solid var(--seat);
-  border-radius: 6px;
-  background: #1a1d22;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
   font-size: 0.85rem;
 }
 .seats li.me {
-  outline: 1px solid #555;
+  background: var(--surface);
+  border-radius: 6px;
+  padding-inline: 0.5rem;
 }
 .seats .dot {
   width: 0.6rem;
@@ -248,7 +261,7 @@ header span:first-child {
   white-space: nowrap;
 }
 .seats .status {
-  color: #aaa;
+  color: var(--muted);
 }
 .seats li.ok .status {
   color: #6d6;
@@ -261,7 +274,7 @@ header span:first-child {
 .hint,
 .phase {
   margin: 0.5rem 1rem;
-  color: #aaa;
+  color: var(--muted);
   font-size: 0.85rem;
 }
 .phase {
@@ -270,7 +283,7 @@ header span:first-child {
 .connection,
 .error {
   margin: 1rem;
-  color: #f77;
+  color: var(--danger);
 }
 .connection a {
   color: #8cf;

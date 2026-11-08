@@ -60,8 +60,9 @@ function command(type: 'match.start' | 'match.reset' | 'match.rematch'): void {
       </h2>
     </header>
     <header v-else>
-      <p class="label">Join at this site with code</p>
+      <h2 class="title">Join the room</h2>
       <p class="code">{{ room.room_code }}</p>
+      <p class="label join-hint">Join at this site with code</p>
     </header>
 
     <ol class="seats">
@@ -89,17 +90,32 @@ function command(type: 'match.start' | 'match.reset' | 'match.rematch'): void {
     </div>
     <p v-if="session.data.lastError" class="error">{{ session.data.lastError.message }}</p>
   </section>
+  <section v-else class="lobby pending" aria-live="polite">
+    <h2 class="title">{{ session.data.registration ? 'Connecting to your room' : 'Join a room to play' }}</h2>
+    <p v-if="session.data.registration" class="code">{{ session.data.registration.room_code }}</p>
+    <p v-if="session.data.closedReason">This room has ended. Create a new room to play again.</p>
+    <p v-else-if="session.data.status === 'reconnecting'">The connection was interrupted. Retrying automatically…</p>
+    <p v-else-if="session.data.status === 'closed' && session.data.registration">Could not connect to the room. Return home to rejoin or create a new room.</p>
+    <p v-else-if="session.data.registration">Waiting for the game server. Player seats and host controls will appear once connected.</p>
+    <RouterLink to="/">Back to home</RouterLink>
+  </section>
 </template>
 
 <style scoped>
+.pending { text-align: center; }
+.pending p { color: var(--muted); }
+.pending a { display: inline-block; color: var(--blue); padding: 0.75rem; }
+.join-hint { padding-bottom: 1.25rem; }
+button:hover:not(:disabled) { filter: brightness(1.12); }
+.code { color: var(--blue); }
 .lobby {
   /* 100% so the overlay's own safe-area padding is respected; 100vw would
      ignore it and sit under a notch in landscape. */
-  width: min(30rem, 100%);
-  padding: 1.25rem;
-  border-radius: 14px;
-  background: rgba(10, 12, 16, 0.88);
-  backdrop-filter: blur(6px);
+  width: min(35rem, 100%);
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border-radius: 16px;
+  background: var(--bg);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.4);
 }
 header {
   text-align: center;
@@ -109,7 +125,8 @@ header {
 }
 .title {
   margin: 0.35rem 0;
-  font: 800 clamp(1.6rem, 7vw, 2.4rem) / 1.1 system-ui, sans-serif;
+  font: italic 900 clamp(2rem, 7vw, 3rem) / 1 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
 }
 .progress {
   display: flex;
@@ -132,7 +149,7 @@ header {
 }
 .label {
   margin: 0;
-  color: #aaa;
+  color: var(--muted);
   font-size: 0.85rem;
 }
 .code {
@@ -154,10 +171,10 @@ header {
   grid-template-columns: minmax(0, 5.5rem) minmax(0, 1fr) minmax(0, auto);
   gap: 0.5rem;
   align-items: center;
-  padding: 0.55rem 0.75rem;
-  border-left: 5px solid var(--team);
-  border-radius: 6px;
-  background: #1a1d22;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
 }
 /* Below ~380px the three columns stop fitting side by side. */
 @media (max-width: 24rem) {
@@ -169,6 +186,7 @@ header {
   }
 }
 .slot {
+  color: var(--team);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -180,17 +198,17 @@ header {
 .state {
   min-width: 0;
   font-size: 0.85rem;
-  color: #aaa;
+  color: var(--muted);
 }
 .state.ok {
   color: #6d6;
 }
 .state.bad {
-  color: #f77;
+  color: var(--danger);
 }
 .screens {
   font-size: 0.85rem;
-  color: #aaa;
+  color: var(--muted);
 }
 .screens span + span::before {
   content: ', ';
@@ -209,20 +227,22 @@ button {
   font-weight: 700;
   border: 0;
   border-radius: 10px;
-  background: #8cf;
+  background: var(--blue);
   color: #000;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 button:disabled {
-  opacity: 0.4;
+  background: #2c394a;
+  color: #a3b0c2;
+  cursor: not-allowed;
 }
 button.secondary {
-  background: #333;
-  color: #ddd;
+  background: var(--surface);
+  color: var(--text);
 }
 .error {
-  color: #f77;
+  color: var(--danger);
   margin-bottom: 0;
 }
 </style>
