@@ -13,7 +13,7 @@
 > and Zod models, the shared fixtures and the renderer, because strict validation on both sides meant a
 > simulation-only change would have rejected every snapshot. **Alan owns 03 and the generated models: please
 > re-approve those edits.** The per-file list is in `backend/simulation/HANDOFF.md`.
-> **Playtest amendment:** gravity is now 1.9 m/s² and throw speed 12 + 7 × strength with three phone levels: weak carries ~75% of the court, hard reaches corner to corner. Original note: gravity was 3.4 m/s², below Earth's 9.81 by design: at 9.81 a fixed-strength throw carries only 5.44 m, so a
+> **Playtest amendment:** gravity is now 1.9 m/s² and throw speed 12 + 8 × strength (phone scales smoothly between weak and hard): weak carries ~75% of the court, hard reaches corner to corner. Original note: gravity was 3.4 m/s², below Earth's 9.81 by design: at 9.81 a fixed-strength throw carries only 5.44 m, so a
 > defender standing at their own back wall is literally unhittable and every round times out — the long-draw
 > risk in [07](07-risks-and-fallbacks.md). 3.5 keeps the whole court reachable while still visibly arcing.
 
@@ -40,8 +40,8 @@ authority. Actual phone/browser compatibility still requires device checks.
 | Ball spawn | b1 (-3,-0.6), b2 (0,-0.6), b3 (3,-0.6), b4 (-3,0.6), b5 (0,0.6), b6 (3,0.6) |
 | Pickup | Centre distance ≤ 1.2 m; one held ball per character |
 | No-throw zone | Character centre abs(z) ≤ 2.0 m, inclusive |
-| Throw | Horizontal release; horizontal speed 12 + 7 × strength m/s, strength ∈ [0,1] (the phone sends weak 0 / medium 0.5 / hard 1), constant for the whole flight |
-| Ball gravity | 1.9 m/s² downward; release height 1.5 m; resting height is one ball radius. Ranges: weak 13.5 m (~75% of the court), medium 17.4 m, hard 21.4 m (beyond the ~19.3 m corner-to-corner worst case) |
+| Throw | Horizontal release; horizontal speed 12 + 8 × strength m/s, strength ∈ [0,1] (the phone scales it from chop speed), constant for the whole flight |
+| Ball gravity | 1.9 m/s² downward; release height 1.5 m; resting height is one ball radius. Ranges: weak 13.5 m (~75% of the court), medium 18.0 m, hard 22.5 m (beyond the ~21.5 m corner-to-corner worst case on the widened court) |
 | Flight lifetime | 2 seconds; no bounce; court exit or expiry triggers respawn. Touching down instead leaves the ball grounded where it lands |
 | Respawn delay | 1 second at that ball's original spawn; no damage while respawning |
 | Round | 60 seconds = 3600 active ticks |

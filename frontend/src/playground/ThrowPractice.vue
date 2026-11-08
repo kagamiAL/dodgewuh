@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // /sensors → Practice: the real ArmsController against a tiny local stand-in for the server.
 // A ball respawns beside you after each throw; tap to grab, chop to throw. Flight mirrors the
-// server's ballistic rule: launched flat at 12 + 7 × strength m/s from centre + aim × 0.65 (weak 0 /
-// medium 0.5 / hard 1), it lands after ~1.12 s (range 13.5 / 17.4 / 21.4 m) and can only hit the
+// server's ballistic rule: launched flat at 12 + 8 × strength m/s from centre + aim × 0.65 (weak 0 /
+// medium 0.5 / hard 1), it lands after ~1.12 s (range 13.5 / 18.0 / 22.5 m) and can only hit the
 // dummy before it lands.
 // Numbers mirror backend/simulation/constants.py. Presentation only — the server stays authoritative.
 
@@ -16,7 +16,7 @@ import { createRecordingTransport, type SentMessage } from './recordingTransport
 defineProps<{ sensors: SensorService }>()
 
 // backend/simulation/constants.py
-const COURT_X = 6
+const COURT_X = 7.8 // widened court (was 6)
 const COURT_Z = 9
 const COMBINED_RADIUS = 0.75
 const BALL_R = 0.3

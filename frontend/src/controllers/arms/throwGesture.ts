@@ -214,11 +214,11 @@ export function createChopDetector(config: () => ChopConfig) {
 // Purely a phone-side aiming choice: it bends the aim it sends; the server still decides hits.
 // Numbers mirror plans/02 / backend/simulation/constants.py.
 const THROW_BASE_SPEED = 12
-const THROW_SPEED_PER_STRENGTH = 7
+const THROW_SPEED_PER_STRENGTH = 8
 const THROW_OFFSET = 0.65
 // Ballistic flight (02 amended): released flat at THROW_HEIGHT, gravity pulls it down, and it can
 // only hit before it lands. Fall time ≈ 1.12 s, so range = speed × 1.12: weak 13.5 m (~75% of
-// the court), medium 17.4 m, hard 21.4 m (clears the ~19.3 m corner-to-corner worst case).
+// the court), medium 18.0 m, hard 22.5 m (clears the ~21.5 m corner-to-corner worst case).
 const THROW_HEIGHT = 1.5
 const GROUND_HEIGHT = 0.3 // BALL_RADIUS
 const GRAVITY = 1.9
