@@ -5,6 +5,7 @@ import { createScene, type GameScene } from '@/game/scene'
 import { session } from '@/stores/session'
 import { connect, transport } from '@/stores/connection'
 import type { Team } from '@/contracts/pending'
+import { NO_THROW_HALF_DEPTH } from '@/game/constants'
 import { TEAM_HEX } from '@/theme'
 import Lobby from './Lobby.vue'
 import CameraLegs from '@/camera/CameraLegs.vue'
@@ -42,6 +43,15 @@ const PHASE_LABEL: Record<string, string> = {
   role_switch: 'Swap roles — phones recalibrate and tap Ready',
   match_end: 'Match over',
 }
+// First person: warn while you hold a ball inside the no-throw zone (02: |z| ≤ 2). The
+// server's NO_THROW_ZONE rejection only reaches the Arms phone, so the screen warns up front.
+const inNoThrowZone = computed(() => {
+  const team = pointOfView.value
+  const st = state.value
+  if (!team || st?.phase !== 'active') return false
+  const me = st.characters.find((c) => c.team === team)
+  return !!me && me.held_ball_id !== null && Math.abs(me.pos.z) <= NO_THROW_HALF_DEPTH
+})
 const banner = computed(() => {
   const st = state.value
   if (!st) return null
@@ -69,7 +79,11 @@ const connection = computed(() => {
 watch(
   () => session.data.state,
   (state) => {
-    if (state) scene.value?.renderState(state)
+    if (!state) return
+    scene.value?.renderState(state)
+    // The scripted mock backpedals, which would turn a movement-driven view around; in the
+    // mock, face where each character aims instead so throws stay in view.
+    if (mock) for (const c of state.characters) scene.value?.setFacing(c.team, c.aim)
   },
 )
 watch([pointOfView, scene], ([team]) => scene.value?.setPointOfView(team))
@@ -126,6 +140,7 @@ onBeforeUnmount(() => {
       </div>
       <p v-if="banner" class="banner">{{ banner }}</p>
     </template>
+    <p v-if="inNoThrowZone" class="zone-warning">No-throw zone: move back to throw</p>
     <div v-if="showLobby" class="overlay"><Lobby /></div>
     <CameraLegs v-if="live" @facing="onFacing" />
     <p v-if="connection" class="connection">
@@ -186,6 +201,18 @@ onBeforeUnmount(() => {
 .clock small {
   color: #aaa;
   font-size: 0.8rem;
+}
+.zone-warning {
+  position: absolute;
+  top: 5.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.5rem 1.1rem;
+  border-radius: 10px;
+  background: rgba(200, 40, 50, 0.85);
+  font: 700 clamp(1rem, 2.6vw, 1.6rem) system-ui, sans-serif;
+  pointer-events: none;
 }
 .banner {
   position: absolute;
