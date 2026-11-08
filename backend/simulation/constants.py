@@ -134,6 +134,20 @@ RESULT_TICKS: int = 120  # 2 seconds
 MATCH_POINTS: int = 2  # best of 3: first to 2 ends the match early
 MAX_ROUNDS: int = 3  # otherwise the match ends after round 3; higher score wins, equal is a draw
 
+# --- Camera dodge -----------------------------------------------------------
+# A flying ball predicted to hit a STANDING-STILL victim whose team has a screen
+# camera starts a dodge: the worker slows the room to 1 step per SLOWMO_FACTOR
+# real ticks, the victim freezes, and the victim's camera screen reports whether
+# the player physically stepped out of an overlaid ball (dodged) or not (hit).
+# Tick counts below are SIMULATION ticks; real time is SLOWMO_FACTOR times longer.
+SLOWMO_FACTOR: int = 8
+DODGE_LEAD_TICKS: int = 45  # contact predicted within this many ticks (6 s real) starts a dodge
+DODGE_VERDICT_TIMEOUT_TICKS: int = 12  # ~1.6 s real: no verdict by then is a hit
+# No dodge for a ball thrown at your back: its direction of travel within 45 degrees of the way
+# the victim's camera sees them face (dot product above cos 45).
+DODGE_BACK_DOT: float = 0.7071
+DODGE_SLOWMO_TICKS: int = 45  # slow motion lasts this long (6 s real) once a verdict exists
+
 # --- Input freshness --------------------------------------------------------
 INPUT_TIMEOUT_MS: int = 250  # since the server received the last valid input
 

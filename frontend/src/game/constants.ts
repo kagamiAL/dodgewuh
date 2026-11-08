@@ -12,6 +12,10 @@ export const BALL_RADIUS = 0.3
 // Best of 3: first to MATCH_POINTS, otherwise the match ends after MAX_ROUNDS (higher score wins, equal = draw).
 export const MATCH_POINTS = 2
 export const MAX_ROUNDS = 3
+// Camera dodge, mirrored from backend/simulation/constants.py: while State.dodge is set the
+// server steps 1 tick per SLOWMO_FACTOR, and the victim's screen judges after DODGE_WINDOW_MS.
+export const SLOWMO_FACTOR = 8
+export const DODGE_WINDOW_MS = 900
 
 // Visual-only values (not gameplay rules).
 export const LINE_WIDTH = 0.08

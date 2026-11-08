@@ -8,6 +8,7 @@ import {
   HELD_BALL_FORWARD,
   HELD_BALL_HEIGHT,
   HELD_BALL_SIDE,
+  SLOWMO_FACTOR,
   TEAM_COLORS,
 } from './constants'
 import { CHARACTER_GLOW, instantiateCharacterModel, RIGHT_HAND_LOCAL, type CharacterRig } from './characterModel'
@@ -166,7 +167,11 @@ export class StateRenderer {
     for (const c of state.characters) this.renderCharacter(c, state, now)
     this.heldBy.clear()
     this.ownHeld = null
-    for (const b of state.balls) this.renderBall(b, state.characters, now)
+    // Slow motion: the server moves balls SLOWMO_FACTOR times slower than their velocity says.
+    // The ball parked at a dodge victim awaiting the verdict doesn't move at all.
+    const timeScale = state.dodge ? 1 / SLOWMO_FACTOR : 1
+    const parked = state.dodge?.outcome === 'pending' ? state.dodge.ball_id : null
+    for (const b of state.balls) this.renderBall(b, state.characters, now, b.ball_id === parked ? 0 : timeScale)
   }
 
   /** Hide one team's character (the first-person viewer's own body); null shows both. */
@@ -275,7 +280,7 @@ export class StateRenderer {
     view.epoch = epoch
   }
 
-  private renderBall(b: Ball, characters: Character[], now: number): void {
+  private renderBall(b: Ball, characters: Character[], now: number, timeScale: number): void {
     let view = this.balls.get(b.ball_id)
     if (!view) {
       view = createBall(b.ball_id)
@@ -320,7 +325,9 @@ export class StateRenderer {
       // and z are extrapolated between snapshots below; y comes from here.
       const pos = toScene(b.pos.x, b.pos.z, b.height)
       view.entity.setPosition(pos)
-      if (b.mode === 'flying') view.flight = { from: pos, vel: toScene(b.velocity.x, b.velocity.z), at: now }
+      if (b.mode === 'flying') {
+        view.flight = { from: pos, vel: toScene(b.velocity.x * timeScale, b.velocity.z * timeScale), at: now }
+      }
     }
 
     this.tintBall(view, b)

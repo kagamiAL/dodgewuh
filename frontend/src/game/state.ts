@@ -43,6 +43,14 @@ export interface Result {
   victim_team: Team | null
 }
 
+/** A camera dodge in progress; the server runs the room in slow motion meanwhile. */
+export interface Dodge {
+  ball_id: ID
+  /** The victim team, whose screen camera judges the dodge. */
+  team: Team
+  outcome: 'pending' | 'dodged' | 'hit'
+}
+
 export interface State {
   tick: number
   epoch: number
@@ -57,4 +65,6 @@ export interface State {
   assignment_version: number
   result: Result | null
   winner: Team | null
+  /** Non-null only while a camera dodge runs. */
+  dodge?: Dodge | null
 }

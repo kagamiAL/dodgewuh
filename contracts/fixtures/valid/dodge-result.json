@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "dodge.result",
+  "payload": {
+    "epoch": 2,
+    "ball_id": "b1",
+    "dodged": true
+  }
+}

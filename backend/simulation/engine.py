@@ -48,6 +48,8 @@ from .types import (
     BallDTO,
     CharacterDTO,
     Command,
+    DodgeDTO,
+    DodgeOutcome,
     InputRejected,
     LegsCommand,
     Phase,
@@ -128,6 +130,17 @@ class _FlightPlan:
     hit_at: float | None
 
 
+@dataclass(slots=True)
+class _Dodge:
+    """The one camera dodge in progress. `team` is the victim; `ticks` counts
+    simulation steps since it began."""
+
+    ball_id: str
+    team: int
+    outcome: DodgeOutcome = "pending"
+    ticks: int = 0
+
+
 @dataclass(frozen=True, slots=True)
 class _Pending:
     member_id: str
@@ -173,6 +186,15 @@ class Simulation:
         self._connected_ids: frozenset[str] = frozenset()
         self._screen_count: int = 0
         self._host_connected: bool = False
+
+        # Camera dodge: teams whose screen camera can judge a dodge, the dodge in
+        # progress, and balls their victim already dodged (they can no longer hit).
+        self._dodge_teams: frozenset[int] = frozenset()
+        # team -> (unit world facing from its camera, received_ms); stale after K.INPUT_TIMEOUT_MS.
+        self._facing: dict[int, tuple[Vec2, int]] = {}
+        self._now_ms: int = 0
+        self._dodge: _Dodge | None = None
+        self._dodged_balls: set[str] = set()
 
         self._events: list[SimEvent] = []
 
@@ -234,6 +256,36 @@ class Simulation:
         self._connected_ids = frozenset(connected_member_ids)
         self._screen_count = int(screen_count)
         self._host_connected = bool(host_connected)
+
+    # --- Seam: camera dodge -------------------------------------------------
+    def set_dodge_teams(self, teams: frozenset[int]) -> None:
+        """Adapter fact: teams whose Legs a screen camera watches. Only they can
+        dodge; a team without a camera is hit exactly as before."""
+        self._dodge_teams = frozenset(t for t in teams if t in K.TEAMS)
+
+    def set_facing(self, team: int, facing: Vec2, received_ms: int) -> None:
+        """Adapter fact: which way the team's Legs player faces, as its screen
+        camera sees it (zero when nobody is tracked). Only the dodge reads it."""
+        if team in K.TEAMS:
+            self._facing[team] = (G.normalize(facing), received_ms)
+
+    def resolve_dodge(self, team: int, ball_id: str, epoch: int, dodged: bool) -> None:
+        """The victim's camera screen reports the pending dodge's verdict."""
+        if self._phase != "active":
+            raise SimulationError("INVALID_PHASE", "no dodge outside active")
+        if epoch != self._epoch:
+            raise SimulationError("STALE_EPOCH", "dodge verdict carries a stale epoch")
+        d = self._dodge
+        if d is None or d.outcome != "pending" or d.team != team or d.ball_id != ball_id:
+            raise SimulationError("NOT_PENDING", "no matching dodge is pending")
+        d.outcome = "dodged" if dodged else "hit"
+        if dodged:
+            self._dodged_balls.add(ball_id)
+
+    @property
+    def slow_motion(self) -> bool:
+        """True while a dodge runs; the adapter then steps once per K.SLOWMO_FACTOR ticks."""
+        return self._dodge is not None
 
     # --- Seam: host/transport control --------------------------------------
     def control(self, action: ControlAction, reason: str | None = None) -> None:
@@ -447,6 +499,7 @@ class Simulation:
             self._pending.clear()
 
     def _step_active(self, now_ms: int) -> None:
+        self._now_ms = now_ms
         # (1) At tick start, if the round's 3600 active ticks have elapsed, end
         # a timeout draw BEFORE accepting throws. This is what makes a throw
         # arriving at the deadline ineligible while a hit in the last valid
@@ -495,10 +548,17 @@ class Simulation:
         # The swept collision in (5) needs each character's movement segment
         # for this tick, so remember where they started before moving them.
         prev_pos = {team: self._characters[team].pos for team in K.TEAMS}
+        # A dodge victim stands still until they dodge: their camera, not their
+        # Legs jog, decides whether the ball connects.
+        frozen = (
+            self._dodge.team
+            if self._dodge is not None and self._dodge.outcome != "dodged"
+            else None
+        )
         for team in K.TEAMS:
             char = self._characters[team]
             move = self._legs_input[team].move
-            if move.x or move.z:
+            if team != frozen and (move.x or move.z):
                 char.pos = G.clamp_to_half(
                     G.add(char.pos, G.scale(move, K.MOVE_SPEED * K.DT)), team
                 )
@@ -541,6 +601,11 @@ class Simulation:
         # Held balls follow their character.
         self._sync_held_balls()
 
+        # (4c) Camera dodge: a ball about to hit a still, camera-watched victim
+        # starts slow motion before it connects.
+        if self._dodge is None:
+            self._detect_dodge()
+
         # (5) Advance flight, resolve the earliest valid hit, then respawns.
         decided = self._step_flight(prev_pos)
 
@@ -549,6 +614,76 @@ class Simulation:
         if decided is not None:
             # A hit ends the round immediately.
             self._finish_round(decided)
+            return
+        self._advance_dodge()
+
+    # --- Internal: camera dodge ---------------------------------------------
+    def _detect_dodge(self) -> None:
+        """Start a dodge for the first flying ball (by ID) that would hit its
+        victim within K.DODGE_LEAD_TICKS (judged as if they stopped where they
+        are), moving or not -- unless the ball is coming at their back. With no
+        fresh camera facing the dodge is allowed. This runs every tick, so
+        turning to face a ball still starts the dodge."""
+        for ball_id in K.BALL_IDS:
+            ball = self._balls[ball_id]
+            if ball.mode != "flying" or ball_id in self._dodged_balls:
+                continue
+            victim = K.opponent(ball.shooter_team)  # type: ignore[arg-type]
+            if victim not in self._dodge_teams:
+                continue
+            if self._at_back(ball, victim):
+                continue  # thrown at their back: no chance to dodge
+            if self._ticks_to_contact(ball, self._characters[victim].pos) is not None:
+                self._dodge = _Dodge(ball_id=ball_id, team=victim)
+                return
+
+    def _at_back(self, ball: _Ball, victim: int) -> bool:
+        """Is the ball travelling the way the victim faces, i.e. into their back?"""
+        seen = self._facing.get(victim)
+        if seen is None or self._now_ms - seen[1] > K.INPUT_TIMEOUT_MS:
+            return False
+        facing = seen[0]
+        if not (facing.x or facing.z):
+            return False
+        return G.dot(G.normalize(ball.velocity), facing) > K.DODGE_BACK_DOT
+
+    @staticmethod
+    def _ticks_to_contact(ball: _Ball, victim: Vec2) -> int | None:
+        """Ticks until `ball` reaches a victim standing at `victim`, or None if
+        it lands, leaves the court or expires first or is further off than the
+        dodge lead. Replays _step_flight's clipping on a copy of the ball."""
+        pos, height, vv = ball.pos, ball.height, ball.vertical_velocity
+        disp = G.scale(ball.velocity, K.DT)
+        remaining = min(K.DODGE_LEAD_TICKS, K.FLIGHT_TICKS - ball.flight_ticks)
+        for n in range(remaining):
+            exit_at = G.wall_exit_fraction(pos, disp)
+            land_at = G.ground_impact_fraction(height, vv)
+            limit = 1.0
+            if exit_at is not None:
+                limit = exit_at
+            if land_at is not None and land_at < limit:
+                limit = land_at
+            if G.swept_hit(pos, disp, victim, victim, limit) is not None:
+                return n
+            if limit < 1.0:
+                return None
+            pos = G.add(pos, disp)
+            height, vv = G.fall(height, vv, K.DT)
+        return None
+
+    def _advance_dodge(self) -> None:
+        """Count the dodge's ticks: no verdict in time is a hit; once decided,
+        slow motion ends after K.DODGE_SLOWMO_TICKS or when its ball stops flying."""
+        d = self._dodge
+        if d is None:
+            return
+        d.ticks += 1
+        if d.outcome == "pending":
+            if d.ticks >= K.DODGE_VERDICT_TIMEOUT_TICKS:
+                d.outcome = "hit"
+            return
+        if d.ticks >= K.DODGE_SLOWMO_TICKS or self._balls[d.ball_id].mode != "flying":
+            self._dodge = None
 
     # --- Internal: acquisition and release ----------------------------------
     def _try_acquire(self, team: int) -> None:
@@ -698,18 +833,37 @@ class Simulation:
             # _release is the only writer of mode='flying' and always records a
             # shooter team, so the opponent lookup below is always defined.
             victim = K.opponent(ball.shooter_team)  # type: ignore[arg-type]
-            hit_at = G.swept_hit(
-                ball.pos,
-                disp,
-                prev_pos[victim],
-                self._characters[victim].pos,
-                limit,
+            hit_at = (
+                None  # dodged: it flies straight through its victim
+                if ball_id in self._dodged_balls
+                else G.swept_hit(
+                    ball.pos,
+                    disp,
+                    prev_pos[victim],
+                    self._characters[victim].pos,
+                    limit,
+                )
             )
+            d = self._dodge
+            if (
+                hit_at is not None
+                and d is not None
+                and d.ball_id == ball_id
+                and d.outcome == "pending"
+            ):
+                # Awaiting the camera verdict: park the ball just short of the
+                # victim. It neither connects, falls nor ages until decided.
+                parked = max(0.0, hit_at - 1e-6)
+                endpoint = G.add(ball.pos, G.scale(disp, parked))
+                plans.append(_FlightPlan(ball_id, endpoint, 0.0, None, None))
+                continue
             plans.append(_FlightPlan(ball_id, endpoint, limit, ending, hit_at))
 
         for plan in plans:
             ball = self._balls[plan.ball_id]
             ball.pos = plan.endpoint
+            if plan.limit == 0.0 and plan.ending is None:
+                continue  # parked for a dodge verdict
             ball.height, ball.vertical_velocity = G.fall(
                 ball.height, ball.vertical_velocity, K.DT * plan.limit
             )
@@ -733,6 +887,8 @@ class Simulation:
                 self._land(ball)
             elif plan.ending == "wall" or ball.flight_ticks >= K.FLIGHT_TICKS:
                 self._begin_respawn(ball)
+            if ball.mode != "flying":
+                self._dodged_balls.discard(plan.ball_id)
 
         # --- Then respawns, per the step order in 02.
         for ball_id in already_respawning:
@@ -864,6 +1020,15 @@ class Simulation:
             assignment_version=self._assignment_version,
             result=self._result,
             winner=self._winner,  # type: ignore[arg-type]
+            dodge=(
+                DodgeDTO(
+                    ball_id=self._dodge.ball_id,
+                    team=self._dodge.team,  # type: ignore[arg-type]
+                    outcome=self._dodge.outcome,
+                )
+                if self._dodge is not None
+                else None
+            ),
         )
 
     # --- Seam: events -------------------------------------------------------
@@ -1042,7 +1207,11 @@ class Simulation:
         self._transition("lobby", None)
 
     def _transition(self, phase: Phase, phase_ticks: int | None) -> None:
-        """Every phase transition clears latched controls and bumps epoch."""
+        """Every phase transition clears latched controls and bumps epoch.
+
+        It also ends any camera dodge: slow motion never outlives the phase."""
+        self._dodge = None
+        self._dodged_balls.clear()
         self._phase = phase
         self._phase_ticks_left = phase_ticks
         self._epoch += 1

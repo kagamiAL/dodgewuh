@@ -89,6 +89,35 @@
         "title": "CameraClaim",
         "type": "object"
       },
+      "DodgeResult": {
+        "additionalProperties": false,
+        "description": "The victim's camera screen: did the Legs player get out of the overlaid ball?",
+        "properties": {
+          "epoch": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "ball_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Ball Id",
+            "type": "string"
+          },
+          "dodged": {
+            "title": "Dodged",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "epoch",
+          "ball_id",
+          "dodged"
+        ],
+        "title": "DodgeResult",
+        "type": "object"
+      },
       "Empty": {
         "additionalProperties": false,
         "properties": {},
@@ -263,6 +292,31 @@
           "payload"
         ],
         "title": "controller_ready",
+        "type": "object"
+      },
+      "dodge_result": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "dodge.result",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/DodgeResult"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "dodge_result",
         "type": "object"
       },
       "input_arms": {
@@ -470,6 +524,7 @@
       "mapping": {
         "camera.claim": "#/$defs/camera_claim",
         "controller.ready": "#/$defs/controller_ready",
+        "dodge.result": "#/$defs/dodge_result",
         "input.arms": "#/$defs/input_arms",
         "input.legs": "#/$defs/input_legs",
         "match.rematch": "#/$defs/match_rematch",
@@ -511,6 +566,9 @@
       },
       {
         "$ref": "#/$defs/team_choose"
+      },
+      {
+        "$ref": "#/$defs/dodge_result"
       }
     ]
   },
@@ -698,6 +756,42 @@
           "reason"
         ],
         "title": "Closed",
+        "type": "object"
+      },
+      "Dodge": {
+        "additionalProperties": false,
+        "description": "A camera dodge in progress (slow motion): `team` is the victim of `ball_id`.",
+        "properties": {
+          "ball_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Ball Id",
+            "type": "string"
+          },
+          "team": {
+            "enum": [
+              1,
+              2
+            ],
+            "title": "Team",
+            "type": "integer"
+          },
+          "outcome": {
+            "enum": [
+              "pending",
+              "dodged",
+              "hit"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ball_id",
+          "team",
+          "outcome"
+        ],
+        "title": "Dodge",
         "type": "object"
       },
       "ErrorPayload": {
@@ -1158,6 +1252,17 @@
               }
             ],
             "title": "Winner"
+          },
+          "dodge": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Dodge"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
