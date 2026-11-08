@@ -24,7 +24,7 @@ interface SessionState {
 }
 
 // Shallow: room/state are replaced wholesale on each message, never mutated, so
-// deep proxies would only add cost at 20 snapshots/s.
+// deep proxies would only add cost at 30 snapshots/s.
 const s = shallowReactive<SessionState>({
   registration: loadRegistration(),
   status: 'closed',

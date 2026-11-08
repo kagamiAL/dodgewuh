@@ -48,7 +48,8 @@ function command(type: 'match.rematch'): void {
   transport.send({ v: 1, type, payload: {} })
 }
 function returnToMenu(): void {
-  transport.send({ v: 1, type: 'match.reset', payload: {} })
+  // Only the host may reset the match; everyone else just leaves the room.
+  if (session.isHost.value) transport.send({ v: 1, type: 'match.reset', payload: {} })
   leave()
   void router.push('/')
 }
@@ -101,8 +102,8 @@ function returnToMenu(): void {
     <p v-else-if="phase === 'lobby'" class="label count" role="status">
       {{ readyCount }}/4 ready · Match starts automatically when all 4 players are ready.
     </p>
-    <div v-if="session.isHost.value" class="host">
-      <button v-if="phase === 'match_end'" @click="command('match.rematch')">Rematch</button>
+    <div class="host">
+      <button v-if="session.isHost.value && phase === 'match_end'" @click="command('match.rematch')">Rematch</button>
       <button class="secondary" @click="returnToMenu">Return to main menu</button>
     </div>
     <p v-if="session.data.lastError" class="error">{{ session.data.lastError.message }}</p>

@@ -7,10 +7,11 @@
 // starts calibration with the same tap. Losing either sends ready=false at once.
 // The shell never sends gameplay input.
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Permission, ServerMessage } from '@/contracts/pending'
 import { createSensorService } from '@/sensors/sensorService'
 import { session } from '@/stores/session'
-import { connect, transport } from '@/stores/connection'
+import { connect, leave, transport } from '@/stores/connection'
 import { TEAM_HEX, TEAM_LABEL, TEAM_NAME } from '@/theme'
 import type { SetupStage } from '@/phone/roleComponent'
 import LegsController from '@/controllers/legs/LegsController.vue'
@@ -27,6 +28,12 @@ const room = computed(() => session.data.room)
 const assignment = session.myAssignment
 const connected = computed(() => session.data.status === 'connected')
 const me = computed(() => room.value?.members.find((m) => m.member_id === session.data.registration?.member_id) ?? null)
+const router = useRouter()
+const matchOver = computed(() => state.value?.phase === 'match_end')
+function returnToMenu(): void {
+  leave()
+  void router.push('/')
+}
 const canReady = computed(() => !!state.value && (state.value.phase === 'lobby' || state.value.phase === 'role_switch'))
 
 // Who is ready, shown while waiting to start (lobby) and between rounds (role_switch).
@@ -300,7 +307,11 @@ onBeforeUnmount(() => {
       </section>
     </template>
 
-    <p v-else-if="state && !connection && !inLobby" class="hint">This match is underway. You can pick a team when it's back in the lobby.</p>
+    <p v-else-if="state && !connection && !inLobby && !matchOver" class="hint">This match is underway. You can pick a team when it's back in the lobby.</p>
+
+    <div v-if="matchOver" class="menu-bar">
+      <button type="button" class="to-menu" @click="returnToMenu">Return to main menu</button>
+    </div>
   </main>
 </template>
 
@@ -561,6 +572,20 @@ header span:first-child {
 .team-leave:disabled { cursor: not-allowed; opacity: 0.55; }
 .team-switch[aria-busy='true'],
 .team-leave[aria-busy='true'] { cursor: progress; opacity: 1; }
+.menu-bar { padding: 1rem; }
+.to-menu {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.to-menu:active { transform: scale(0.98); }
 .team-note { flex-basis: 100%; margin: 0.25rem 0 0; font-size: 0.8rem; color: var(--muted); }
 
 .hint,

@@ -207,7 +207,7 @@ export class Ragdoll {
   }
 
   private substep(dt: number, input: RagdollInput): void {
-    // Acceleration from a low-passed velocity, so 20 Hz snapshot steps don't spike.
+    // Acceleration from a low-passed velocity, so 30 Hz snapshot steps don't spike.
     const k = 1 - Math.exp(-dt / this.cfg.accelSmoothing)
     const nvx = this.svx + (input.velX - this.svx) * k
     const nvz = this.svz + (input.velZ - this.svz) * k

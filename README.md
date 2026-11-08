@@ -101,7 +101,7 @@ checks, builds/type checks and runtime validation.
 
 The local vertical slice supports room creation/join, readiness, host start/reset,
 camera claims, Legs movement, and simulation snapshots. Rooms run at 60 Hz and
-screens receive snapshots at 20 Hz in `backend/app/services/game.py`.
+screens receive snapshots at 30 Hz in `backend/app/services/game.py`.
 
 1. Start the backend as above. If host port 8000 is taken, set `COORDINATOR_PORT`
    (e.g. `8010`) for `docker compose up`.

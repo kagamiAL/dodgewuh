@@ -42,7 +42,7 @@ const OVERVIEW_FOV = 45
 const SIDELINE_FOV = 50
 const SIDELINE_X = COURT_HALF_WIDTH + 7.5
 const SIDELINE_HEIGHT = 5.5
-/** Higher = camera catches up to the 20 Hz snapshots faster (1/s). */
+/** Higher = camera catches up to the 30 Hz snapshots faster (1/s). */
 const FIRST_PERSON_FOLLOW = 12
 /**
  * Overhead spotlights, one above each half (metres / degrees from straight down). Tuned so
@@ -204,7 +204,7 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
     if (asset && !destroyed) stateRenderer.setCharacterModel(asset, ragdollConfig(extras))
   })
 
-  // First person: follow the character smoothly so 20 Hz snapshots don't judder.
+  // First person: follow the character smoothly so 30 Hz snapshots don't judder.
   let povTeam: Team | null = null
   let fixedView: 'overview' | 'sideline' | null = 'overview'
   const eye = new pc.Vec3()
