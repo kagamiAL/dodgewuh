@@ -25,7 +25,8 @@
             "x": 0.0,
             "z": 1.0
           },
-          "held_ball_id": null
+          "held_ball_id": null,
+          "arm_pitch": null
         },
         {
           "team": 2,
@@ -37,7 +38,8 @@
             "x": 0.0,
             "z": -1.0
           },
-          "held_ball_id": null
+          "held_ball_id": null,
+          "arm_pitch": null
         }
       ],
       "balls": [
@@ -45,7 +47,7 @@
           "ball_id": "b1",
           "mode": "ground",
           "pos": {
-            "x": -2.0,
+            "x": -3.0,
             "z": -0.6
           },
           "velocity": {
@@ -55,13 +57,13 @@
           "owner_team": null,
           "shooter_team": null,
           "respawn_in_ms": 0,
-          "height": 0.15
+          "height": 0.3
         },
         {
           "ball_id": "b2",
           "mode": "ground",
           "pos": {
-            "x": 2.0,
+            "x": 0.0,
             "z": -0.6
           },
           "velocity": {
@@ -71,14 +73,14 @@
           "owner_team": null,
           "shooter_team": null,
           "respawn_in_ms": 0,
-          "height": 0.15
+          "height": 0.3
         },
         {
           "ball_id": "b3",
           "mode": "ground",
           "pos": {
-            "x": -2.0,
-            "z": 0.6
+            "x": 3.0,
+            "z": -0.6
           },
           "velocity": {
             "x": 0.0,
@@ -87,13 +89,13 @@
           "owner_team": null,
           "shooter_team": null,
           "respawn_in_ms": 0,
-          "height": 0.15
+          "height": 0.3
         },
         {
           "ball_id": "b4",
           "mode": "ground",
           "pos": {
-            "x": 2.0,
+            "x": -3.0,
             "z": 0.6
           },
           "velocity": {
@@ -103,7 +105,39 @@
           "owner_team": null,
           "shooter_team": null,
           "respawn_in_ms": 0,
-          "height": 0.15
+          "height": 0.3
+        },
+        {
+          "ball_id": "b5",
+          "mode": "ground",
+          "pos": {
+            "x": 0.0,
+            "z": 0.6
+          },
+          "velocity": {
+            "x": 0.0,
+            "z": 0.0
+          },
+          "owner_team": null,
+          "shooter_team": null,
+          "respawn_in_ms": 0,
+          "height": 0.3
+        },
+        {
+          "ball_id": "b6",
+          "mode": "ground",
+          "pos": {
+            "x": 3.0,
+            "z": 0.6
+          },
+          "velocity": {
+            "x": 0.0,
+            "z": 0.0
+          },
+          "owner_team": null,
+          "shooter_team": null,
+          "respawn_in_ms": 0,
+          "height": 0.3
         }
       ],
       "assignments": [

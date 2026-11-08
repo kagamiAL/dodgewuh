@@ -12,7 +12,7 @@ function refine(name: string, value: any, ctx: RefinementCtx): void {
   }
   if (name === 'State') {
     if (JSON.stringify(value.characters.map((c: any) => c.team)) !== '[1,2]' ||
-        JSON.stringify(value.balls.map((b: any) => b.ball_id)) !== '["b1","b2","b3","b4"]') fail('Complete sorted entities required');
+        JSON.stringify(value.balls.map((b: any) => b.ball_id)) !== '["b1","b2","b3","b4","b5","b6"]') fail('Complete sorted entities required');
     if (value.phase !== 'lobby' && value.assignments.length !== 4) fail('Match requires four assignments');
     if (value.winner !== null && value.phase !== 'match_end') fail('Winner is match-end only');
   }

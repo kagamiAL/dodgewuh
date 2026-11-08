@@ -362,15 +362,15 @@ def scenario_reset_snapshot(d: Diagnostics) -> None:
     d.observe("T2 aim forward -z", (t2.aim.x, t2.aim.z) == (0.0, -1.0), str(t2.aim))
     d.observe("no held balls", t1.held_ball_id is None and t2.held_ball_id is None)
 
-    d.observe("exactly four balls", len(s.balls) == 4, str(len(s.balls)))
+    d.observe(f"exactly {len(K.BALL_IDS)} balls", len(s.balls) == len(K.BALL_IDS), str(len(s.balls)))
     d.observe(
         "balls sorted by id",
-        [b.ball_id for b in s.balls] == ["b1", "b2", "b3", "b4"],
+        [b.ball_id for b in s.balls] == list(K.BALL_IDS),
     )
     spawns_ok = all(
         (b.pos.x, b.pos.z) == K.BALL_SPAWNS[b.ball_id] for b in s.balls
     )
-    d.observe("all four ball spawns exact", spawns_ok)
+    d.observe("all ball spawns exact", spawns_ok)
     d.observe("all balls grounded", all(b.mode == "ground" for b in s.balls))
     d.observe(
         "no ownership in lobby",
@@ -485,7 +485,7 @@ def scenario_clamps(d: Diagnostics) -> None:
     sim = boot_to_active()
     drive(sim, 1, Vec2(1.0, 0.0), 400, ordinal=1)
     d.observe(
-        "T1 clamps at x = +5.55",
+        f"T1 clamps at x = +{K.CHAR_X_LIMIT}",
         near(character(sim, 1).pos.x, K.CHAR_X_LIMIT, 1e-12),
         str(character(sim, 1).pos.x),
     )
@@ -519,7 +519,7 @@ def scenario_clamps(d: Diagnostics) -> None:
     sim = boot_to_active()
     drive(sim, 2, Vec2(-1.0, 0.0), 400, ordinal=1)
     d.observe(
-        "T2 clamps at x = -5.55",
+        f"T2 clamps at x = -{K.CHAR_X_LIMIT}",
         near(character(sim, 2).pos.x, -K.CHAR_X_LIMIT, 1e-12),
         str(character(sim, 2).pos.x),
     )

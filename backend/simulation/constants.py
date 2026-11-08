@@ -13,9 +13,9 @@ TICK_HZ: int = 60
 DT: float = 1.0 / 60.0
 
 # --- Court ------------------------------------------------------------------
-# x in [-6, 6], z in [-9, 9] metres. y is visual height only and never enters
-# any gameplay decision.
-COURT_X: float = 6.0
+# x in [-7.8, 7.8], z in [-9, 9] metres (playtest: 30% wider, same length). y is
+# visual height only and never enters any gameplay decision.
+COURT_X: float = 7.8
 COURT_Z: float = 9.0
 
 # --- Bodies -----------------------------------------------------------------
@@ -27,7 +27,7 @@ COMBINED_RADIUS: float = 0.75
 
 # --- Character centre limits (team halves) ----------------------------------
 # Team 1 occupies negative z, Team 2 positive z.
-CHAR_X_LIMIT: float = 5.55
+CHAR_X_LIMIT: float = 7.35  # COURT_X - CHAR_RADIUS
 T1_Z_MIN: float = -8.55
 T1_Z_MAX: float = -0.45
 T2_Z_MIN: float = 0.45
@@ -44,12 +44,15 @@ MOVE_SPEED: float = 3.5
 MOVE_MAGNITUDE_TOLERANCE: float = 1.001
 
 # --- Balls ------------------------------------------------------------------
-BALL_IDS: tuple[str, ...] = ("b1", "b2", "b3", "b4")
+# Three per side (playtest; was two). b1-b3 on Team 1's side, b4-b6 on Team 2's.
+BALL_IDS: tuple[str, ...] = ("b1", "b2", "b3", "b4", "b5", "b6")
 BALL_SPAWNS: dict[str, tuple[float, float]] = {
-    "b1": (-2.0, -0.6),
-    "b2": (2.0, -0.6),
-    "b3": (-2.0, 0.6),
-    "b4": (2.0, 0.6),
+    "b1": (-3.0, -0.6),
+    "b2": (0.0, -0.6),
+    "b3": (3.0, -0.6),
+    "b4": (-3.0, 0.6),
+    "b5": (0.0, 0.6),
+    "b6": (3.0, 0.6),
 }
 
 # --- Acquisition ------------------------------------------------------------

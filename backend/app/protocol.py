@@ -187,8 +187,8 @@ class State(Model):
         validate_assignments(self.assignments)
         if [c.team for c in self.characters] != [1, 2]:
             raise ValueError('Two characters sorted by team required')
-        if [b.ball_id for b in self.balls] != ['b1', 'b2', 'b3', 'b4']:
-            raise ValueError('Four balls sorted by ID required')
+        if [b.ball_id for b in self.balls] != ['b1', 'b2', 'b3', 'b4', 'b5', 'b6']:
+            raise ValueError('Six balls sorted by ID required')
         if self.phase != 'lobby' and len(self.assignments) != 4:
             raise ValueError('Match requires four assignments')
         if self.winner is not None and self.phase != 'match_end':

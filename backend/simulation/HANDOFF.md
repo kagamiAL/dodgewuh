@@ -376,7 +376,7 @@ role-switch and winner. Please commit them under `contracts/fixtures/valid/` —
    applied earlier, and it raises `NOT_READY` like the other start gates. Flagging because it is the one
    place I tightened a gate 02 states loosely.
 13. **Gameplay edge worth a team decision: a throw launched from the sideline can be lost instantly.** 02 says
-   a throw launches at `centre + aim × 0.65`, and the character `x` limit is 5.55 while the court wall is 6.0.
+   a throw launches at `centre + aim × 0.65`, and the character `x` limit is 7.35 while the court wall is 7.8.
    A character hugging the sideline and aiming diagonally (`aim.x` up to ~0.98, since only `|aim.z| ≥ 0.2` is
    required) launches at `x ≈ 6.19`, already outside the court — so "court exit triggers respawn" fires in the
    launch tick and the ball respawns without travelling. I implemented both rules literally rather than

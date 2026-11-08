@@ -30,14 +30,14 @@ authority. Actual phone/browser compatibility still requires device checks.
 | Constant | Value |
 |---|---|
 | Simulation | Fixed 60 steps/s; dt = 1/60 s |
-| Court | x ∈ [-6,6], z ∈ [-9,9] metres; y is height, simulated for ball flight but never a collision input |
+| Court | x ∈ [-7.8,7.8], z ∈ [-9,9] metres (playtest: 30% wider, was [-6,6]); y is height, simulated for ball flight but never a collision input |
 | Team halves | Team 1 negative z; Team 2 positive z |
 | Character | Circle radius 0.45 m; visual height 1.8 m |
 | Character centre limits | x ∈ [-5.55,5.55]; T1 z ∈ [-8.55,-0.45]; T2 z ∈ [0.45,8.55] |
 | Spawn | T1 (0,-6); T2 (0,6) |
 | Movement | 3.5 m/s × normalized input vector; diagonal magnitude capped at 1 |
-| Balls | Exactly four; radius 0.30 m; stable IDs b1–b4 |
-| Ball spawn | b1 (-2,-0.6), b2 (2,-0.6), b3 (-2,0.6), b4 (2,0.6) |
+| Balls | Exactly six, three per side (playtest; was four); radius 0.30 m; stable IDs b1–b6 |
+| Ball spawn | b1 (-3,-0.6), b2 (0,-0.6), b3 (3,-0.6), b4 (-3,0.6), b5 (0,0.6), b6 (3,0.6) |
 | Pickup | Centre distance ≤ 1.2 m; one held ball per character |
 | No-throw zone | Character centre abs(z) ≤ 2.0 m, inclusive |
 | Throw | Horizontal release; horizontal speed 12 + 7 × strength m/s, strength ∈ [0,1] (the phone sends weak 0 / medium 0.5 / hard 1), constant for the whole flight |

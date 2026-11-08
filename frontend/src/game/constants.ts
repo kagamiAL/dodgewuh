@@ -3,7 +3,7 @@ import { TEAM_HEX } from '@/theme'
 
 // Gameplay dimensions mirrored from plans/02-game-specification.md (metres).
 // 02 is the authority; if a value changes there, change it here.
-export const COURT_HALF_WIDTH = 6
+export const COURT_HALF_WIDTH = 7.8
 export const COURT_HALF_DEPTH = 9
 export const NO_THROW_HALF_DEPTH = 2
 export const CHARACTER_RADIUS = 0.45
