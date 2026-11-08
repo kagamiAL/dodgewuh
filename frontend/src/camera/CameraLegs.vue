@@ -34,6 +34,9 @@ const canvas = ref<HTMLCanvasElement | null>(null)
 const state = computed(() => session.data.state)
 const phase = computed(() => state.value?.phase ?? 'lobby')
 const big = computed(() => team.value !== null && (phase.value === 'role_switch' || phase.value === 'countdown'))
+// The team picker only belongs before and after a match; once play starts the box is just the feed.
+const picking = computed(() => phase.value === 'lobby' || phase.value === 'match_end')
+const feedOnly = computed(() => !big.value && !picking.value)
 const inPosition = computed(() => live.value.present && live.value.facing === 'screen')
 
 // MediaPipe is loaded from the CDN at runtime, so it is untyped here.
@@ -223,7 +226,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="camera" :class="{ big }" :data-team="team">
+  <div v-show="!feedOnly || team !== null || status" class="camera" :class="{ big, feed: feedOnly }" :data-team="team">
     <div v-if="big" class="switch">
       <h2>{{ phase === 'role_switch' ? 'Switch spots!' : 'Get in position' }}</h2>
       <p>
@@ -233,11 +236,11 @@ onBeforeUnmount(() => {
     </div>
     <video ref="video" class="hidden-video" playsinline muted />
     <canvas v-show="team !== null" ref="canvas" class="preview" />
-    <p v-if="team !== null" class="state" :class="{ ok: big ? inPosition : live.present }">
+    <p v-if="team !== null && !feedOnly" class="state" :class="{ ok: big ? inPosition : live.present }">
       {{ big ? (inPosition ? '✓ Legs player in position' : facingText) : facingText }}
     </p>
     <p v-if="status" class="status">{{ status }}</p>
-    <label v-if="!big" class="pick">
+    <label v-if="picking" class="pick">
       <span class="pick-title">Screen for team:</span>
       <span id="camera-team-hint" class="pick-hint">Choose a team to steer its Legs player with this camera.</span>
       <span class="select-wrap">
@@ -270,6 +273,13 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
   z-index: 5;
 }
+.camera.feed {
+  width: min(280px, calc(100% - 24px));
+  padding: 6px;
+  border-width: 2px;
+  border-radius: 12px;
+}
+.camera.feed .status { margin: 6px 4px 2px; }
 .camera[data-team="1"] { --camera-accent: var(--blue); }
 .camera[data-team="2"] { --camera-accent: var(--orange); }
 .camera.big {
