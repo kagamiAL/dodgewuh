@@ -20,10 +20,10 @@ COURT_Z: float = 9.0
 
 # --- Bodies -----------------------------------------------------------------
 CHAR_RADIUS: float = 0.45
-BALL_RADIUS: float = 0.15
-# Swept-collision combined radius. 02 states 0.60 explicitly; it equals
+BALL_RADIUS: float = 0.30  # bigger balls: easier hits (was 0.15)
+# Swept-collision combined radius. 02 states 0.75 explicitly; it equals
 # CHAR_RADIUS + BALL_RADIUS, but the specified value is what we use.
-COMBINED_RADIUS: float = 0.60
+COMBINED_RADIUS: float = 0.75
 
 # --- Character centre limits (team halves) ----------------------------------
 # Team 1 occupies negative z, Team 2 positive z.
@@ -76,7 +76,8 @@ COUNTDOWN_TICKS: int = 180  # 3 seconds
 RESULT_TICKS: int = 120  # 2 seconds
 
 # --- Match ------------------------------------------------------------------
-MATCH_POINTS: int = 3  # first to 3; draws award no point; no round cap
+MATCH_POINTS: int = 2  # best of 3: first to 2 ends the match early
+MAX_ROUNDS: int = 3  # otherwise the match ends after round 3; higher score wins, equal is a draw
 
 # --- Input freshness --------------------------------------------------------
 INPUT_TIMEOUT_MS: int = 250  # since the server received the last valid input

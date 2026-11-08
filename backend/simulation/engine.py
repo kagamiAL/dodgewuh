@@ -13,7 +13,7 @@ flight with relative-motion swept collision, wall/expiry respawn and
 earliest-hit resolution, and the complete lifecycle: exactly-once scoring, the
 3600-tick timeout draw, lobby -> countdown -> active -> round_end ->
 role_switch -> countdown ... -> match_end, every-round role swapping, readiness
-gating of the next round, first-to-three, reset/abort/rematch to lobby, and the
+gating of the next round, best-of-3 match end, reset/abort/rematch to lobby, and the
 simulation-owned device guard that aborts a non-lobby phase when a required
 device is lost.
 
@@ -812,8 +812,9 @@ class Simulation:
 
         02: reset arena on entering role_switch; swap the two phone IDs within
         each team after EVERY round, including draws and the winning round;
-        increment assignment version and clear all readiness. If the score
-        reached 3, enter match_end after the swap.
+        increment assignment version and clear all readiness. Best of 3: if a
+        team reached MATCH_POINTS, or MAX_ROUNDS rounds have been played, enter
+        match_end after the swap.
         """
         self._reset_arena()
         self._swap_roles()
@@ -826,17 +827,21 @@ class Simulation:
                 epoch=self._epoch,
             )
         )
-        if max(self._score.values()) >= K.MATCH_POINTS:
+        if max(self._score.values()) >= K.MATCH_POINTS or self._round >= K.MAX_ROUNDS:
             self._enter_match_end()
 
     def _enter_match_end(self) -> None:
-        """First to three. The winner and the final result are retained here.
+        """Best of 3. The winner and the final result are retained here.
+
+        The higher score wins; an equal score after MAX_ROUNDS is a draw, so
+        winner stays None (the wire allows a null winner at match_end).
 
         02: match_end displays winner and final score, and calibration is not
         required again until rematch. 03: winner is non-null only at match_end,
         and match_end retains the final result.
         """
-        self._winner = 1 if self._score[1] >= K.MATCH_POINTS else 2
+        t1, t2 = self._score[1], self._score[2]
+        self._winner = 1 if t1 > t2 else 2 if t2 > t1 else None
         self._ready_ids = frozenset()
         self._transition("match_end", None)
 

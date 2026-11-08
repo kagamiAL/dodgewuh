@@ -88,7 +88,7 @@ class MatchRecord(Base):
 class ResultRecord(Base):
     __tablename__ = 'results'
     match_id: Mapped[UUID] = mapped_column(ForeignKey('matches.id'), primary_key=True)
-    winner: Mapped[int] = mapped_column(Integer)
+    winner: Mapped[int | None] = mapped_column(Integer)  # None = drawn best of 3
     team1: Mapped[int] = mapped_column(Integer)
     team2: Mapped[int] = mapped_column(Integer)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

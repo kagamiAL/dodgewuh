@@ -20,11 +20,27 @@ async function run(action: () => Promise<unknown>, to: string): Promise<void> {
   try {
     leave() // one membership per tab
     await action()
+    // Phones load /phone as a fresh document: iOS Shake to Undo offers "Undo Typing" for anything
+    // typed earlier in the same document (the code/name fields here), and an Arms throw is a shake.
+    // The registration survives in sessionStorage and PhoneShell connects with it on mount.
+    if (to === '/phone' && registrationSaved()) {
+      window.location.assign(to)
+      return
+    }
     await router.push(to)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     busy.value = false
+  }
+}
+
+// Private mode can block storage; then a reload would lose the registration, so stay in-app.
+function registrationSaved(): boolean {
+  try {
+    return sessionStorage.getItem('dodgewuh.registration') !== null
+  } catch {
+    return false
   }
 }
 

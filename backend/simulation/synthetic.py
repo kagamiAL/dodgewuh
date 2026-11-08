@@ -20,7 +20,7 @@ replay determinism, epoch/ordinal/role rejection); Hold acquisition, ownership,
 safe cancel and the no-throw zone; constant-speed flight, wall/expiry respawn,
 swept-circle collision and earliest-hit resolution; the full lifecycle --
 exactly-once scoring, the 3600-tick timeout draw, round_end/role_switch/
-match_end, every-round role swapping, readiness gating, first-to-three and a
+match_end, every-round role swapping, readiness gating, best-of-3 and a
 complete four-round match with rematch; and the device guard -- abort to lobby
 on phone/host/screen loss or revoked readiness, reset from every phase, and
 rematch restricted to match_end.
@@ -1694,22 +1694,30 @@ def scenario_readiness_gate(d: Diagnostics) -> None:
               sim.snapshot().phase)
 
 
-def scenario_first_to_three(d: Diagnostics) -> None:
-    print("\n[first to three: winning-round swap and match_end]")
-    sim = boot_to_active()
-    for round_number in (1, 2):
-        win_round(sim, team=1)
-        d.observe(f"round {round_number} scores for team 1",
-                  sim.snapshot().score.t1 == round_number,
-                  str(sim.snapshot().score.t1))
-        d.observe(f"round {round_number} does not end the match",
-                  sim.snapshot().winner is None, str(sim.snapshot().winner))
-        advance_to_next_active(sim)
+def play_rounds(sim: Simulation, finishers: list[Any]) -> None:
+    """Play each finisher's round, advancing to the next active between them.
+    Leaves the simulation in round_end after the last one."""
+    for i, finish in enumerate(finishers):
+        if i:
+            advance_to_next_active(sim)
+        finish(sim)
 
-    # The deciding round.
+
+def scenario_best_of_three(d: Diagnostics) -> None:
+    print("\n[best of three: early win, round cap, draws and match_end]")
+    win1 = lambda sim: win_round(sim, team=1)  # noqa: E731
+    win2 = lambda sim: win_round(sim, team=2)  # noqa: E731
+    draw = draw_round
+
+    # 2-0: the second point ends the match early, after round 2.
+    sim = boot_to_active()
+    win_round(sim, team=1)
+    d.observe("round 1 scores for team 1", sim.snapshot().score.t1 == 1, str(sim.snapshot().score.t1))
+    d.observe("one point does not end the match", sim.snapshot().winner is None, str(sim.snapshot().winner))
+    advance_to_next_active(sim)
     before = assignment_map(sim)
     win_round(sim, team=1)
-    d.observe("the third point is scored", sim.snapshot().score.t1 == 3,
+    d.observe(f"the deciding point is point {K.MATCH_POINTS}", sim.snapshot().score.t1 == K.MATCH_POINTS,
               str(sim.snapshot().score.t1))
     d.observe("the match does not end until the result has been shown",
               sim.snapshot().phase == "round_end", sim.snapshot().phase)
@@ -1717,53 +1725,54 @@ def scenario_first_to_three(d: Diagnostics) -> None:
     run_out_phase(sim, "round_end")
     s = sim.snapshot()
     events = sim.drain_events()
-
-    d.observe("the match ends at match_end", s.phase == "match_end", s.phase)
+    d.observe("2-0 ends at match_end after round 2", s.phase == "match_end" and s.round == 2,
+              f"{s.phase} round {s.round}")
     d.observe("the winner is team 1", s.winner == 1, str(s.winner))
-    d.observe("the final score is 3-0", (s.score.t1, s.score.t2) == (3, 0),
-              f"{s.score.t1}-{s.score.t2}")
+    d.observe("the final score is 2-0", (s.score.t1, s.score.t2) == (2, 0), f"{s.score.t1}-{s.score.t2}")
     d.observe("match_end retains the deciding result",
               s.result is not None and s.result.reason == "hit", str(s.result))
-    d.observe("match_end has no phase timer", s.phase_remaining_ms is None,
-              str(s.phase_remaining_ms))
-
+    d.observe("match_end has no phase timer", s.phase_remaining_ms is None, str(s.phase_remaining_ms))
     after = assignment_map(sim)
     d.observe(
         "the winning round still swaps roles",
-        after[(1, "arms")] == before[(1, "legs")]
-        and after[(2, "arms")] == before[(2, "legs")],
+        after[(1, "arms")] == before[(1, "legs")] and after[(2, "arms")] == before[(2, "legs")],
         f"{before} -> {after}",
     )
     labels = [n for n, _ in event_epochs(events)]
     d.observe("the winning bundle is role_switch, roles, then match_end",
               labels == ["phase:role_switch", "roles", "phase:match_end"], str(labels))
     epochs = [e for _, e in event_epochs(events)]
-    d.observe("the winning bundle never regresses epoch", epochs == sorted(epochs),
-              str(epochs))
-
-    # match_end holds; it does not wander into another round.
+    d.observe("the winning bundle never regresses epoch", epochs == sorted(epochs), str(epochs))
     for _ in range(300):
         sim.step(0)
-    d.observe("match_end holds without readiness", sim.snapshot().phase == "match_end",
-              sim.snapshot().phase)
+    d.observe("match_end holds without readiness", sim.snapshot().phase == "match_end", sim.snapshot().phase)
     ready_all(sim)
     for _ in range(10):
         sim.step(0)
     d.observe("match_end does not restart even when every phone readies",
               sim.snapshot().phase == "match_end", sim.snapshot().phase)
-    d.observe("match_end keeps the winner", sim.snapshot().winner == 1,
-              str(sim.snapshot().winner))
+    d.observe("match_end keeps the winner", sim.snapshot().winner == 1, str(sim.snapshot().winner))
 
-    # Draws do not end a match, so all-draw play continues (02 accepts this).
-    sim2 = boot_to_active()
-    for _ in range(4):
-        draw_round(sim2)
-        advance_to_next_active(sim2)
-    s2 = sim2.snapshot()
-    d.observe("four draws award nothing and the match continues",
-              (s2.score.t1, s2.score.t2) == (0, 0) and s2.winner is None,
-              f"{s2.score.t1}-{s2.score.t2} winner {s2.winner}")
-    d.observe("and the round number has advanced to 5", s2.round == 5, str(s2.round))
+    # The round cap: whatever the score, the match ends after MAX_ROUNDS.
+    for label, finishers, score, winner in (
+        ("2-1 after three rounds", [win1, win2, win1], (2, 1), 1),
+        ("1-1 with a draw is a drawn match", [win1, draw, win2], (1, 1), None),
+        ("three draws are a 0-0 drawn match", [draw, draw, draw], (0, 0), None),
+        ("1-0 with two draws goes to team 1", [draw, win1, draw], (1, 0), 1),
+    ):
+        sim = boot_to_active()
+        play_rounds(sim, finishers[:-1])
+        advance_to_next_active(sim)
+        d.observe(f"{label}: round {K.MAX_ROUNDS} is played", sim.snapshot().phase == "active"
+                  and sim.snapshot().round == K.MAX_ROUNDS, f"{sim.snapshot().phase} round {sim.snapshot().round}")
+        finishers[-1](sim)
+        run_out_phase(sim, "round_end")
+        s = sim.snapshot()
+        d.observe(f"{label}: match ends after round {K.MAX_ROUNDS}", s.phase == "match_end"
+                  and s.round == K.MAX_ROUNDS, f"{s.phase} round {s.round}")
+        d.observe(f"{label}: score {score[0]}-{score[1]}, winner {winner}",
+                  (s.score.t1, s.score.t2) == score and s.winner == winner,
+                  f"{s.score.t1}-{s.score.t2} winner {s.winner}")
 
 
 def scenario_full_match(d: Diagnostics) -> None:
@@ -1801,10 +1810,10 @@ def scenario_full_match(d: Diagnostics) -> None:
             violations.append(f"{where}: remaining_ms {s.remaining_ms}")
         epochs.extend(e for _, e in event_epochs(sim.drain_events()))
 
-    # Team 1 takes three rounds, with a draw in the middle for good measure.
+    # Best of 3: team 1 wins, a draw, then team 1 takes the deciding round 3.
     audit("active round 1")
     for finisher in (lambda: win_round(sim, 1), lambda: draw_round(sim),
-                     lambda: win_round(sim, 1), lambda: win_round(sim, 1)):
+                     lambda: win_round(sim, 1)):
         finisher()
         audit("round_end")
         run_out_phase(sim, "round_end")
@@ -1819,10 +1828,10 @@ def scenario_full_match(d: Diagnostics) -> None:
 
     s = sim.snapshot()
     d.observe("a full match reaches a winner", s.phase == "match_end", s.phase)
-    d.observe("the winner is the team with three points",
-              s.winner == 1 and s.score.t1 == 3, f"winner {s.winner} score {s.score.t1}")
+    d.observe("the winner is the team with two points",
+              s.winner == 1 and s.score.t1 == K.MATCH_POINTS, f"winner {s.winner} score {s.score.t1}")
     d.observe("the draw cost nobody a point", s.score.t2 == 0, str(s.score.t2))
-    d.observe("four rounds were played", s.round == 4, str(s.round))
+    d.observe("three rounds were played", s.round == K.MAX_ROUNDS, str(s.round))
     d.observe("no state invariant was broken at any boundary",
               not violations, "; ".join(violations[:4]))
     d.observe("epoch never regressed across the whole match",
@@ -1852,7 +1861,7 @@ def scenario_full_match(d: Diagnostics) -> None:
     d.observe("a fresh match starts after rematch",
               sim.snapshot().phase == "countdown" and sim.snapshot().round == 1,
               f"{sim.snapshot().phase} round {sim.snapshot().round}")
-    d.note(f"assignments after a four-round match: {final_map}")
+    d.note(f"assignments after a three-round match: {final_map}")
     # 05 H8-10 gate: both teammates use both roles. Over the match each phone
     # must have occupied arms AND legs at some point.
     roles_held: dict[str, set[str]] = {}
@@ -2379,7 +2388,7 @@ def main(argv: list[str] | None = None) -> int:
     scenario_timeout(diagnostics)
     scenario_role_swap(diagnostics)
     scenario_readiness_gate(diagnostics)
-    scenario_first_to_three(diagnostics)
+    scenario_best_of_three(diagnostics)
     scenario_full_match(diagnostics)
     scenario_device_guard(diagnostics)
     scenario_reset_and_rematch(diagnostics)

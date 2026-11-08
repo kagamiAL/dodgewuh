@@ -124,7 +124,7 @@ def swept_hit(
     """Earliest tick fraction in [0, limit] where a flying ball touches a
     moving character, or None if it never does within that window.
 
-    Relative-motion swept circles with the combined radius from 02 (0.60 m):
+    Relative-motion swept circles with the combined radius from 02 (0.75 m):
     the ball's segment is swept against the character's movement segment, which
     is what prevents tunnelling at high speed. `limit` is the ball's clipped
     wall/lifetime endpoint for this tick; 02 says a hit at or before that

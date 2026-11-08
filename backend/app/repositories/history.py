@@ -42,8 +42,8 @@ class HistoryRepository:
         if match and match.status == 'active' and phase in ('lobby', 'match_end'):
             match.ended_at = now
             if phase == 'match_end':
-                if state['winner'] not in (1, 2):
-                    raise ValueError('Completed match requires winner')
+                if state['winner'] not in (1, 2, None):
+                    raise ValueError('Completed match has an invalid winner')
                 match.status = 'completed'
                 self.db.add(ResultRecord(match_id=match.id, winner=state['winner'],
                     team1=state['score']['t1'], team2=state['score']['t2'], recorded_at=now))

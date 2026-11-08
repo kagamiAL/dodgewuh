@@ -28,6 +28,19 @@ const connected = computed(() => session.data.status === 'connected')
 const me = computed(() => room.value?.members.find((m) => m.member_id === session.data.registration?.member_id) ?? null)
 const canReady = computed(() => !!state.value && (state.value.phase === 'lobby' || state.value.phase === 'role_switch'))
 
+// Who is ready, shown while waiting to start (lobby) and between rounds (role_switch).
+const seats = computed(() => {
+  const r = room.value
+  if (!r) return []
+  return ([[1, 'arms'], [1, 'legs'], [2, 'arms'], [2, 'legs']] as const).map(([team, role]) => {
+    const a = r.assignments.find((x) => x.team === team && x.role === role)
+    const m = a ? r.members.find((x) => x.member_id === a.member_id) ?? null : null
+    const status = !m ? 'Empty' : !m.connected ? 'Disconnected' : m.ready ? 'Ready' : m.calibrated ? 'Calibrated' : 'Setting up…'
+    return { team, role, member: m, status, me: !!m && m.member_id === me.value?.member_id }
+  })
+})
+const readyCount = computed(() => seats.value.filter((s) => s.member?.connected && s.member.ready).length)
+
 // Remount the role component on welcome, lobby reset or role change so calibration and
 // pointer state never carry over (roleComponent.ts lifecycle).
 const generation = ref(0)
@@ -119,6 +132,15 @@ onBeforeUnmount(() => {
       <section v-if="canReady" class="ready">
         <button :class="{ on: intent }" @click="tapReady">{{ intent ? (me?.ready ? 'Ready ✓' : 'Ready — finish setup below') : 'Tap when ready' }}</button>
         <p class="hint">{{ state.phase === 'role_switch' ? 'Roles swapped. Recalibrate, then tap Ready.' : 'Tap Ready, then set up your controller below.' }}</p>
+        <ul class="seats" :aria-label="`${readyCount} of 4 ready`">
+          <li v-for="s in seats" :key="`${s.team}${s.role}`" :class="{ ok: s.member?.ready, me: s.me }" :style="{ '--seat': TEAM_HEX[s.team] }">
+            <span class="dot" />
+            <span class="slot">T{{ s.team }} {{ s.role === 'arms' ? 'Arms' : 'Legs' }}</span>
+            <span class="who">{{ s.member?.name ?? '—' }}{{ s.me ? ' (you)' : '' }}</span>
+            <span class="status">{{ s.status }}</span>
+          </li>
+        </ul>
+        <p class="hint count">{{ readyCount }}/4 ready{{ state.phase === 'role_switch' ? ` · round ${state.round + 1} starts when all 4 are` : '' }}</p>
       </section>
       <p v-else class="phase">{{ state.phase === 'active' ? 'Playing' : state.phase.replace('_', ' ') }}</p>
       <p v-if="errorText" class="error">{{ errorText }}</p>
@@ -185,6 +207,56 @@ header span:first-child {
 .ready button.on {
   background: var(--team);
   color: #000;
+}
+.seats {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.seats li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-left: 4px solid var(--seat);
+  border-radius: 6px;
+  background: #1a1d22;
+  font-size: 0.85rem;
+}
+.seats li.me {
+  outline: 1px solid #555;
+}
+.seats .dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: #555;
+}
+.seats li.ok .dot {
+  background: #6d6;
+}
+.seats .slot {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.seats .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seats .status {
+  color: #aaa;
+}
+.seats li.ok .status {
+  color: #6d6;
+}
+.hint.count {
+  margin: 0.4rem 0 0;
+  font-weight: 700;
+  color: #ddd;
 }
 .hint,
 .phase {

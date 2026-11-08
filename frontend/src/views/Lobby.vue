@@ -1,14 +1,18 @@
 <script setup lang="ts">
 // Lobby overlay shown on screens: room code, devices, seats, readiness and host controls.
+// Also the between-rounds ready view (role_switch) and the match result (match_end).
 // Everything here is display; the server decides whether a start is allowed.
 import { computed } from 'vue'
 import type { Member } from '@/contracts/pending'
 import { session } from '@/stores/session'
 import { transport } from '@/stores/connection'
 import { TEAM_HEX } from '@/theme'
+import { MAX_ROUNDS } from '@/game/constants'
 
 const room = computed(() => session.data.room)
-const phase = computed(() => session.data.state?.phase ?? room.value?.phase ?? 'lobby')
+const state = computed(() => session.data.state)
+const phase = computed(() => state.value?.phase ?? room.value?.phase ?? 'lobby')
+const scoreText = computed(() => (state.value ? `${state.value.score.t1}–${state.value.score.t2}` : ''))
 
 const seats = computed(() => {
   const r = room.value
@@ -37,7 +41,25 @@ function command(type: 'match.start' | 'match.reset' | 'match.rematch'): void {
 
 <template>
   <section v-if="room" class="lobby">
-    <header>
+    <header v-if="phase === 'role_switch' && state" class="between">
+      <p class="label">Round {{ state.round }} of {{ MAX_ROUNDS }} done · score {{ scoreText }}</p>
+      <h2 class="title">Swap roles</h2>
+      <p class="label">
+        Every phone: set up your new role, then tap <strong>Ready</strong>.<br>
+        Round {{ state.round + 1 }} starts when all 4 are ready.
+      </p>
+      <div class="progress" :aria-label="`${readyCount} of 4 ready`">
+        <span v-for="s in seats" :key="`p${s.team}${s.role}`" :class="{ on: s.member?.connected && s.member.ready }" />
+      </div>
+      <p class="label count">{{ readyCount }}/4 ready</p>
+    </header>
+    <header v-else-if="phase === 'match_end' && state" class="between">
+      <p class="label">Match over after round {{ state.round }}</p>
+      <h2 class="title" :style="{ color: state.winner ? TEAM_HEX[state.winner] : undefined }">
+        {{ state.winner ? `Team ${state.winner} wins` : 'Draw' }} {{ scoreText }}
+      </h2>
+    </header>
+    <header v-else>
       <p class="label">Join at this site with code</p>
       <p class="code">{{ room.room_code }}</p>
     </header>
@@ -50,6 +72,7 @@ function command(type: 'match.start' | 'match.reset' | 'match.rematch'): void {
       </li>
     </ol>
 
+    <p v-if="phase === 'role_switch' || phase === 'match_end'" class="screens">Room code {{ room.room_code }}</p>
     <p class="screens">
       Screens:
       <span v-for="m in screens" :key="m.member_id" :class="{ off: !m.connected }">
@@ -80,6 +103,32 @@ function command(type: 'match.start' | 'match.reset' | 'match.rematch'): void {
 }
 header {
   text-align: center;
+}
+.between {
+  margin-bottom: 1rem;
+}
+.title {
+  margin: 0.35rem 0;
+  font: 800 clamp(1.6rem, 7vw, 2.4rem) / 1.1 system-ui, sans-serif;
+}
+.progress {
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0.25rem;
+}
+.progress span {
+  width: 2.5rem;
+  height: 0.5rem;
+  border-radius: 4px;
+  background: #333;
+}
+.progress span.on {
+  background: #6d6;
+}
+.count {
+  font-weight: 700;
+  color: #ddd;
 }
 .label {
   margin: 0;

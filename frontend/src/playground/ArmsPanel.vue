@@ -1,141 +1,62 @@
 <script setup lang="ts">
-// /sensors → Arms: tune throw detection and pointing aim on a real phone, no backend.
+// /sensors → Arms tuning: see the chop gesture live and tune it on a real phone, no backend.
 //
-// Grip: hold the phone like a stick at chest height, screen facing left, facing the TV. Tap "Set forward". The arrow follows where the phone points.
-// Hold the pad, flick: a gyro spike auto-releases with the aim read at the flick (not frozen).
-// Lifting without a flick cancels. Flicks without Hold never throw; they are logged ("no hold") only for tuning.
-// Messages go through the recording Transport, which flags anything the server would reject.
+// Shows the top-of-phone pitch (90 = up, 0 = at the TV), a 2 s pitch graph and every detected
+// chop (no Hold needed here). The sliders edit chopTuning, which ArmsController reads live, so
+// switching to the Practice tab uses whatever you set here (until the page reloads).
 
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
-import type { Team, Vec2 } from '@/contracts/pending'
-import { SENSOR_STALE_MS, type SensorSample, type SensorService } from '@/sensors/sensorService'
+import { type SensorSample, type SensorService } from '@/sensors/sensorService'
 import {
-  DEFAULT_SWING, MAX_YAW_DEG, MIN_SIDEWAYS, angleDiff, screenNormal, createSwingDetector, pointingHeading, rotationSpeed,
-  yawToWorldAim, type Swing, type SwingConfig,
+  DEFAULT_CHOP, MIN_SIDEWAYS, chopTuning, createChopDetector, pointingHeading, screenNormal, topPitch,
+  type Chop, type ScreenSide,
 } from '@/controllers/arms/throwGesture'
-import { createRecordingTransport, type SentMessage } from './recordingTransport'
 
 const props = defineProps<{ sensors: SensorService }>()
 
-const SEND_MS = 50 // 20 Hz aim (03)
-const SPARK_MS = 2000
-const SPARK_MAX = 1200 // deg/s at top of the graph
+const GRAPH_MS = 2000
 const RAD = 180 / Math.PI
 
-type AimSource = 'start' | 'peak' | 'end'
-
-const team = ref<Team>(1)
 const permission = ref('unknown')
-const config = reactive<SwingConfig>({ ...DEFAULT_SWING })
-const aimSource = ref<AimSource>('peak')
+const side = ref<ScreenSide>('left')
+const tuning = reactive(chopTuning) // writes go straight to the shared object
+const pitch = ref<number | null>(null)
+const drop = ref(0)
+const sideways = ref<number | null>(null)
+const graph = ref<{ t: number; p: number }[]>([])
+const chops = ref<(Chop & { n: number })[]>([])
+const flash = ref(false)
 
-const raw = ref<SensorSample | null>(null)
-const speed = ref<number | null>(null)
-const heading = ref<number | null>(null)
-const forward = ref<number | null>(null)
-const holding = ref(false)
-const swinging = ref(false)
-const spark = ref<{ t: number; v: number }[]>([])
-
-interface ThrowRow {
-  n: number
-  held: boolean
-  swing: Swing
-  yaw_deg: { start: number | null; peak: number | null; end: number | null }
-  sent: Vec2 | null
-}
-const throws = ref<ThrowRow[]>([])
-const sentCount = ref(0)
-const problems = ref<string[]>([])
-const msgLog = ref<string[]>([])
-
-const transport = createRecordingTransport(onSent)
-const detector = createSwingDetector(() => config)
-
+const detector = createChopDetector(() => chopTuning)
 let unsubscribe: (() => void) | null = null
-let sendTimer: ReturnType<typeof setInterval> | null = null
-let pointerId: number | null = null
-let throwN = 0
-let lastMotionFed: number | null = null
-
-// Horizontal length of the screen normal: 1 = screen facing straight sideways, 0 = facing up/down.
-const sideways = computed(() => {
-  const s = raw.value
-  if (!s || s.alpha_deg === null || s.beta_deg === null || s.gamma_deg === null) return null
-  const n = screenNormal(s.alpha_deg, s.beta_deg, s.gamma_deg)
-  return Math.hypot(n.x, n.y)
-})
-const yaw = computed(() => (heading.value !== null && forward.value !== null ? angleDiff(heading.value, forward.value) : null))
-const clampedYawDeg = computed(() => (yaw.value === null ? null : Math.max(-MAX_YAW_DEG, Math.min(MAX_YAW_DEG, yaw.value * RAD))))
-
-function yawDeg(h: number | null): number | null {
-  return h !== null && forward.value !== null ? angleDiff(h, forward.value) * RAD : null
-}
-
-function currentAim(h: number | null = heading.value): Vec2 {
-  const y = h !== null && forward.value !== null ? angleDiff(h, forward.value) : 0
-  return yawToWorldAim(y, team.value)
-}
-
-function send(action: 'aim' | 'press' | 'release' | 'cancel', aim: Vec2, strength: number | null = null): void {
-  transport.send({ v: 1, type: 'input.arms', payload: { seq: transport.nextInputSeq(), epoch: 1, aim, action, strength } })
-}
-
-function onSent({ message, problem }: SentMessage): void {
-  sentCount.value++
-  if (problem) problems.value = [problem, ...problems.value].slice(0, 10)
-  if (message.type !== 'input.arms') return
-  const p = message.payload
-  // Hemisphere rule from 02, which the transport can't check without the team.
-  const zOk = team.value === 1 ? p.aim.z >= 0.2 : p.aim.z <= -0.2
-  if (!zOk) problems.value = [`aim ${p.aim.x.toFixed(2)},${p.aim.z.toFixed(2)} outside team hemisphere`, ...problems.value].slice(0, 10)
-  if (p.action !== 'aim') {
-    const s = p.strength === null ? '' : ` strength ${p.strength.toFixed(2)}`
-    msgLog.value = [`#${p.seq} ${p.action} aim ${p.aim.x.toFixed(2)},${p.aim.z.toFixed(2)}${s}`, ...msgLog.value].slice(0, 12)
-  }
-}
-
-function fresh(ms: number | null, now: number): boolean {
-  return ms !== null && now - ms < SENSOR_STALE_MS
-}
+let lastOrientationFed: number | null = null
+let n = 0
+let flashTimer: ReturnType<typeof setTimeout> | null = null
 
 function onSample(s: SensorSample): void {
-  raw.value = s
-  const now = s.time_ms
-  const orientOk = fresh(s.orientation_ms, now) && s.alpha_deg !== null && s.beta_deg !== null && s.gamma_deg !== null
-  const h = orientOk ? pointingHeading(s.alpha_deg!, s.beta_deg!, s.gamma_deg!) : null
-  if (h !== null) heading.value = h
-  const v = fresh(s.motion_ms, now) ? rotationSpeed(s.rotation_rate) : null
-  speed.value = v
-
-  // Only feed the detector on new motion events; orientation-only emits repeat the cached gyro value.
-  if (s.motion_ms !== lastMotionFed) {
-    lastMotionFed = s.motion_ms
-    const swing = detector.push(now, v, h ?? heading.value)
-    swinging.value = detector.swinging
-    if (swing) onSwing(swing)
-    if (v !== null) {
-      const cut = now - SPARK_MS
-      spark.value = [...spark.value.filter((p) => p.t >= cut), { t: now, v }]
-    }
+  if (s.orientation_ms === lastOrientationFed) return
+  lastOrientationFed = s.orientation_ms
+  if (s.alpha_deg === null || s.beta_deg === null || s.gamma_deg === null) {
+    pitch.value = null
+    detector.push(s.time_ms, null, null)
+    return
   }
-
-  if (holding.value && (!orientOk || v === null)) cancelHold('sensor stale')
-}
-
-function onSwing(swing: Swing): void {
-  const held = holding.value
-  const pick = { start: swing.heading_start, peak: swing.heading_peak, end: swing.heading_end }[aimSource.value]
-  let sent: Vec2 | null = null
-  if (held && forward.value !== null) {
-    sent = currentAim(pick)
-    send('release', sent, swing.strength)
-    holding.value = false // auto-release: a fresh press is required for the next throw
+  const nrm = screenNormal(s.alpha_deg, s.beta_deg, s.gamma_deg)
+  sideways.value = Math.hypot(nrm.x, nrm.y)
+  const p = topPitch(s.alpha_deg, s.beta_deg, s.gamma_deg, side.value)
+  pitch.value = p
+  const chop = detector.push(s.time_ms, p, pointingHeading(s.alpha_deg, s.beta_deg, s.gamma_deg))
+  drop.value = detector.drop
+  if (p !== null) {
+    const cut = s.time_ms - GRAPH_MS
+    graph.value = [...graph.value.filter((g) => g.t >= cut), { t: s.time_ms, p }]
   }
-  throws.value = [{
-    n: ++throwN, held, swing, sent,
-    yaw_deg: { start: yawDeg(swing.heading_start), peak: yawDeg(swing.heading_peak), end: yawDeg(swing.heading_end) },
-  }, ...throws.value].slice(0, 20)
+  if (chop) {
+    chops.value = [{ ...chop, n: ++n }, ...chops.value].slice(0, 20)
+    flash.value = true
+    if (flashTimer) clearTimeout(flashTimer)
+    flashTimer = setTimeout(() => (flash.value = false), 400)
+  }
 }
 
 function enable(): void {
@@ -146,62 +67,27 @@ function enable(): void {
   })
 }
 
-// Neutral pose must be clearly sideways so the heading is well defined; top tilt doesn't matter.
-const GRIP_OK = 0.7
-const gripOk = computed(() => sideways.value !== null && sideways.value >= GRIP_OK && heading.value !== null)
-
-function setForward(): void {
-  if (gripOk.value) forward.value = heading.value
+function resetTuning(): void {
+  Object.assign(tuning, DEFAULT_CHOP)
 }
-
-function onPadDown(e: PointerEvent): void {
-  if (pointerId !== null || forward.value === null || speed.value === null) return
-  pointerId = e.pointerId
-  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-  holding.value = true
-  detector.reset()
-  send('press', currentAim())
-  sendTimer ??= setInterval(() => {
-    if (holding.value) send('aim', currentAim())
-  }, SEND_MS)
-}
-
-function onPadUp(e: PointerEvent): void {
-  if (e.pointerId !== pointerId) return
-  pointerId = null
-  // A swing already released; otherwise lifting without a flick is a cancel, never a throw.
-  if (holding.value) cancelHold('lifted without a flick')
-}
-
-function cancelHold(_why: string): void {
-  if (!holding.value) return
-  holding.value = false
-  send('cancel', currentAim())
-}
-
-function onVisibility(): void {
-  if (document.hidden) cancelHold('page hidden')
-}
-document.addEventListener('visibilitychange', onVisibility)
 
 onBeforeUnmount(() => {
-  cancelHold('unmount')
-  if (sendTimer) clearInterval(sendTimer)
-  document.removeEventListener('visibilitychange', onVisibility)
+  if (flashTimer) clearTimeout(flashTimer)
   unsubscribe?.()
 })
 
-// ---- display helpers (SVG: team-local, x = right, y = −forward, metres) ----
-const THROWER = { x: 0, y: 6 }
-const RAY = 11
-function rayEnd(yaw_deg: number | null): { x: number; y: number } {
-  const y = Math.max(-MAX_YAW_DEG, Math.min(MAX_YAW_DEG, yaw_deg ?? 0)) / RAD
-  return { x: THROWER.x + Math.sin(y) * RAY, y: THROWER.y - Math.cos(y) * RAY }
-}
-const liveEnd = computed(() => rayEnd(clampedYawDeg.value))
-const sparkPoints = computed(() => {
-  const end = spark.value.at(-1)?.t ?? 0
-  return spark.value.map((p) => `${(SPARK_MS - (end - p.t)).toFixed(0)},${(SPARK_MAX - Math.min(p.v, SPARK_MAX)).toFixed(0)}`).join(' ')
+// Graph: x = time (0..GRAPH_MS), y = pitch from 150 (top) to -90 (bottom).
+const P_TOP = 150
+const P_BOT = -90
+const gy = (p: number) => P_TOP - Math.max(P_BOT, Math.min(P_TOP, p))
+const graphPoints = computed(() => {
+  const end = graph.value.at(-1)?.t ?? 0
+  return graph.value.map((g) => `${(GRAPH_MS - (end - g.t)).toFixed(0)},${gy(g.p).toFixed(1)}`).join(' ')
+})
+// Needle for the side view: 0° = pointing right (at the TV), 90° = up.
+const needle = computed(() => {
+  const p = (pitch.value ?? 90) / RAD
+  return { x: Math.cos(p) * 40, y: -Math.sin(p) * 40 }
 })
 function f(v: number | null | undefined, d = 0): string {
   return v === null || v === undefined ? '—' : v.toFixed(d)
@@ -210,115 +96,72 @@ function f(v: number | null | undefined, d = 0): string {
 
 <template>
   <section class="arms">
-    <div class="row">
-      <label>Team
-        <select v-model.number="team">
-          <option :value="1">1 (blue)</option>
-          <option :value="2">2 (orange)</option>
-        </select>
-      </label>
-      <label>Aim from
-        <select v-model="aimSource">
-          <option value="start">swing start</option>
-          <option value="peak">swing peak</option>
-          <option value="end">swing end</option>
-        </select>
-      </label>
-    </div>
-
     <button v-if="permission !== 'granted'" class="big" @click="enable">Enable motion</button>
     <p v-if="permission === 'denied' || permission === 'unsupported'" class="bad">
       Motion {{ permission }}. Reload over HTTPS in Safari and tap Allow.
     </p>
 
-    <template v-else>
-      <p class="grip">
-        Stand facing the TV. Hold the phone <strong>like a stick at chest height</strong>:
-        <strong>screen facing left</strong>, top pointing up or tipped toward the TV (the angle doesn't matter).
-      </p>
-      <p v-if="sideways !== null && sideways < MIN_SIDEWAYS + 0.15" class="bad">
-        Screen is facing too far up/down — turn it to face sideways.
-      </p>
-      <button class="big secondary" :disabled="!gripOk" @click="setForward">
-        {{ !gripOk ? 'Turn the screen to face left' : forward === null ? 'Facing the TV? Tap: Set forward' : 'Re-set forward' }}
-      </button>
-
-      <div
-        class="pad"
-        :class="{ holding, swinging, off: forward === null }"
-        @pointerdown="onPadDown"
-        @pointerup="onPadUp"
-        @pointercancel="onPadUp"
-        @lostpointercapture="onPadUp"
-      >
-        {{ forward === null ? 'Set forward first' : holding ? 'Holding — flick to throw' : 'Hold here' }}
+    <template v-if="permission === 'granted'">
+      <div class="hand">
+        <button :class="{ on: side === 'left' }" @click="side = 'left'">Right hand · screen left</button>
+        <button :class="{ on: side === 'right' }" @click="side = 'right'">Left hand · screen right</button>
       </div>
+      <p v-if="sideways !== null && sideways < MIN_SIDEWAYS + 0.35" class="bad">Turn the screen to face sideways.</p>
+
+      <section class="card" :class="{ flash }">
+        <h3>Top of phone: {{ f(pitch) }}° · drop {{ f(drop) }}° / {{ tuning.minDropDeg }}°</h3>
+        <p class="hint">Side view, TV to the right. Chop down toward the TV to throw.</p>
+        <svg viewBox="-50 -50 100 60" class="side">
+          <line x1="-45" y1="0" x2="45" y2="0" class="ground" />
+          <text x="44" y="-3" class="tv">TV →</text>
+          <line x1="0" y1="0" :x2="needle.x" :y2="needle.y" class="needle" />
+        </svg>
+        <div class="bar"><div class="fill" :style="{ width: `${Math.min(100, (drop / tuning.minDropDeg) * 100)}%` }" /></div>
+      </section>
 
       <section class="card">
-        <h3>Aim (top-down, forward = up) · yaw {{ f(yaw === null ? null : yaw * RAD) }}°</h3>
-        <svg viewBox="-7 -6 14 13" class="court">
-          <rect x="-6" y="-5" width="12" height="11.5" class="lines" />
-          <line
-            v-for="t in throws.filter((t) => t.held).slice(0, 8)"
-            :key="t.n"
-            :x1="THROWER.x" :y1="THROWER.y"
-            :x2="rayEnd(t.yaw_deg[aimSource]).x" :y2="rayEnd(t.yaw_deg[aimSource]).y"
-            class="past"
-          />
-          <line v-if="forward !== null" :x1="THROWER.x" :y1="THROWER.y" :x2="liveEnd.x" :y2="liveEnd.y" class="live" />
-          <circle :cx="THROWER.x" :cy="THROWER.y" r="0.45" class="dot" />
+        <h3>Pitch, last 2 s (red = 0°, at the TV; grey = 90°, straight up)</h3>
+        <svg :viewBox="`0 0 ${GRAPH_MS} ${P_TOP - P_BOT}`" preserveAspectRatio="none" class="graph">
+          <line x1="0" :y1="gy(90)" :x2="GRAPH_MS" :y2="gy(90)" class="up" />
+          <line x1="0" :y1="gy(0)" :x2="GRAPH_MS" :y2="gy(0)" class="level" />
+          <polyline :points="graphPoints" class="trace" />
         </svg>
       </section>
 
       <section class="card">
-        <h3>Gyro {{ f(speed) }}°/s {{ swinging ? '· SWING' : '' }}</h3>
-        <svg :viewBox="`0 0 ${SPARK_MS} ${SPARK_MAX}`" preserveAspectRatio="none" class="spark">
-          <line x1="0" :y1="SPARK_MAX - config.threshold" :x2="SPARK_MS" :y2="SPARK_MAX - config.threshold" class="thresh" />
-          <line x1="0" :y1="SPARK_MAX - config.threshold * config.rearmRatio" :x2="SPARK_MS" :y2="SPARK_MAX - config.threshold * config.rearmRatio" class="rearm" />
-          <polyline :points="sparkPoints" class="trace" />
-        </svg>
-        <label class="slider">threshold {{ config.threshold }}°/s
-          <input v-model.number="config.threshold" type="range" min="80" max="600" step="10">
+        <h3>Tuning (applies to Practice too, until reload)</h3>
+        <label class="slider">must chop down at least {{ tuning.minDropDeg }}°
+          <input v-model.number="tuning.minDropDeg" type="range" min="30" max="150" step="5">
         </label>
-        <label class="slider">full strength at {{ config.fullStrengthRate }}°/s
-          <input v-model.number="config.fullStrengthRate" type="range" :min="config.threshold + 50" max="1500" step="25">
+        <label class="slider">…within {{ tuning.windowMs }} ms
+          <input v-model.number="tuning.windowMs" type="range" min="150" max="1000" step="25">
         </label>
+        <label class="slider">full strength at {{ tuning.fullStrengthRate }}°/s
+          <input v-model.number="tuning.fullStrengthRate" type="range" min="200" max="1500" step="25">
+        </label>
+        <button class="reset" @click="resetTuning">Reset to defaults</button>
       </section>
 
-      <section v-if="throws.length" class="card small">
-        <h3>Swings (yaw° at start / peak / end)</h3>
+      <section v-if="chops.length" class="card small">
+        <h3>Chops detected</h3>
         <table>
-          <tr><th>#</th><th>kind</th><th>peak°/s</th><th>str</th><th>start</th><th>peak</th><th>end</th><th>ms</th></tr>
-          <tr v-for="t in throws" :key="t.n" :class="t.held ? 'ok' : ''">
-            <td>{{ t.n }}</td>
-            <td>{{ t.held ? 'THROW' : 'no hold' }}</td>
-            <td>{{ f(t.swing.peak_rate) }}</td>
-            <td>{{ f(t.swing.strength, 2) }}</td>
-            <td>{{ f(t.yaw_deg.start) }}</td>
-            <td>{{ f(t.yaw_deg.peak) }}</td>
-            <td>{{ f(t.yaw_deg.end) }}</td>
-            <td>{{ f(t.swing.end_ms - t.swing.start_ms) }}</td>
+          <tr><th>#</th><th>from°</th><th>to°</th><th>drop°</th><th>ms</th><th>°/s</th><th>str</th></tr>
+          <tr v-for="c in chops" :key="c.n">
+            <td>{{ c.n }}</td>
+            <td>{{ f(c.from_deg) }}</td>
+            <td>{{ f(c.to_deg) }}</td>
+            <td>{{ f(c.drop_deg) }}</td>
+            <td>{{ f(c.duration_ms) }}</td>
+            <td>{{ f(c.rate) }}</td>
+            <td>{{ f(c.strength, 2) }}</td>
           </tr>
         </table>
-      </section>
-
-      <section class="card small">
-        <p>α {{ f(raw?.alpha_deg, 1) }} · β {{ f(raw?.beta_deg, 1) }} · γ {{ f(raw?.gamma_deg, 1) }} · heading {{ f(heading === null ? null : heading * RAD, 1) }}° · sideways {{ f(sideways, 2) }}</p>
-        <p>rate α {{ f(raw?.rotation_rate?.alpha) }} β {{ f(raw?.rotation_rate?.beta) }} γ {{ f(raw?.rotation_rate?.gamma) }} · sent {{ sentCount }}</p>
-        <p v-for="(p, i) in problems" :key="'p' + i" class="bad">rejected: {{ p }}</p>
-        <p v-for="(l, i) in msgLog" :key="'m' + i">{{ l }}</p>
       </section>
     </template>
   </section>
 </template>
 
 <style scoped>
-.row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem 1.25rem;
-  margin-bottom: 0.75rem;
-}
 .big {
   width: 100%;
   min-height: 56px;
@@ -330,96 +173,89 @@ function f(v: number | null | undefined, d = 0): string {
   background: #3c6;
   color: #000;
 }
-.big.secondary {
-  background: #333;
-  color: #eee;
+.hand {
+  display: flex;
+  gap: 0.5rem;
 }
-.grip {
-  margin: 0 0 0.5rem;
+.hand button {
+  flex: 1;
+  padding: 0.6rem;
+  font: inherit;
+  font-size: 0.85rem;
+  border: 2px solid #444;
+  border-radius: 10px;
+  background: #1c1c1c;
   color: #ccc;
 }
-.pad {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 160px;
-  border-radius: 16px;
-  background: #223;
-  color: #ccd;
-  font-size: 1.3rem;
-  font-weight: 700;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-}
-.pad.holding {
-  background: #2a5;
-  color: #000;
-}
-.pad.swinging {
-  background: #fc3;
-}
-.pad.off {
-  opacity: 0.4;
+.hand button.on {
+  border-color: #3c6;
+  color: #fff;
 }
 .card {
   margin-top: 1rem;
   padding: 0.75rem;
   border-radius: 10px;
   background: #1c1c1c;
+  transition: background 0.2s;
+}
+.card.flash {
+  background: #2a5;
 }
 .card h3 {
   margin: 0 0 0.5rem;
   font-size: 0.95rem;
 }
-.small {
-  font: 12px/1.4 ui-monospace, monospace;
-  color: #bbb;
+.hint {
+  margin: 0 0 0.5rem;
+  color: #999;
+  font-size: 0.8rem;
 }
-.small p {
-  margin: 0.2rem 0;
-}
-.court {
+.side {
   width: 100%;
-  max-height: 40vh;
+  max-height: 22vh;
 }
-.lines {
-  fill: #0d1a0d;
+.ground {
   stroke: #555;
-  stroke-width: 0.08;
+  stroke-width: 0.8;
 }
-.live {
-  stroke: #3c6;
-  stroke-width: 0.15;
+.tv {
+  fill: #888;
+  font-size: 6px;
+  text-anchor: end;
+}
+.needle {
+  stroke: #6cf;
+  stroke-width: 4;
   stroke-linecap: round;
 }
-.past {
-  stroke: #fc3;
-  stroke-width: 0.06;
-  opacity: 0.7;
+.bar {
+  height: 10px;
+  border-radius: 5px;
+  background: #333;
+  overflow: hidden;
 }
-.dot {
-  fill: #3c6;
+.fill {
+  height: 100%;
+  background: #fc3;
 }
-.spark {
+.graph {
   width: 100%;
-  height: 90px;
+  height: 100px;
   background: #111;
 }
 .trace {
   fill: none;
   stroke: #6cf;
-  stroke-width: 12;
+  stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
-.thresh {
+.level {
   stroke: #e55;
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
-.rearm {
-  stroke: #555;
+.up {
+  stroke: #666;
   stroke-dasharray: 4 4;
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
@@ -432,8 +268,18 @@ function f(v: number | null | undefined, d = 0): string {
 .slider input {
   width: 100%;
 }
-.ok {
-  color: #3c6;
+.reset {
+  margin-top: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid #444;
+  border-radius: 8px;
+  background: #222;
+  color: #ccc;
+  font: inherit;
+}
+.small {
+  font: 12px/1.4 ui-monospace, monospace;
+  color: #bbb;
 }
 .bad {
   color: #e55;

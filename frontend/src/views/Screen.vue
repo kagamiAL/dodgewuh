@@ -5,7 +5,7 @@ import { createScene, type GameScene } from '@/game/scene'
 import { session } from '@/stores/session'
 import { connect, transport } from '@/stores/connection'
 import type { Team } from '@/contracts/pending'
-import { NO_THROW_HALF_DEPTH } from '@/game/constants'
+import { MAX_ROUNDS, NO_THROW_HALF_DEPTH } from '@/game/constants'
 import { TEAM_HEX } from '@/theme'
 import Lobby from './Lobby.vue'
 import CameraLegs from '@/camera/CameraLegs.vue'
@@ -36,7 +36,8 @@ const pointOfView = computed<Team | null>(() => {
   return me?.camera_team ?? null
 })
 const phase = computed(() => state.value?.phase ?? 'lobby')
-const showLobby = computed(() => live && (phase.value === 'lobby' || phase.value === 'match_end'))
+// Between rounds (role_switch) the lobby overlay doubles as the ready view.
+const showLobby = computed(() => live && (phase.value === 'lobby' || phase.value === 'role_switch' || phase.value === 'match_end'))
 const PHASE_LABEL: Record<string, string> = {
   countdown: 'Get ready',
   round_end: 'Round over',
@@ -55,6 +56,7 @@ const inNoThrowZone = computed(() => {
 const banner = computed(() => {
   const st = state.value
   if (!st) return null
+  if (showLobby.value) return null // the overlay shows the ready view / result itself
   if (st.phase === 'countdown' && st.phase_remaining_ms !== null) return `${Math.ceil(st.phase_remaining_ms / 1000)}`
   if (st.phase === 'match_end' && st.winner) return `Team ${st.winner} wins!`
   return PHASE_LABEL[st.phase] ?? null
@@ -135,7 +137,7 @@ onBeforeUnmount(() => {
     <template v-if="live && state">
       <div class="hud">
         <span class="score" :style="{ color: TEAM_HEX[1] }">{{ state.score.t1 }}</span>
-        <span class="clock">{{ clock }}<small v-if="state.round"> · round {{ state.round }}</small></span>
+        <span class="clock">{{ clock }}<small v-if="state.round"> · round {{ state.round }}/{{ MAX_ROUNDS }}</small></span>
         <span class="score" :style="{ color: TEAM_HEX[2] }">{{ state.score.t2 }}</span>
       </div>
       <p v-if="banner" class="banner">{{ banner }}</p>

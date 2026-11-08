@@ -11,6 +11,7 @@ import { jogTuning } from '@/controllers/legs/jogTracker'
 import { beep, say } from '@/controllers/legs/voice'
 import { createRecordingTransport, type SentMessage } from './recordingTransport'
 import ArmsPanel from './ArmsPanel.vue'
+import ThrowPractice from './ThrowPractice.vue'
 
 type Dir = 'forward' | 'left' | 'right' | 'back'
 
@@ -28,7 +29,7 @@ const CUE_TEXT: Record<Dir, string> = {
   back: 'Face away from the screen and jog',
 }
 
-const mode = ref<'legs' | 'arms'>('legs')
+const mode = ref<'legs' | 'arms' | 'practice'>('legs')
 const team = ref<Team>(1)
 const scoredTest = ref(true)
 const speakMoves = ref(false)
@@ -181,13 +182,15 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="playground">
-    <h2>Sensor playground · {{ mode === 'legs' ? 'Legs (jog + face)' : 'Arms' }}</h2>
+    <h2>Sensor playground · {{ mode === 'legs' ? 'Legs (jog + face)' : mode === 'arms' ? 'Arms tuning' : 'Throw practice' }}</h2>
     <div class="tabs">
       <button :class="{ on: mode === 'legs' }" :disabled="calibrated" @click="mode = 'legs'">Legs</button>
-      <button :class="{ on: mode === 'arms' }" :disabled="calibrated" @click="mode = 'arms'">Arms</button>
+      <button :class="{ on: mode === 'arms' }" :disabled="calibrated" @click="mode = 'arms'">Arms tuning</button>
+      <button :class="{ on: mode === 'practice' }" :disabled="calibrated" @click="mode = 'practice'">Practice</button>
     </div>
 
     <ArmsPanel v-if="mode === 'arms'" :sensors="sensors" />
+    <ThrowPractice v-else-if="mode === 'practice'" :sensors="sensors" />
 
     <template v-else>
     <div class="row">
