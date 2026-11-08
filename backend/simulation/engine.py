@@ -107,6 +107,8 @@ class _ArmsState:
     hold: bool
     aim: Vec2
     received_ms: int | None
+    # Cosmetic arm angle from the phone, echoed in snapshots for the throw animation only.
+    arm_pitch: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,6 +357,14 @@ class Simulation:
                 raise SimulationError(
                     "INVALID_INPUT", "strength is only allowed on release"
                 )
+            pitch = command.arm_pitch
+            if pitch is not None and (
+                isinstance(pitch, bool)
+                or not isinstance(pitch, (int, float))
+                or not math.isfinite(pitch)
+                or not -360.0 <= pitch <= 360.0
+            ):
+                raise SimulationError("INVALID_INPUT", "arm_pitch must be finite degrees")
 
         self._last_ordinal = ordinal
         self._pending.append(
@@ -463,6 +473,7 @@ class Simulation:
                 legs.move = G.ZERO
             arms = self._arms[team]
             if arms.received_ms is None or now_ms - arms.received_ms > K.INPUT_TIMEOUT_MS:
+                arms.arm_pitch = None
                 if arms.hold:
                     arms.hold = False
                     self._drop_held(team)
@@ -498,6 +509,8 @@ class Simulation:
             aim = G.validate_aim(cmd.aim, team)
             arms.aim = aim
             self._characters[team].aim = aim
+            if cmd.arm_pitch is not None:
+                arms.arm_pitch = float(cmd.arm_pitch)
 
             if cmd.action == "press":
                 arms.hold = True
@@ -804,6 +817,7 @@ class Simulation:
                 pos=self._characters[team].pos,
                 aim=self._characters[team].aim,
                 held_ball_id=self._characters[team].held_ball_id,
+                arm_pitch=self._arms[team].arm_pitch,
             )
             for team in sorted(self._characters)
         )

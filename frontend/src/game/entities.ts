@@ -39,6 +39,10 @@ interface CharacterView {
   velZ: number
   aimHeading: number
   holding: boolean
+  /** Arms phone's arm angle (Character.arm_pitch), degrees, or null. Cosmetic throw pose. */
+  armPitch: number | null
+  /** performance.now() of this character's latest throw, for the follow-through. */
+  thrownAt: number
   heldBallId: string | null
   epoch: number
   /**
@@ -88,7 +92,7 @@ function createCharacter(team: Team): CharacterView {
 
   return {
     team, root, body, aimPivot, facing, rig: null, ragdoll: null,
-    lastPos: null, lastSnapshotMs: 0, velX: 0, velZ: 0, aimHeading: 0,
+    lastPos: null, lastSnapshotMs: 0, velX: 0, velZ: 0, aimHeading: 0, armPitch: null, thrownAt: -Infinity,
     holding: false, heldBallId: null, epoch: -1, heading: null,
   }
 }
@@ -171,11 +175,16 @@ export class StateRenderer {
    * Where a team's character is and which way it faces (scene space), for a camera to
    * follow. Facing comes from movement; before the first move it is the team's forward.
    */
-  pointOfView(team: Team): { pos: pc.Vec3; forward: pc.Vec3; aim: pc.Vec3; holding: boolean } | null {
+  pointOfView(team: Team): {
+    pos: pc.Vec3; forward: pc.Vec3; aim: pc.Vec3; holding: boolean; armPitch: number | null; thrownAt: number
+  } | null {
     const view = this.characters.get(team)
     if (!view) return null
     const forward = view.heading ?? toScene(0, team === 1 ? 1 : -1)
-    return { pos: view.root.getPosition(), forward, aim: view.aimPivot.forward, holding: view.holding }
+    return {
+      pos: view.root.getPosition(), forward, aim: view.aimPivot.forward, holding: view.holding,
+      armPitch: view.armPitch, thrownAt: view.thrownAt,
+    }
   }
 
   /** The hidden (first-person) team's held ball, for the scene to place by the camera. */
@@ -194,6 +203,7 @@ export class StateRenderer {
         velZ: stale ? 0 : view.velZ,
         aimHeading: view.aimHeading,
         holding: view.holding,
+        armPitch: view.armPitch,
       })
     }
     // Held balls follow the (animated) right hand.
@@ -230,8 +240,12 @@ export class StateRenderer {
     // A throw: this team's held ball is now flying with them as shooter.
     if (view.heldBallId && c.held_ball_id === null) {
       const thrown = state.balls.find((b) => b.ball_id === view.heldBallId)
-      if (thrown?.mode === 'flying' && thrown.shooter_team === c.team) view.ragdoll?.kickThrow()
+      if (thrown?.mode === 'flying' && thrown.shooter_team === c.team) {
+        view.ragdoll?.kickThrow()
+        view.thrownAt = now
+      }
     }
+    view.armPitch = c.arm_pitch ?? null
     view.heldBallId = c.held_ball_id
     view.holding = c.held_ball_id !== null
   }

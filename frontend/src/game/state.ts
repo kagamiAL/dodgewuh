@@ -20,6 +20,8 @@ export interface Character {
   pos: Vec2
   aim: Vec2
   held_ball_id: ID | null
+  /** Cosmetic throwing-arm angle in degrees from the Arms phone (90 up, >90 back, 0 forward). */
+  arm_pitch?: number | null
 }
 
 export interface Ball {

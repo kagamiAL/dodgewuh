@@ -97,8 +97,15 @@ export interface ChopConfig {
   pressGuardMs: number
   /** Minimum time between throws. */
   cooldownMs: number
-  /** Average chop speed (deg/s) that maps to strength 1; the slowest qualifying chop maps to 0. */
-  fullStrengthRate: number
+  /**
+   * Strength by average chop speed (deg/s; 90° in 0.36 s = 250°/s, in 0.18 s = 500°/s):
+   * at or below weakRate the weakest throw (0), at or above hardRate the hardest (1),
+   * scaling smoothly in between. With `stepped`, it snaps to weak 0 / medium 0.5 / hard 1 instead
+   * (medium from the midpoint rate).
+   */
+  weakRate: number
+  hardRate: number
+  stepped: boolean
 }
 
 export const DEFAULT_CHOP: ChopConfig = {
@@ -106,7 +113,9 @@ export const DEFAULT_CHOP: ChopConfig = {
   windowMs: 500,
   pressGuardMs: 100,
   cooldownMs: 300,
-  fullStrengthRate: 800,
+  weakRate: 250, // 90° in 0.36 s or slower: weakest throw (~75% of the court)
+  hardRate: 500, // 90° in 0.18 s or faster: hardest throw (clears corner to corner)
+  stepped: false, // smooth scaling; true = three fixed levels
 }
 
 /** Live-tunable copy the controller reads on every sample; the /sensors tuning tab edits it. */
@@ -122,9 +131,24 @@ export interface Chop {
   duration_ms: number
   /** Average chop speed, deg/s. */
   rate: number
+  /** Rough label for display: weak / medium / hard thirds of the strength range. */
+  level: ThrowLevel
+  /** 0 … 1 (or exactly 0 / 0.5 / 1 when stepped). */
   strength: number
   /** Pointing heading (rad) at the trigger, or null. */
   heading: number | null
+}
+
+export type ThrowLevel = 'weak' | 'medium' | 'hard'
+
+/** Chop speed → strength in [0,1], smooth or stepped per the config. */
+export function throwStrength(rate: number, c: ChopConfig): number {
+  const t = Math.max(0, Math.min(1, (rate - c.weakRate) / Math.max(1, c.hardRate - c.weakRate)))
+  return c.stepped ? (t >= 1 ? 1 : t >= 0.5 ? 0.5 : 0) : t
+}
+
+export function throwLevel(strength: number): ThrowLevel {
+  return strength >= 0.99 ? 'hard' : strength >= 0.33 ? 'medium' : 'weak'
 }
 
 /** Feed every new orientation sample. Returns a Chop the moment the drop reaches minDropDeg. */
@@ -169,11 +193,10 @@ export function createChopDetector(config: () => ChopConfig) {
       if (drop < c.minDropDeg) return null
       const duration_ms = Math.max(1, time_ms - top.t)
       const rate = (drop / duration_ms) * 1000
-      const slowest = (c.minDropDeg / c.windowMs) * 1000
-      const strength = Math.max(0, Math.min(1, (rate - slowest) / (c.fullStrengthRate - slowest)))
+      const strength = throwStrength(rate, c)
       ignoreUntil = time_ms + c.cooldownMs
       buf = []
-      return { time_ms, drop_deg: drop, from_deg: top.p, to_deg: p, duration_ms, rate, strength, heading }
+      return { time_ms, drop_deg: drop, from_deg: top.p, to_deg: p, duration_ms, rate, level: throwLevel(strength), strength, heading }
     },
     /** Call when the thumb goes down: forget earlier motion and ignore the press jolt. */
     press(time_ms: number): void {
@@ -190,10 +213,21 @@ export function createChopDetector(config: () => ChopConfig) {
 // --- Aim assist ---------------------------------------------------------------------------------
 // Purely a phone-side aiming choice: it bends the aim it sends; the server still decides hits.
 // Numbers mirror plans/02 / backend/simulation/constants.py.
-const THROW_BASE_SPEED = 8
-const THROW_SPEED_PER_STRENGTH = 6
+const THROW_BASE_SPEED = 12
+const THROW_SPEED_PER_STRENGTH = 7
 const THROW_OFFSET = 0.65
-const FLIGHT_S = 2
+// Ballistic flight (02 amended): released flat at THROW_HEIGHT, gravity pulls it down, and it can
+// only hit before it lands. Fall time ≈ 1.12 s, so range = speed × 1.12: weak 13.5 m (~75% of
+// the court), medium 17.4 m, hard 21.4 m (clears the ~19.3 m corner-to-corner worst case).
+const THROW_HEIGHT = 1.5
+const GROUND_HEIGHT = 0.3 // BALL_RADIUS
+const GRAVITY = 1.9
+export const FALL_S = Math.sqrt((2 * (THROW_HEIGHT - GROUND_HEIGHT)) / GRAVITY)
+
+/** Ball speed for a strength in [0,1], m/s (02). */
+export function throwSpeed(strength: number): number {
+  return THROW_BASE_SPEED + THROW_SPEED_PER_STRENGTH * Math.max(0, Math.min(1, strength))
+}
 
 export interface AssistConfig {
   enabled: boolean
@@ -205,7 +239,9 @@ export interface AssistConfig {
   lead: boolean
 }
 
-export const DEFAULT_ASSIST: AssistConfig = { enabled: true, coneDeg: 15, fullDeg: 8, lead: true }
+// Light assist: at 9 m it turns throws up to ~5.5° off into hits (unassisted hits reach ~4.5°);
+// 6° or more still misses. No lead. (Was 15°/8° with lead.)
+export const DEFAULT_ASSIST: AssistConfig = { enabled: true, coneDeg: 7, fullDeg: 2, lead: false }
 
 /** Live-tunable copy ArmsController reads; the /sensors Practice tab edits it. */
 export const assistTuning: AssistConfig = { ...DEFAULT_ASSIST }
@@ -238,7 +274,7 @@ export function assistYaw(
   let aimAt = target
   if (cfg.lead && targetVel && Math.hypot(targetVel.x, targetVel.z) > 0.2) {
     // Intercept: |target + v·t − launch| = speed·t, smallest positive t within the flight time.
-    const speed = THROW_BASE_SPEED + THROW_SPEED_PER_STRENGTH * Math.max(0, Math.min(1, strength))
+    const speed = throwSpeed(strength)
     const rx = target.x - launch.x, rz = target.z - launch.z
     const a = targetVel.x ** 2 + targetVel.z ** 2 - speed ** 2
     const b = 2 * (rx * targetVel.x + rz * targetVel.z)
@@ -252,7 +288,8 @@ export function assistYaw(
         t = roots.length ? Math.min(...roots) : null
       }
     }
-    if (t !== null && t <= FLIGHT_S) aimAt = { x: target.x + targetVel.x * t, z: target.z + targetVel.z * t }
+    // Only lead to a meeting point the ball can reach before it lands.
+    if (t !== null && t <= FALL_S) aimAt = { x: target.x + targetVel.x * t, z: target.z + targetVel.z * t }
   }
   // Lock if the aim is near the player OR near where they'll be; then pull to the lead point,
   // so aiming at a running player still hits.

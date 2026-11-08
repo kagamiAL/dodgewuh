@@ -39,6 +39,18 @@
               }
             ],
             "title": "Strength"
+          },
+          "arm_pitch": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Arm Pitch"
           }
         },
         "required": [
@@ -571,6 +583,7 @@
             "type": "integer"
           },
           "height": {
+            "title": "Height",
             "type": "number"
           }
         },
@@ -616,6 +629,18 @@
               }
             ],
             "title": "Held Ball Id"
+          },
+          "arm_pitch": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Arm Pitch"
           }
         },
         "required": [

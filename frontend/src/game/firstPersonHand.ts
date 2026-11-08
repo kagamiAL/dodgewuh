@@ -36,6 +36,8 @@ export interface FirstPersonHand {
   entity: pc.Entity
   /** Tint the hand and arm to the viewer's team colour. */
   setTeam(team: Team): void
+  /** Show or hide the modelled ball (hidden during the follow-through after a throw). */
+  setBallVisible(visible: boolean): void
 }
 
 export function instantiateFirstPersonHand(asset: pc.Asset): FirstPersonHand {
@@ -57,9 +59,16 @@ export function instantiateFirstPersonHand(asset: pc.Asset): FirstPersonHand {
     }
   }
 
+  const ballNodes = BALL_NODES.map((name) => entity.findByName(name)).filter((n): n is pc.GraphNode => !!n)
   let current: Team | null = null
+  let ballVisible = true
   return {
     entity,
+    setBallVisible(visible) {
+      if (visible === ballVisible) return
+      ballVisible = visible
+      for (const node of ballNodes) if (node instanceof pc.Entity) node.enabled = visible
+    },
     setTeam(team) {
       if (!skin || team === current) return
       current = team
