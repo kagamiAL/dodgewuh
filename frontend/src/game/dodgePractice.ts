@@ -17,8 +17,9 @@ const THROW_HEIGHT = 1.5
 const THROW_OFFSET = 0.65
 const GRAVITY = 1.9
 const COMBINED_RADIUS = 0.75
+const DODGE_TRIGGER_DISTANCE = 4
 const DODGE_LEAD_TICKS = 45
-const DODGE_VERDICT_TIMEOUT_TICKS = 12
+const DODGE_VERDICT_TIMEOUT_TICKS = 15
 const DODGE_SLOWMO_TICKS = 45
 const DODGE_BACK_DOT = 0.7071 // a ball within 45° of straight into your back: no dodge
 
@@ -132,7 +133,8 @@ export function startDodgePractice(handler: (msg: ServerMessage) => void, onTall
       return
     }
 
-    if (!dodge && !dodged && !atBack(ball) && ticksToContact(ball) !== null) dodge = { ball_id: 'b1', team: 2, outcome: 'pending', ticks: 0 }
+    const near = Math.hypot(ball.pos.x - YOU.x, ball.pos.z - YOU.z) <= DODGE_TRIGGER_DISTANCE
+    if (!dodge && !dodged && near && !atBack(ball) && ticksToContact(ball) !== null) dodge = { ball_id: 'b1', team: 2, outcome: 'pending', ticks: 0 }
 
     const next = { x: ball.pos.x + ball.vel.x * DT, z: ball.pos.z + ball.vel.z * DT }
     const contact = !dodged && Math.hypot(next.x - YOU.x, next.z - YOU.z) <= COMBINED_RADIUS

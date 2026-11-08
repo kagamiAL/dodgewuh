@@ -141,8 +141,11 @@ MAX_ROUNDS: int = 3  # otherwise the match ends after round 3; higher score wins
 # the player physically stepped out of an overlaid ball (dodged) or not (hit).
 # Tick counts below are SIMULATION ticks; real time is SLOWMO_FACTOR times longer.
 SLOWMO_FACTOR: int = 8
-DODGE_LEAD_TICKS: int = 45  # contact predicted within this many ticks (6 s real) starts a dodge
-DODGE_VERDICT_TIMEOUT_TICKS: int = 12  # ~1.6 s real: no verdict by then is a hit
+# A dodge starts once an on-target ball is within this distance of its victim (centre to
+# centre, metres), so it feels the same for every throw speed.
+DODGE_TRIGGER_DISTANCE: float = 4.0
+DODGE_LEAD_TICKS: int = 45  # how far ahead the on-target prediction looks (covers 4 m at any speed)
+DODGE_VERDICT_TIMEOUT_TICKS: int = 15  # 2 s real: no verdict by then is a hit (window is 1.1 s)
 # No dodge for a ball thrown at your back: its direction of travel within 45 degrees of the way
 # the victim's camera sees them face (dot product above cos 45).
 DODGE_BACK_DOT: float = 0.7071

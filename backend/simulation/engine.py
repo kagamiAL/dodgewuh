@@ -619,9 +619,10 @@ class Simulation:
 
     # --- Internal: camera dodge ---------------------------------------------
     def _detect_dodge(self) -> None:
-        """Start a dodge for the first flying ball (by ID) that would hit its
-        victim within K.DODGE_LEAD_TICKS (judged as if they stopped where they
-        are), moving or not -- unless the ball is coming at their back. With no
+        """Start a dodge for the first flying ball (by ID) within
+        K.DODGE_TRIGGER_DISTANCE of its victim that would really hit them
+        (judged as if they stopped where they are), moving or not -- unless the
+        ball is coming at their back. With no
         fresh camera facing the dodge is allowed. This runs every tick, so
         turning to face a ball still starts the dodge."""
         for ball_id in K.BALL_IDS:
@@ -631,6 +632,8 @@ class Simulation:
             victim = K.opponent(ball.shooter_team)  # type: ignore[arg-type]
             if victim not in self._dodge_teams:
                 continue
+            if G.distance(ball.pos, self._characters[victim].pos) > K.DODGE_TRIGGER_DISTANCE:
+                continue  # still too far away
             if self._at_back(ball, victim):
                 continue  # thrown at their back: no chance to dodge
             if self._ticks_to_contact(ball, self._characters[victim].pos) is not None:

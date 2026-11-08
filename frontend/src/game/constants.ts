@@ -15,7 +15,7 @@ export const MAX_ROUNDS = 3
 // Camera dodge, mirrored from backend/simulation/constants.py: while State.dodge is set the
 // server steps 1 tick per SLOWMO_FACTOR, and the victim's screen judges after DODGE_WINDOW_MS.
 export const SLOWMO_FACTOR = 8
-export const DODGE_WINDOW_MS = 900
+export const DODGE_WINDOW_MS = 1100
 
 // Visual-only values (not gameplay rules).
 export const LINE_WIDTH = 0.08
