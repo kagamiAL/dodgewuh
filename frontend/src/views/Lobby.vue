@@ -36,7 +36,7 @@ function status(m: Member | null): string {
   return m.calibrated ? 'Calibrated' : 'Setting up…'
 }
 
-function command(type: 'match.start' | 'match.rematch'): void {
+function command(type: 'match.rematch'): void {
   transport.send({ v: 1, type, payload: {} })
 }
 function returnToMenu(): void {
@@ -88,10 +88,10 @@ function returnToMenu(): void {
       </span>
     </p>
 
+    <p v-if="phase === 'lobby'" class="label count" role="status">
+      {{ readyCount }}/4 ready · Match starts automatically when all 4 players are ready.
+    </p>
     <div v-if="session.isHost.value" class="host">
-      <button v-if="phase === 'lobby'" :disabled="readyCount < 4" @click="command('match.start')">
-        Start match ({{ readyCount }}/4 ready)
-      </button>
       <button v-if="phase === 'match_end'" @click="command('match.rematch')">Rematch</button>
       <button class="secondary" @click="returnToMenu">Return to main menu</button>
     </div>

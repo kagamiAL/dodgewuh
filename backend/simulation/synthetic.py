@@ -2265,8 +2265,8 @@ def scenario_device_guard(d: Diagnostics) -> None:
     ready_all(sim)  # everyone is back and ready again
     for _ in range(120):
         sim.step(0)
-    d.observe("reconnecting and re-readying does not resume the match",
-              sim.snapshot().phase == "lobby" and sim.snapshot().round == 0,
+    d.observe("reconnecting and re-readying automatically starts a fresh match",
+              sim.snapshot().phase == "countdown" and sim.snapshot().round == 1,
               f"{sim.snapshot().phase} round {sim.snapshot().round}")
 
     # Start is refused while a required device is missing.
