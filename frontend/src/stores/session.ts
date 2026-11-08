@@ -92,13 +92,32 @@ export const session = {
         if (!s.room || msg.payload.room.revision >= s.room.revision) s.room = msg.payload.room
         break
       case 'state.snapshot':
-      case 'phase.changed':
         if (isNewer(msg.payload.state, s.state)) s.state = msg.payload.state
         break
-      case 'roles.changed':
-        // Full mapping also arrives in the following state/room messages; nothing to merge here.
+      case 'phase.changed':
+        if (isNewer(msg.payload.state, s.state)) {
+          s.state = msg.payload.state
+          // Errors from the previous phase no longer apply.
+          s.lastError = null
+        }
         break
+      case 'roles.changed': {
+        // Apply the new mapping now. PhoneShell reacts to this message by re-reporting readiness,
+        // and that report must carry the new assignment_version, not wait for the follow-up
+        // snapshot (which the server may supersede and never deliver in lobby).
+        const st = s.state
+        const p = msg.payload
+        if (st && p.epoch === st.epoch && p.assignment_version > st.assignment_version) {
+          s.state = { ...st, assignments: p.assignments, assignment_version: p.assignment_version }
+        }
+        // Errors about the previous mapping (e.g. STALE_ASSIGNMENT) no longer apply.
+        s.lastError = null
+        break
+      }
       case 'error':
+        // Gameplay input already in flight when the phase changes (e.g. a mid-match abort to
+        // lobby) is rejected as stale. That race is expected and not something the player can act on.
+        if (msg.payload.ref_seq !== null && (msg.payload.code === 'INVALID_PHASE' || msg.payload.code === 'STALE_EPOCH')) break
         s.lastError = { code: msg.payload.code, message: msg.payload.message }
         break
       case 'room.closed':
