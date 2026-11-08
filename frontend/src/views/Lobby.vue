@@ -3,9 +3,10 @@
 // Also the between-rounds ready view (role_switch) and the match result (match_end).
 // Everything here is display; the server decides whether a start is allowed.
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Member } from '@/contracts/pending'
 import { session } from '@/stores/session'
-import { transport } from '@/stores/connection'
+import { leave, transport } from '@/stores/connection'
 import { TEAM_HEX } from '@/theme'
 import { MAX_ROUNDS } from '@/game/constants'
 
@@ -13,6 +14,7 @@ const room = computed(() => session.data.room)
 const state = computed(() => session.data.state)
 const phase = computed(() => state.value?.phase ?? room.value?.phase ?? 'lobby')
 const scoreText = computed(() => (state.value ? `${state.value.score.t1}–${state.value.score.t2}` : ''))
+const router = useRouter()
 
 const seats = computed(() => {
   const r = room.value
@@ -34,8 +36,13 @@ function status(m: Member | null): string {
   return m.calibrated ? 'Calibrated' : 'Setting up…'
 }
 
-function command(type: 'match.start' | 'match.reset' | 'match.rematch'): void {
+function command(type: 'match.start' | 'match.rematch'): void {
   transport.send({ v: 1, type, payload: {} })
+}
+function returnToMenu(): void {
+  transport.send({ v: 1, type: 'match.reset', payload: {} })
+  leave()
+  void router.push('/')
 }
 </script>
 
@@ -86,7 +93,7 @@ function command(type: 'match.start' | 'match.reset' | 'match.rematch'): void {
         Start match ({{ readyCount }}/4 ready)
       </button>
       <button v-if="phase === 'match_end'" @click="command('match.rematch')">Rematch</button>
-      <button class="secondary" @click="command('match.reset')">Reset to lobby</button>
+      <button class="secondary" @click="returnToMenu">Return to main menu</button>
     </div>
     <p v-if="session.data.lastError" class="error">{{ session.data.lastError.message }}</p>
   </section>

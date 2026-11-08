@@ -2,10 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { session } from '@/stores/session'
 import Lobby from '@/views/Lobby.vue'
+import { leave, transport } from '@/stores/connection'
 import type { ServerMessage } from '@/contracts/pending'
 import welcome from '../../../contracts/fixtures/valid/welcome.json'
 
-vi.mock('@/stores/connection', () => ({ transport: { send: vi.fn() } }))
+const { push } = vi.hoisted(() => ({ push: vi.fn() }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
+vi.mock('@/stores/connection', () => ({
+  transport: { send: vi.fn() },
+  leave: vi.fn(() => session.reset()),
+}))
 
 const options = { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } }
 const registration = { room_id: 'r1', room_code: 'ABC234', member_id: 's1', token: 'test', ws_path: '/ws/rooms/ABC234' }
@@ -13,6 +19,21 @@ const registration = { room_id: 'r1', room_code: 'ABC234', member_id: 's1', toke
 afterEach(() => session.reset())
 
 describe('lobby connection states', () => {
+  it.each(['connected', 'reconnecting'] as const)('stops the game and returns home while %s', async (status) => {
+    session.setRegistration(registration)
+    session.setStatus(status)
+    session.apply(welcome as ServerMessage)
+    const wrapper = mount(Lobby, options)
+    const reset = wrapper.findAll('button').find((button) => button.text() === 'Return to main menu')!
+    await reset.trigger('click')
+    expect(transport.send).toHaveBeenCalledWith({ v: 1, type: 'match.reset', payload: {} })
+    expect(leave).toHaveBeenCalled()
+    expect(session.data.registration).toBeNull()
+    expect(session.data.state).toBeNull()
+    expect(push).toHaveBeenCalledWith('/')
+    wrapper.unmount()
+  })
+
   it('shows the room code and recovery UI before the welcome arrives', () => {
     session.setRegistration(registration)
     session.setStatus('reconnecting')
