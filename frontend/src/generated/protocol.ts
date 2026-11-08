@@ -26,15 +26,21 @@ export interface Ball { ball_id: ID; mode: 'ground' | 'held' | 'flying' | 'respa
   respawn_in_ms: number; height: number }
 export interface Result { reason: 'hit' | 'timeout' | 'simultaneous'; winner: Team | null;
   hit_ball_id: ID | null; victim_team: Team | null }
+/** A camera dodge in progress (the room runs in slow motion): `team` is the victim of `ball_id`. */
+export interface Dodge { ball_id: ID; team: Team; outcome: 'pending' | 'dodged' | 'hit' }
 export interface State { tick: number; epoch: number; round: number; phase: Phase;
   remaining_ms: number; phase_remaining_ms: number | null; score: { t1: number; t2: number };
   characters: Character[]; balls: Ball[]; assignments: Assignment[]; assignment_version: number;
-  result: Result | null; winner: Team | null }
+  result: Result | null; winner: Team | null;
+  /** Non-null only while a camera dodge runs. */
+  dodge?: Dodge | null }
 export interface Hello { token: string }
 export interface Ping { nonce: number }
 export interface Ready { epoch: number; assignment_version: number; ready: boolean; permission: Permission; calibrated: boolean }
 export interface Empty {}
 export interface CameraClaim { team: Team | null }
+/** The victim's camera screen: did the Legs player get out of the overlaid ball? */
+export interface DodgeResult { epoch: number; ball_id: ID; dodged: boolean }
 export interface Legs { seq: number; epoch: number; move: Vec2 }
 export interface Arms { seq: number; epoch: number; aim: Vec2;
   action: 'aim' | 'press' | 'release' | 'cancel'; strength: number | null;
@@ -51,6 +57,7 @@ export interface ClientPayloads {
   'session.hello': Hello; 'session.ping': Ping; 'controller.ready': Ready;
   'match.start': Empty; 'match.reset': Empty; 'match.rematch': Empty;
   'input.legs': Legs; 'input.arms': Arms; 'camera.claim': CameraClaim; 'team.choose': CameraClaim;
+  'dodge.result': DodgeResult;
 }
 export interface ServerPayloads {
   'session.welcome': Welcome; 'session.pong': Ping; 'room.updated': RoomUpdate;

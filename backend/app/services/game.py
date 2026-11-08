@@ -15,6 +15,7 @@ from time import monotonic
 
 from simulation import (ArmsCommand, Assignment, InputRejected, LegsCommand, PhaseChanged,
     RolesChanged, Simulation, SimulationError, Vec2)
+from simulation.constants import SLOWMO_FACTOR
 from app.protocol import server_messages
 
 BOOT = monotonic()
@@ -129,6 +130,7 @@ class GameRoom:
         self.revision = 0
         self.ordinal = 0
         self.steps = 0
+        self.real_ticks = 0  # fixed-step slots elapsed; slow motion steps the sim on every SLOWMO_FACTOR-th
         self.task = asyncio.create_task(self._run())
 
     # --- facts derived from membership -------------------------------------
@@ -352,6 +354,7 @@ class GameRoom:
             return  # superseded: the replacement owns this seat now
         del self.peers[peer.member_id]
         self.cameras.pop(peer.member_id, None)
+        self._sync_dodge_teams()
         peer.close()
         self.status[peer.member_id].update(ready=False, calibrated=False)
         self._push_facts()
@@ -380,6 +383,8 @@ class GameRoom:
             self._choose_team(peer, payload)
         elif kind == 'camera.claim':
             self._camera(peer, payload)
+        elif kind == 'dodge.result':
+            self._dodge(peer, payload)
 
     def _choose_team(self, peer, p):
         state = self.sim.snapshot()
@@ -412,7 +417,23 @@ class GameRoom:
                 del self.cameras[mid]
             self.cameras[peer.member_id] = p.team
             self.camera_facing.pop(p.team, None)
+        self._sync_dodge_teams()
         self._flush(room_changed=True)
+
+    def _sync_dodge_teams(self):
+        """Only a team whose Legs a screen camera watches can dodge a ball."""
+        self.sim.set_dodge_teams(frozenset(self.cameras.values()))
+
+    def _dodge(self, peer, p):
+        """The victim's camera screen reports whether its Legs player got out of the ball."""
+        team = self.cameras.get(peer.member_id)
+        if team is None:
+            return self._error(peer, 'FORBIDDEN', 'Only the screen whose camera claimed the team judges its dodge')
+        try:
+            self.sim.resolve_dodge(team, p.ball_id, p.epoch, p.dodged)
+        except SimulationError as exc:
+            self._error(peer, exc.code, exc.message)
+        self._flush()
 
     def _ready(self, peer, p):
         if self._device(peer.member_id) != 'phone':
@@ -486,10 +507,17 @@ class GameRoom:
                     if backlog < TICK_S:
                         break
                     backlog -= TICK_S
+                    self.real_ticks += 1
+                    # Camera dodge slow motion: the simulation advances on every
+                    # SLOWMO_FACTOR-th slot only, and each of those steps is published.
+                    slow = self.sim.slow_motion
+                    if slow and self.real_ticks % SLOWMO_FACTOR:
+                        continue
                     self.sim.step(now_ms())
                     self._flush()
                     self.steps += 1
-                    if self.steps % SNAPSHOT_EVERY == 0:
+                    # Slow motion (a camera dodge) publishes every step it takes.
+                    if slow or self.steps % SNAPSHOT_EVERY == 0:
                         snap = self.sim.snapshot()
                         # Lobby is static, except while the auto-start hold counts down. Keep
                         # sending through one snapshot after it ends so a cancel reaches clients.

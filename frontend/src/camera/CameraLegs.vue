@@ -8,24 +8,41 @@
 // The screen claims a team with camera.claim and sends input.legs at 20 Hz while active, carrying
 // the facing as a unit vector (zero when nobody is tracked). The server uses it as the direction
 // for that team's Legs phone input (backend/app/services/game.py).
+//
+// Camera dodge: when the server reports a dodge for this camera's team (State.dodge, the room is
+// in slow motion), the preview goes big and a ball is overlaid on the Legs player's torso. After
+// DODGE_WINDOW_MS this screen checks whether the ball still overlaps their body and sends
+// dodge.result; leaving the Legs half or the frame counts as a hit.
+//
+// practiceTeam (/dodge): fixed team, nothing sent to a server; the verdict is emitted instead.
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Team, Vec2 } from '@/contracts/pending'
 import { session } from '@/stores/session'
 import { transport } from '@/stores/connection'
 import { TEAM_HEX } from '@/theme'
-import { createPoseTracker, pickLegsPerson, type Landmark, type PoseState } from './poseTracker'
+import { DODGE_WINDOW_MS } from '@/game/constants'
+import {
+  bodyHitsBall, createPoseTracker, inLegsHalf, pickLegsPerson, shoulderWidth, torsoCenter,
+  type Landmark, type OverlayBall, type PoseState,
+} from './poseTracker'
 
 const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.2.2'
 const MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task'
 const STORE_KEY = 'dodgewuh.cameraTeam'
 const SEND_MS = 50 // 20 Hz (03)
+const DODGE_BALL_SCALE = 0.4 // overlay ball radius × the player's shoulder width
+const DODGE_AIM_JITTER = 0.25 // ± shoulder widths of random sideways aim, so no one move always works
 
 // The player's facing in world x/z while tracked, so this screen's first-person view can
 // turn with them even when they are standing still (facing is not part of input.legs).
-const emit = defineEmits<{ facing: [value: { team: Team; dir: Vec2 } | null] }>()
+const props = defineProps<{ practiceTeam?: Team }>()
+const emit = defineEmits<{
+  facing: [value: { team: Team; dir: Vec2 } | null]
+  dodgeResult: [value: { ball_id: string; dodged: boolean }]
+}>()
 
-const team = ref<Team | null>(loadTeam())
+const team = ref<Team | null>(props.practiceTeam ?? loadTeam())
 const status = ref('')
 const live = ref<PoseState>({ present: false, facing: null, yaw_deg: null, dir: null })
 const video = ref<HTMLVideoElement | null>(null)
@@ -33,7 +50,19 @@ const canvas = ref<HTMLCanvasElement | null>(null)
 
 const state = computed(() => session.data.state)
 const phase = computed(() => state.value?.phase ?? 'lobby')
-const big = computed(() => team.value !== null && (phase.value === 'role_switch' || phase.value === 'countdown'))
+
+interface LocalDodge {
+  key: string
+  ballId: string
+  epoch: number
+  startT: number
+  ball: OverlayBall
+  verdict: 'dodged' | 'hit' | null
+}
+const dodge = ref<LocalDodge | null>(null)
+const dodging = computed(() => team.value !== null && state.value?.dodge?.team === team.value)
+
+const big = computed(() => team.value !== null && (phase.value === 'role_switch' || phase.value === 'countdown' || dodging.value))
 const inPosition = computed(() => live.value.present && live.value.facing === 'screen')
 
 // MediaPipe is loaded from the CDN at runtime, so it is untyped here.
@@ -57,6 +86,7 @@ function loadTeam(): Team | null {
 }
 
 function claim(): void {
+  if (props.practiceTeam) return
   transport.send({ v: 1, type: 'camera.claim', payload: { team: team.value } })
 }
 
@@ -98,6 +128,7 @@ function stopCamera(): void {
   landmarker = null
   poses = []
   legsIndex = -1
+  dodge.value = null
   live.value = tracker.push(performance.now(), null)
 }
 
@@ -114,6 +145,8 @@ function loop(): void {
       live.value = tracker.push(t, world)
     })
   }
+  const d = dodge.value
+  if (d && d.verdict === null && performance.now() - d.startT >= DODGE_WINDOW_MS) judgeDodge(d)
   draw()
   raf = requestAnimationFrame(loop)
 }
@@ -148,6 +181,7 @@ function draw(): void {
       g.stroke()
     }
   })
+  drawDodgeBall(g, w, h)
   g.restore()
   // Legs half (right on screen) tinted, Arms half dimmed, divider in the middle.
   g.fillStyle = 'rgba(0,0,0,0.45)'
@@ -159,6 +193,58 @@ function draw(): void {
   g.fillText('ARMS', w / 4, h / 10)
   g.fillStyle = inPosition.value ? '#3c6' : '#fc6'
   g.fillText('LEGS', (3 * w) / 4, h / 10)
+  const d = dodge.value
+  if (d?.verdict) {
+    g.font = `900 ${Math.round(h / 6)}px system-ui, sans-serif`
+    g.fillStyle = d.verdict === 'dodged' ? '#3c6' : '#f44'
+    g.fillText(d.verdict === 'dodged' ? 'DODGED!' : 'HIT!', (3 * w) / 4, h / 2)
+  }
+}
+
+/** Mirrored context, raw coords: the incoming ball grows until the window closes. */
+function drawDodgeBall(g: CanvasRenderingContext2D, w: number, h: number): void {
+  const d = dodge.value
+  if (!d) return
+  const k = d.verdict ? 1 : Math.min(1, (performance.now() - d.startT) / DODGE_WINDOW_MS)
+  const x = d.ball.x * w
+  const y = d.ball.y * h
+  g.beginPath()
+  g.arc(x, y, d.ball.r * (0.35 + 0.65 * k * k), 0, Math.PI * 2)
+  g.fillStyle = 'rgba(242, 217, 51, 0.85)'
+  g.fill()
+  g.lineWidth = 4
+  g.strokeStyle = '#000'
+  g.stroke()
+  if (d.verdict) return
+  // Countdown ring: time left to get out of the way.
+  g.beginPath()
+  g.arc(x, y, d.ball.r * 1.15, -Math.PI / 2, -Math.PI / 2 + (1 - k) * Math.PI * 2)
+  g.lineWidth = 10
+  g.strokeStyle = '#fff'
+  g.stroke()
+}
+
+/** Aim the overlay at the Legs player's torso as they stand now, give or take a little. */
+function aimDodgeBall(): OverlayBall {
+  const v = video.value
+  const w = v?.videoWidth || 1280
+  const h = v?.videoHeight || 720
+  const lm = legsIndex >= 0 ? poses[legsIndex] : null
+  if (!lm) return { x: 0.25, y: 0.45, r: 0.12 * h } // nobody tracked: middle of the Legs half
+  const sw = shoulderWidth(lm, w, h)
+  const c = torsoCenter(lm)
+  return { x: c.x + ((Math.random() * 2 - 1) * DODGE_AIM_JITTER * sw) / w, y: c.y, r: DODGE_BALL_SCALE * sw }
+}
+
+/** The window has closed: the ball hits unless the Legs player is clear of it and still in their half. */
+function judgeDodge(d: LocalDodge): void {
+  const v = video.value
+  const lm = legsIndex >= 0 ? poses[legsIndex] : null
+  const dodged = !!lm && !!v && inLegsHalf(lm) && !bodyHitsBall(lm, v.videoWidth, v.videoHeight, d.ball)
+  d.verdict = dodged ? 'dodged' : 'hit'
+  if (props.practiceTeam) return emit('dodgeResult', { ball_id: d.ballId, dodged })
+  if (session.data.status !== 'connected') return // the server times out to a hit
+  transport.send({ v: 1, type: 'dodge.result', payload: { epoch: d.epoch, ball_id: d.ballId, dodged } })
 }
 
 function tick(): void {
@@ -184,6 +270,21 @@ function setTeam(next: Team | null): void {
   }
 }
 
+// A new pending dodge for this camera's team starts the window; the server clearing it ends ours.
+watch(
+  () => state.value?.dodge ?? null,
+  (d) => {
+    const st = state.value
+    if (!d || !st || d.team !== team.value) {
+      dodge.value = null
+      return
+    }
+    const key = `${st.epoch}:${d.ball_id}`
+    if (d.outcome !== 'pending' || dodge.value?.key === key) return
+    dodge.value = { key, ballId: d.ball_id, epoch: st.epoch, startT: performance.now(), ball: aimDodgeBall(), verdict: null }
+  },
+)
+
 watch(team, (t) => {
   claim()
   if (t === null) stopCamera()
@@ -202,6 +303,11 @@ watch(
     else if (dir) emit('facing', { team: t, dir: toWorld(dir, t) })
   },
 )
+
+const dodgeText = computed(() => {
+  const v = dodge.value?.verdict
+  return v === 'dodged' ? 'Dodged!' : v === 'hit' ? 'Hit!' : 'Get out of the way — stay in the right half'
+})
 
 const facingText = computed(() => {
   const f = live.value.facing
@@ -224,7 +330,10 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="camera" :class="{ big }" :data-team="team">
-    <div v-if="big" class="switch">
+    <div v-if="big && dodging" class="switch">
+      <h2 class="dodge">DODGE!</h2>
+    </div>
+    <div v-else-if="big" class="switch">
       <h2>{{ phase === 'role_switch' ? 'Switch spots!' : 'Get in position' }}</h2>
       <p>
         <strong :style="{ color: TEAM_HEX[team ?? 1] }">Team {{ team }} Legs</strong>: stand in the
@@ -233,11 +342,12 @@ onBeforeUnmount(() => {
     </div>
     <video ref="video" class="hidden-video" playsinline muted />
     <canvas v-show="team !== null" ref="canvas" class="preview" />
-    <p v-if="team !== null" class="state" :class="{ ok: big ? inPosition : live.present }">
+    <p v-if="team !== null && dodging" class="state" :class="{ ok: dodge?.verdict === 'dodged' }">{{ dodgeText }}</p>
+    <p v-else-if="team !== null" class="state" :class="{ ok: big ? inPosition : live.present }">
       {{ big ? (inPosition ? '✓ Legs player in position' : facingText) : facingText }}
     </p>
     <p v-if="status" class="status">{{ status }}</p>
-    <label v-if="!big" class="pick">
+    <label v-if="!big && !practiceTeam" class="pick">
       <span class="pick-title">Screen for team:</span>
       <span id="camera-team-hint" class="pick-hint">Choose a team to steer its Legs player with this camera.</span>
       <span class="select-wrap">
@@ -287,6 +397,10 @@ onBeforeUnmount(() => {
 .switch h2 {
   margin: 0.2rem 0;
   font-size: clamp(1.8rem, 5vw, 3.5rem);
+}
+.switch h2.dodge {
+  color: #f2d933;
+  letter-spacing: 0.08em;
 }
 .hidden-video {
   display: none;

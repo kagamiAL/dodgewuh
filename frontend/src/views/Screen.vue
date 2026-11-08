@@ -9,6 +9,7 @@ import { MAX_ROUNDS, NO_THROW_HALF_DEPTH } from '@/game/constants'
 import { TEAM_HEX } from '@/theme'
 import Lobby from './Lobby.vue'
 import CameraLegs from '@/camera/CameraLegs.vue'
+import type { DodgePractice, PracticeTally } from '@/game/dodgePractice'
 
 const route = useRoute()
 // Dev-only mock routes (plans/04), compiled out of production builds:
@@ -16,7 +17,10 @@ const route = useRoute()
 //   /screen?mock=lobby     Richard's reset-lobby fixture
 //   /screen?mock=movement  Richard's active-movement fixture
 //   /screen?mock=held      03 example 11–12 (Team 1 holding b1)
-const mock = import.meta.env.DEV ? (route.query.mock as string | undefined) : undefined
+// /dodge: camera dodge practice. A local feed throws at you (Team 2 Legs) and this screen's
+// camera judges each dodge; no room or backend.
+const practice = route.name === 'dodge'
+const mock = import.meta.env.DEV && !practice ? (route.query.mock as string | undefined) : undefined
 // View: first person from the team this screen's camera drives (Member.camera_team), else
 // the elevated overview. ?view=fp1|fp2|overview overrides it, live or mock.
 const VIEW_QUERY: Record<string, Team | null> = { fp1: 1, fp2: 2, overview: null }
@@ -27,11 +31,14 @@ const error = ref<string | null>(null)
 // Engine objects stay out of Vue's deep reactivity (plans/01-architecture.md).
 const scene = shallowRef<GameScene | null>(null)
 let stopMock: (() => void) | null = null
-const live = !mock
+let practiceFeed: DodgePractice | null = null
+const tally = ref<PracticeTally>({ dodged: 0, hit: 0 })
+const live = !mock && !practice
 
 const state = computed(() => session.data.state)
 const pointOfView = computed<Team | null>(() => {
   if (viewOverride !== undefined && viewOverride in VIEW_QUERY) return VIEW_QUERY[viewOverride]
+  if (practice) return 2
   const me = session.data.room?.members.find((m) => m.member_id === session.data.registration?.member_id)
   return me?.camera_team ?? null
 })
@@ -57,10 +64,13 @@ const banner = computed(() => {
   const st = state.value
   if (!st) return null
   if (showLobby.value) return null // the overlay shows the ready view / result itself
+  // Camera dodge: the server runs the room in slow motion until it is decided and played out.
+  if (st.dodge) return st.dodge.outcome === 'dodged' ? 'DODGED!' : st.dodge.outcome === 'hit' ? 'HIT!' : `Team ${st.dodge.team}: DODGE!`
   if (st.phase === 'countdown' && st.phase_remaining_ms !== null) return `${Math.ceil(st.phase_remaining_ms / 1000)}`
   if (st.phase === 'match_end' && st.winner) return `Team ${st.winner} wins!`
   return PHASE_LABEL[st.phase] ?? null
 })
+const slowMotion = computed(() => !!state.value?.dodge)
 const clock = computed(() => {
   const ms = state.value?.remaining_ms ?? 0
   const s = Math.ceil(ms / 1000)
@@ -110,6 +120,9 @@ onMounted(async () => {
 
   if (live) {
     if (session.data.registration) connect().catch(() => {}) // status/overlay report failures
+  } else if (practice) {
+    const { startDodgePractice } = await import('@/game/dodgePractice')
+    practiceFeed = startDodgePractice((msg) => session.apply(msg), (t) => (tally.value = t))
   } else if (mock === '1') {
     const { startMockSource } = await import('@/game/mockSource')
     stopMock = startMockSource((msg) => session.apply(msg))
@@ -123,19 +136,25 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   stopMock?.()
+  practiceFeed?.stop()
   if (live) transport.close()
-  if (mock) session.reset() // never leak fake state into a real session
+  if (mock || practice) session.reset() // never leak fake state into a real session
   scene.value?.destroy()
   scene.value = null
 })
 </script>
 
 <template>
-  <main class="screen">
+  <main class="screen" :class="{ slowmo: slowMotion }">
     <canvas ref="canvas" class="game-canvas" />
     <p v-if="error" class="error">Could not start the 3D view: {{ error }}</p>
-    <template v-if="live && state">
-      <div class="hud">
+    <template v-if="(live || practice) && state">
+      <div v-if="practice" class="hud">
+        <span class="score" :style="{ color: '#3c6' }">{{ tally.dodged }}</span>
+        <span class="clock">dodged · hit</span>
+        <span class="score" :style="{ color: '#f44' }">{{ tally.hit }}</span>
+      </div>
+      <div v-else class="hud">
         <span class="score" :style="{ color: TEAM_HEX[1] }">{{ state.score.t1 }}</span>
         <span class="clock">{{ clock }}<small v-if="state.round"> · round {{ state.round }}/{{ MAX_ROUNDS }}</small></span>
         <span class="score" :style="{ color: TEAM_HEX[2] }">{{ state.score.t2 }}</span>
@@ -145,6 +164,12 @@ onBeforeUnmount(() => {
     <p v-if="inNoThrowZone" class="zone-warning">No-throw zone: move back to throw</p>
     <div v-if="showLobby" class="overlay"><Lobby /></div>
     <CameraLegs v-if="live" @facing="onFacing" />
+    <CameraLegs
+      v-else-if="practice"
+      :practice-team="2"
+      @facing="onFacing"
+      @dodge-result="(r) => practiceFeed?.verdict(r.ball_id, r.dodged)"
+    />
     <p v-if="connection" class="connection">
       {{ connection }} <RouterLink v-if="session.data.status === 'closed'" to="/">Home</RouterLink>
     </p>
@@ -170,6 +195,18 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: 100%;
+  transition: filter 0.3s;
+}
+/* Camera dodge slow motion: desaturate and vignette the 3D view. */
+.screen.slowmo .game-canvas {
+  filter: saturate(0.45) contrast(1.15);
+}
+.screen.slowmo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 18vmin rgba(0, 0, 0, 0.85);
+  pointer-events: none;
 }
 .mock-label {
   position: absolute;

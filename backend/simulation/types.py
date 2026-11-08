@@ -24,6 +24,7 @@ Phase = Literal["lobby", "countdown", "active", "round_end", "role_switch", "mat
 BallMode = Literal["ground", "held", "flying", "respawning"]
 ResultReason = Literal["hit", "timeout", "simultaneous"]
 ArmsAction = Literal["aim", "press", "release", "cancel"]
+DodgeOutcome = Literal["pending", "dodged", "hit"]
 
 
 class SimulationError(Exception):
@@ -109,6 +110,19 @@ class ResultDTO:
 
 
 @dataclass(frozen=True, slots=True)
+class DodgeDTO:
+    """A camera dodge in progress: `team` is the victim, `ball_id` the incoming ball.
+
+    Non-null only while the room runs in slow motion. `outcome` is 'pending'
+    until the victim's camera screen (or the verdict timeout) decides it.
+    """
+
+    ball_id: str
+    team: Team
+    outcome: DodgeOutcome
+
+
+@dataclass(frozen=True, slots=True)
 class StateDTO:
     """Full authoritative state. Equivalent to the wire `State` object.
 
@@ -136,6 +150,7 @@ class StateDTO:
     assignment_version: int
     result: ResultDTO | None
     winner: Team | None
+    dodge: DodgeDTO | None = None
 
 
 # --- Inbound command DTOs ---------------------------------------------------

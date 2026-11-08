@@ -55,13 +55,16 @@ interface Result { reason: 'hit' | 'timeout' | 'simultaneous'; winner: Team | nu
 interface State { tick: number; epoch: number; round: number; phase: Phase;
   remaining_ms: number; phase_remaining_ms: number | null; score: { t1: number; t2: number };
   characters: Character[]; balls: Ball[]; assignments: Assignment[]; assignment_version: number;
-  result: Result | null; winner: Team | null }
+  result: Result | null; winner: Team | null;
+  dodge?: Dodge | null }  // non-null only while a camera dodge runs (room in slow motion)
+interface Dodge { ball_id: ID; team: Team; outcome: 'pending' | 'dodged' | 'hit' }  // team = victim
 interface Hello { token: string }
 interface Ping { nonce: number }
 interface Ready { epoch: number; assignment_version: number; ready: boolean; permission: Permission; calibrated: boolean }
 interface Empty {}
 interface Legs { seq: number; epoch: number; move: Vec2 }
 interface CameraClaim { team: Team | null }
+interface DodgeResult { epoch: number; ball_id: ID; dodged: boolean }
 interface Arms { seq: number; epoch: number; aim: Vec2;
   action: 'aim' | 'press' | 'release' | 'cancel'; strength: number | null;
   arm_pitch?: number | null }  // optional, cosmetic, [-360, 360] degrees; echoed on Character for the throw animation
@@ -76,6 +79,7 @@ interface ClientPayloads {
   'session.hello': Hello; 'session.ping': Ping; 'controller.ready': Ready;
   'match.start': Empty; 'match.reset': Empty; 'match.rematch': Empty;
   'input.legs': Legs; 'input.arms': Arms; 'camera.claim': CameraClaim;
+  'dodge.result': DodgeResult;
 }
 interface ServerPayloads {
   'session.welcome': Welcome; 'session.pong': Ping; 'room.updated': RoomUpdate;
@@ -177,6 +181,10 @@ class Result(Model):
 class Score(Model):
     t1: UInt
     t2: UInt
+class Dodge(Model):
+    ball_id: ID
+    team: Team
+    outcome: Literal['pending','dodged','hit']
 class State(Model):
     tick: UInt
     epoch: UInt
@@ -191,6 +199,7 @@ class State(Model):
     assignment_version: UInt
     result: Result | None
     winner: Team | None
+    dodge: Dodge | None = None  # camera dodge in progress (slow motion)
 class Hello(Model):
     token: str
 class Ping(Model):
@@ -205,6 +214,10 @@ class Empty(Model):
     pass
 class CameraClaim(Model):
     team: Team | None
+class DodgeResult(Model):
+    epoch: UInt
+    ball_id: ID
+    dodged: bool
 class Legs(Model):
     seq: UInt
     epoch: UInt
@@ -255,6 +268,7 @@ Connect same-origin `/ws/rooms/{room_code}` (wss in production). First message s
 | match.rematch | host → server | match_end → lobby, reset as above |
 | input.legs | current Legs phone or screen with a camera claim → server | active only; latest movement, components [-1,1], vector magnitude ≤1.001; normalize slight excess |
 | camera.claim | screen → server | select team 1/2 to claim its Legs control, or null to release; latest claim for a team wins |
+| dodge.result | screen whose camera claimed the victim team → server | active only; current epoch; answers the pending `State.dodge` for that ball; dodged=true makes the ball pass through, false is a hit; otherwise NOT_PENDING / STALE_EPOCH / FORBIDDEN |
 | input.arms | current Arms phone → server | active only; aim every sample, action edges immediate; strength required [0,1] only release, null otherwise |
 | room.updated | server → all | reliable full membership/readiness/assignment/phase record whenever changed; revision increments |
 | state.snapshot | server → all screens AND phones | full state at 20 Hz during match; lobby baseline/on changes; not a delta |

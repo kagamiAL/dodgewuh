@@ -10,6 +10,8 @@ const loadPlayground = playground['./playground/SensorPlayground.vue'] ?? (async
 export const routes = [
   { path: '/', name: 'home', component: Home },
   { path: '/screen', name: 'screen', component: () => import('./views/Screen.vue') },
+  // Camera dodge practice: the screen view with a local thrower and this screen's camera.
+  { path: '/dodge', name: 'dodge', component: () => import('./views/Screen.vue') },
   { path: '/phone', name: 'phone', component: () => import('./views/PhoneShell.vue') },
   { path: '/sensors', name: 'sensors', component: loadPlayground },
   { path: '/:pathMatch(.*)*', redirect: '/' },

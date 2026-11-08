@@ -167,6 +167,13 @@ class Score(Model):
     t2: UInt
 
 
+class Dodge(Model):
+    """A camera dodge in progress (slow motion): `team` is the victim of `ball_id`."""
+    ball_id: ID
+    team: Team
+    outcome: Literal['pending','dodged','hit']
+
+
 class State(Model):
     tick: UInt
     epoch: UInt
@@ -181,6 +188,8 @@ class State(Model):
     assignment_version: UInt
     result: Result | None
     winner: Team | None
+    # Non-null only while a camera dodge runs; the room is in slow motion meanwhile.
+    dodge: Dodge | None = None
 
     @model_validator(mode='after')
     def complete_state(self):
@@ -220,6 +229,13 @@ class Empty(Model):
 class CameraClaim(Model):
     """A screen's camera drives this team's Legs (null releases it)."""
     team: Team | None
+
+
+class DodgeResult(Model):
+    """The victim's camera screen: did the Legs player get out of the overlaid ball?"""
+    epoch: UInt
+    ball_id: ID
+    dodged: bool
 
 
 class Legs(Model):
@@ -316,6 +332,7 @@ CLIENT_PAYLOADS = {
     'session.hello': Hello, 'session.ping': Ping, 'controller.ready': Ready,
     'match.start': Empty, 'match.reset': Empty, 'match.rematch': Empty,
     'input.legs': Legs, 'input.arms': Arms, 'camera.claim': CameraClaim, 'team.choose': CameraClaim,
+    'dodge.result': DodgeResult,
 }
 SERVER_PAYLOADS = {
     'session.welcome': Welcome, 'session.pong': Ping, 'room.updated': RoomUpdate,
