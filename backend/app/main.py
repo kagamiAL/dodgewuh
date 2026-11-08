@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException
 from app.api.rooms import router
 from app.api.ws import router as ws_router
-from app.services.game import GameHub
+from app.services.workers import WorkerHub
 from app.db.connection import make_engine, sessions
 from app.protocol import Health
 from app.services.rooms import RoomError, Rooms
@@ -26,7 +26,7 @@ async def lifespan(app):
         # cannot block future WebSocket connections or other async handlers.
         await asyncio.to_thread(rooms.start)
         app.state.rooms = rooms
-        app.state.game_hub = GameHub()
+        app.state.game_hub = WorkerHub(rooms)
         async def cleanup():
             """Expire rooms even when nobody calls the API or health endpoint."""
             while True:
@@ -40,7 +40,7 @@ async def lifespan(app):
         try:
             yield
         finally:
-            app.state.game_hub.close()
+            await app.state.game_hub.close()
             # Stop cleanup before disposing the database pool.
             task.cancel()
             try:

@@ -150,3 +150,13 @@ class Rooms:
                 'member_id': str(member.id),
                 'members': [dict(member_id=str(m.id), name=m.name, device=m.device, slot=m.slot) for m in members],
             }
+
+    def close_worker_room(self, code):
+        """Retain interrupted room history while making all memberships unusable."""
+        with self.sessions.begin() as db:
+            room = RoomRepository(db).get_by_code_for_update(code)
+            if room and room.runtime_id == self.runtime_id and room.closed_at is None:
+                now = datetime.now(timezone.utc)
+                room.closed_at, room.closed_reason = now, 'worker_lost'
+                for member in MemberRepository(db).active(room.id):
+                    member.revoked_at = now

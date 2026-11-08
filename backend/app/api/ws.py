@@ -19,11 +19,6 @@ async def websocket(socket: WebSocket, room_code: str):
     if not origin_ok or socket.query_params:
         await socket.close(code=4400)
         return
-    # Simulations currently run inside the coordinator; production must not enable this
-    # until worker allocation/routing exists (plan 11).
-    if os.getenv('IN_PROCESS_SIMULATION') != 'true':
-        await socket.close(code=4400)
-        return
     await socket.accept()
     hub = socket.app.state.game_hub
     rooms = socket.app.state.rooms

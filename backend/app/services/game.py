@@ -5,8 +5,7 @@ mirrors readiness/connection facts into it and broadcasts what it decides (plan 
 "Pure simulation integration seam"). Everything here runs on one event loop and no
 GameRoom method awaits, so each room's mutations are serialized by construction.
 
-This currently runs inside the coordinator for local integration. Moving a GameRoom
-onto the worker VM (plan 11) changes where it runs, not what it does.
+This runs on the game worker; the coordinator relays authenticated commands.
 """
 import asyncio
 from collections import deque
@@ -275,6 +274,8 @@ class GameRoom:
 
     # --- inbound ----------------------------------------------------------------
     def handle(self, peer, message):
+        if self.peers.get(peer.member_id) is not peer:
+            return
         kind, payload = message.type, message.payload
         if kind == 'controller.ready':
             self._ready(peer, payload)

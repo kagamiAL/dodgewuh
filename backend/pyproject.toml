@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]",
     "pydantic>=2,<3",
     "httpx",
+    "websockets>=15,<18",
     "sqlalchemy>=2,<3",
     "psycopg[binary]>=3,<4",
     "alembic>=1,<2",
