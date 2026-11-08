@@ -45,7 +45,8 @@ interface Member { member_id: ID; name: string; device: Device; connected: boole
   ready: boolean; permission: Permission; calibrated: boolean; camera_team: Team | null }
 interface Room { room_id: ID; room_code: string; host_id: ID; revision: number;
   members: Member[]; assignments: Assignment[]; assignment_version: number; phase: Phase }
-interface Character { team: Team; pos: Vec2; aim: Vec2; held_ball_id: ID | null }
+interface Character { team: Team; pos: Vec2; aim: Vec2; held_ball_id: ID | null;
+  arm_pitch?: number | null }  // cosmetic: Arms phone arm angle, degrees (90 up, >90 back, 0 forward); animation only
 interface Ball { ball_id: ID; mode: 'ground' | 'held' | 'flying' | 'respawning';
   pos: Vec2; velocity: Vec2; owner_team: Team | null; shooter_team: Team | null;
   respawn_in_ms: number; height: number }
@@ -62,7 +63,8 @@ interface Empty {}
 interface Legs { seq: number; epoch: number; move: Vec2 }
 interface CameraClaim { team: Team | null }
 interface Arms { seq: number; epoch: number; aim: Vec2;
-  action: 'aim' | 'press' | 'release' | 'cancel'; strength: number | null }
+  action: 'aim' | 'press' | 'release' | 'cancel'; strength: number | null;
+  arm_pitch?: number | null }  // optional, cosmetic, [-360, 360] degrees; echoed on Character for the throw animation
 interface Welcome { member_id: ID; room: Room; state: State }
 interface RoomUpdate { room: Room }
 interface Snapshot { state: State }
@@ -157,6 +159,7 @@ class Character(Model):
     pos: Vec2
     aim: Vec2
     held_ball_id: ID | None
+    arm_pitch: Fin | None = None  # cosmetic throw-animation angle; never gameplay
 class Ball(Model):
     ball_id: ID
     mode: Literal['ground','held','flying','respawning']
@@ -212,6 +215,7 @@ class Arms(Model):
     aim: Vec2
     action: Literal['aim','press','release','cancel']
     strength: Fin | None
+    arm_pitch: Fin | None = None  # optional, cosmetic, [-360, 360] degrees
 class Welcome(Model):
     member_id: ID
     room: Room

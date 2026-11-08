@@ -1,14 +1,16 @@
 <script setup lang="ts">
 // /sensors → Practice: the real ArmsController against a tiny local stand-in for the server.
-// You always get a ball back shortly after each throw; flicks launch it at the 02 speed
-// (8 + 6 × strength m/s, from centre + aim × 0.65) toward a target dummy on the far side.
+// A ball respawns beside you after each throw; tap to grab, chop to throw. Flight mirrors the
+// server's ballistic rule: launched flat at 12 + 7 × strength m/s from centre + aim × 0.65 (weak 0 /
+// medium 0.5 / hard 1), it lands after ~1.12 s (range 13.5 / 17.4 / 21.4 m) and can only hit the
+// dummy before it lands.
 // Numbers mirror backend/simulation/constants.py. Presentation only — the server stays authoritative.
 
 import { computed, onBeforeUnmount, reactive, ref, shallowRef } from 'vue'
 import type { ClientMessage, State, Vec2 } from '@/contracts/pending'
 import type { SensorService } from '@/sensors/sensorService'
 import ArmsController from '@/controllers/arms/ArmsController.vue'
-import { DEFAULT_ASSIST, assistTuning } from '@/controllers/arms/throwGesture'
+import { DEFAULT_ASSIST, FALL_S, assistTuning, throwSpeed } from '@/controllers/arms/throwGesture'
 import { createRecordingTransport, type SentMessage } from './recordingTransport'
 
 defineProps<{ sensors: SensorService }>()
@@ -19,10 +21,7 @@ const COURT_Z = 9
 const COMBINED_RADIUS = 0.75
 const BALL_R = 0.3
 const LEGS_SPEED = 3.5 // 02 movement speed: the dummy runs like a real Legs player
-const THROW_BASE = 8
-const THROW_PER_STRENGTH = 6
 const THROW_OFFSET = 0.65
-const FLIGHT_MS = 2000
 const RESPAWN_MS = 1000
 const ME: Vec2 = { x: 0, z: -6 } // T1 spawn
 const GROUND_BALL: Vec2 = { x: 0.7, z: -5.6 } // respawns within pickup reach (1.2 m)
@@ -37,7 +36,8 @@ const hasBall = ref(false)
 const ballOnGround = ref(true) // a ball waiting beside you to be tapped up
 const hits = ref(0)
 const thrown = ref(0)
-const last = ref<{ result: 'hit' | 'miss'; speed: number; strength: number; aim_deg: number } | null>(null)
+const last = ref<{ result: 'hit' | 'miss' | 'short'; speed: number; strength: number; aim_deg: number; range: number } | null>(null)
+const landedAt = ref<Vec2 | null>(null)
 const problems = ref<string[]>([])
 const latched = ref(false) // server-style Hold latch: set by press, cleared by release/cancel
 
@@ -51,7 +51,7 @@ function makeState(): State {
       { team: 2, pos: target.value, aim: { x: 0, z: -1 }, held_ball_id: null },
     ],
     balls: ballOnGround.value
-      ? [{ ball_id: 'b1', mode: 'ground', pos: GROUND_BALL, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0 }]
+      ? [{ ball_id: 'b1', mode: 'ground', pos: GROUND_BALL, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0, height: BALL_R }]
       : [],
     assignments: [], assignment_version: 1, result: null, winner: null,
   }
@@ -94,13 +94,14 @@ function handle(m: ClientMessage): void {
   if (action !== 'release') return
   latched.value = false
   if (!hasBall.value || strength === null) return
-  const speed = THROW_BASE + THROW_PER_STRENGTH * strength
+  const speed = throwSpeed(strength)
+  landedAt.value = null
   const pos = { x: ME.x + aim.x * THROW_OFFSET, z: ME.z + aim.z * THROW_OFFSET }
   ball.value = { pos, vel: { x: aim.x * speed, z: aim.z * speed }, born: performance.now() }
   trail.value = `${pos.x.toFixed(2)},${(-pos.z).toFixed(2)}`
   hasBall.value = false
   thrown.value++
-  last.value = { result: 'miss', speed, strength, aim_deg: Math.atan2(aim.x, aim.z) * RAD }
+  last.value = { result: 'miss', speed, strength, aim_deg: Math.atan2(aim.x, aim.z) * RAD, range: speed * FALL_S }
   publish()
 }
 
@@ -112,7 +113,7 @@ function segDist(a: Vec2, b: Vec2, c: Vec2): number {
   return Math.hypot(a.x + dx * t - c.x, a.z + dz * t - c.z)
 }
 
-function endFlight(result: 'hit' | 'miss'): void {
+function endFlight(result: 'hit' | 'miss' | 'short'): void {
   ball.value = null
   if (last.value) last.value = { ...last.value, result }
   if (result === 'hit') {
@@ -156,8 +157,11 @@ function frame(now: number): void {
     const next = { x: b.pos.x + b.vel.x * dt, z: b.pos.z + b.vel.z * dt }
     trail.value += ` ${next.x.toFixed(2)},${(-next.z).toFixed(2)}`
     if (segDist(b.pos, next, target.value) <= COMBINED_RADIUS) endFlight('hit')
-    else if (Math.abs(next.x) > COURT_X || Math.abs(next.z) > COURT_Z || now - b.born > FLIGHT_MS) endFlight('miss')
-    else ball.value = { ...b, pos: next }
+    else if (Math.abs(next.x) > COURT_X || Math.abs(next.z) > COURT_Z) endFlight('miss')
+    else if (now - b.born >= FALL_S * 1000) {
+      landedAt.value = next // touched down before reaching the dummy
+      endFlight('short')
+    } else ball.value = { ...b, pos: next }
   }
   raf = requestAnimationFrame(frame)
 }
@@ -196,7 +200,8 @@ const accuracy = computed(() => (thrown.value ? Math.round((hits.value / thrown.
       <button @click="Object.assign(assist, DEFAULT_ASSIST)">Reset assist</button>
     </div>
     <p v-if="last" class="last" :class="last.result">
-      {{ last.result === 'hit' ? 'HIT' : 'Miss' }} · {{ last.speed.toFixed(1) }} m/s (strength {{ last.strength.toFixed(2) }}) · aim {{ Math.round(last.aim_deg) }}°
+      {{ last.result === 'hit' ? 'HIT' : last.result === 'short' ? 'Landed short' : 'Miss' }} · {{ last.speed.toFixed(1) }} m/s
+(strength {{ last.strength.toFixed(2) }}, range {{ last.range.toFixed(1) }} m) · aim {{ Math.round(last.aim_deg) }}°
     </p>
     <p v-for="(p, i) in problems" :key="i" class="miss">server would reject: {{ p }}</p>
 
@@ -209,6 +214,10 @@ const accuracy = computed(() => (thrown.value ? Math.round((hits.value / thrown.
       <circle :cx="target.x" :cy="-target.z" :r="COMBINED_RADIUS" class="hitzone" />
       <circle :cx="ME.x" :cy="-ME.z" r="0.45" class="me" />
       <circle v-if="hasBall" :cx="ME.x" :cy="-ME.z + 0.8" :r="BALL_R" class="ball" />
+      <g v-if="landedAt" class="landed">
+        <line :x1="landedAt.x - 0.3" :y1="-landedAt.z - 0.3" :x2="landedAt.x + 0.3" :y2="-landedAt.z + 0.3" />
+        <line :x1="landedAt.x - 0.3" :y1="-landedAt.z + 0.3" :x2="landedAt.x + 0.3" :y2="-landedAt.z - 0.3" />
+      </g>
       <circle v-if="ballOnGround" :cx="GROUND_BALL.x" :cy="-GROUND_BALL.z" :r="BALL_R" class="ball ground" />
       <circle v-if="ball" :cx="ball.pos.x" :cy="-ball.pos.z" :r="BALL_R" class="ball" />
     </svg>
@@ -259,6 +268,13 @@ const accuracy = computed(() => (thrown.value ? Math.round((hits.value / thrown.
 }
 .hit {
   color: #3c6;
+}
+.short {
+  color: #fb4;
+}
+.landed line {
+  stroke: #fb4;
+  stroke-width: 0.12;
 }
 .miss {
   color: #e55;

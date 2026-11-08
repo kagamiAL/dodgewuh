@@ -118,6 +118,9 @@ class Character(Model):
     pos: Vec2
     aim: Vec2
     held_ball_id: ID | None
+    # Cosmetic: the Arms phone's latest throwing-arm angle (degrees; 90 = up, >90 = back over the
+    # shoulder, 0 = toward the opponent). Drives the throw animation only; never gameplay.
+    arm_pitch: Fin | None = None
 
     @model_validator(mode='after')
     def valid_aim(self):
@@ -240,10 +243,14 @@ class Arms(Model):
     aim: Vec2
     action: Literal['aim','press','release','cancel']
     strength: Fin | None
+    # Optional, cosmetic: throwing-arm angle in degrees for the screen's throw animation.
+    arm_pitch: Fin | None = None
 
     @model_validator(mode='after')
     def valid_throw(self):
         validate_aim(self.aim)
+        if self.arm_pitch is not None and not -360 <= self.arm_pitch <= 360:
+            raise ValueError('arm_pitch must be within [-360, 360] degrees')
         if self.seq < 1:
             raise ValueError('Input sequence starts at one')
         if self.action == 'release':

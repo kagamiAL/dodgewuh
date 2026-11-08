@@ -47,6 +47,21 @@ const ACTOR_KEY_TILT_DEG = 60
 const ACTOR_KEY_INTENSITY = 0.7
 /** Your held ball in first person: metres ahead of, right of and below the eye. */
 const HELD_VIEW_OFFSET = { forward: 0.7, right: 0.26, down: 0.27 }
+
+// First-person throw animation (cosmetic). The hand swings on a circle around a shoulder pivot
+// in camera space, driven by the Arms phone's arm angle (Character.arm_pitch: 90 up, >90 back,
+// 0 forward). Upright phone = the carry pose above; tilting back lifts the hand up and over
+// the head (out of view); chopping brings it through. After a release it follows through.
+const FP_SHOULDER = { right: HELD_VIEW_OFFSET.right, down: 0.05, forward: 0.05 }
+const FP_ARM_LEN = Math.hypot(HELD_VIEW_OFFSET.down - FP_SHOULDER.down, HELD_VIEW_OFFSET.forward - FP_SHOULDER.forward)
+/** Elevation of the carry pose around the shoulder (degrees; 0 = straight ahead). */
+const FP_REST_DEG = (Math.atan2(-(HELD_VIEW_OFFSET.down - FP_SHOULDER.down), HELD_VIEW_OFFSET.forward - FP_SHOULDER.forward) * 180) / Math.PI
+const FP_FOLLOW_DEG = -60
+const FP_FOLLOW_MS = 320
+function fpArmAngle(armPitch: number): number {
+  const a = FP_REST_DEG + (armPitch >= 90 ? (armPitch - 90) * 2 : (armPitch - 90) * 0.45)
+  return Math.max(-60, Math.min(140, a))
+}
 /** Floor aim guide in first person: where it starts and ends ahead of you (metres). */
 const AIM_GUIDE_START = 0.8
 const AIM_GUIDE_END = 5.5
@@ -179,6 +194,7 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   let yaw = 0 // radians; forward = (sin, 0, cos) in scene space
   const facing = new Map<Team, pc.Vec3>()
   let haveEye = false
+  let armAngle = FP_REST_DEG
   const aimGuide = createAimGuide()
   aimGuide.root.enabled = false
   app.root.addChild(aimGuide.root)
@@ -224,10 +240,23 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
     // Your own held ball sits in view, bottom right, like a held item in a shooter: the
     // hand model (it has its own ball) or, as a fallback, the plain ball at the same spot.
     const held = stateRenderer.ownHeldBall()
-    if (held && hand) {
+    // Throw animation: follow the phone's arm angle while carrying, then follow through.
+    const following = performance.now() - pov.thrownAt < FP_FOLLOW_MS
+    if (!held && !following) armAngle = FP_REST_DEG
+    const targetAngle = following ? FP_FOLLOW_DEG : pov.armPitch === null ? FP_REST_DEG : fpArmAngle(pov.armPitch)
+    armAngle += (targetAngle - armAngle) * (1 - Math.exp(-dt * (following ? 30 : 22)))
+    if ((held || following) && hand) {
       hand.setTeam(povTeam)
       hand.entity.enabled = true
-      held.enabled = false
+      hand.setBallVisible(!!held && !following)
+      if (held) held.enabled = false
+      const a = (armAngle * Math.PI) / 180
+      hand.entity.setLocalPosition(
+        FP_SHOULDER.right,
+        -FP_SHOULDER.down + FP_ARM_LEN * Math.sin(a),
+        -FP_SHOULDER.forward - FP_ARM_LEN * Math.cos(a),
+      )
+      hand.entity.setLocalEulerAngles((armAngle - FP_REST_DEG) * 0.8, 0, 0)
     } else if (held) {
       const p = eye.clone()
         .add(camera.forward.clone().mulScalar(o.forward))

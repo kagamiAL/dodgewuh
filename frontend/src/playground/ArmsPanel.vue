@@ -136,8 +136,13 @@ function f(v: number | null | undefined, d = 0): string {
         <label class="slider">…within {{ tuning.windowMs }} ms
           <input v-model.number="tuning.windowMs" type="range" min="150" max="1000" step="25">
         </label>
-        <label class="slider">full strength at {{ tuning.fullStrengthRate }}°/s
-          <input v-model.number="tuning.fullStrengthRate" type="range" min="200" max="1500" step="25">
+        <label class="slider">weakest throw at or below {{ tuning.weakRate }}°/s (90° in {{ (90000 / tuning.weakRate).toFixed(0) }} ms)
+          <input v-model.number="tuning.weakRate" type="range" min="150" max="800" step="10">
+        </label>
+        <label class="slider">hardest throw from {{ tuning.hardRate }}°/s (90° in {{ (90000 / tuning.hardRate).toFixed(0) }} ms)
+          <input v-model.number="tuning.hardRate" type="range" :min="tuning.weakRate + 10" max="1200" step="10">
+        </label>
+        <label class="slider"><input v-model="tuning.stepped" type="checkbox"> three fixed levels instead of smooth scaling
         </label>
         <button class="reset" @click="resetTuning">Reset to defaults</button>
       </section>
@@ -145,7 +150,7 @@ function f(v: number | null | undefined, d = 0): string {
       <section v-if="chops.length" class="card small">
         <h3>Chops detected</h3>
         <table>
-          <tr><th>#</th><th>from°</th><th>to°</th><th>drop°</th><th>ms</th><th>°/s</th><th>str</th></tr>
+          <tr><th>#</th><th>from°</th><th>to°</th><th>drop°</th><th>ms</th><th>°/s</th><th>level</th></tr>
           <tr v-for="c in chops" :key="c.n">
             <td>{{ c.n }}</td>
             <td>{{ f(c.from_deg) }}</td>
@@ -153,7 +158,7 @@ function f(v: number | null | undefined, d = 0): string {
             <td>{{ f(c.drop_deg) }}</td>
             <td>{{ f(c.duration_ms) }}</td>
             <td>{{ f(c.rate) }}</td>
-            <td>{{ f(c.strength, 2) }}</td>
+            <td>{{ c.level }} {{ f(c.strength, 2) }}</td>
           </tr>
         </table>
       </section>

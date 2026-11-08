@@ -60,8 +60,9 @@ PICKUP_RANGE: float = 1.2  # centre-to-centre distance, inclusive
 NO_THROW_ABS_Z: float = 2.0
 
 # --- Throw ------------------------------------------------------------------
-THROW_BASE_SPEED: float = 8.0
-THROW_SPEED_PER_STRENGTH: float = 6.0
+# Three throw levels from the phone (weak 0 / medium 0.5 / hard 1): see GRAVITY for ranges.
+THROW_BASE_SPEED: float = 12.0  # was 8.0
+THROW_SPEED_PER_STRENGTH: float = 7.0  # was 6.0: 12 / 15.5 / 19 m/s
 THROW_OFFSET: float = 0.65  # launch at centre + aim * THROW_OFFSET
 
 # --- Flight and respawn -----------------------------------------------------
@@ -86,12 +87,20 @@ GROUND_HEIGHT: float = BALL_RADIUS
 # It is the single dial for throw range, and the reason it is not 9.81:
 #
 #   fall time to the floor   t = sqrt(2 * (THROW_HEIGHT - GROUND_HEIGHT) / g)
-#   horizontal range         r = speed * t,  speed = 8 + 6 * strength
+#   horizontal range         r = speed * t,  speed = 12 + 7 * strength
 #
-#   g      t (s)   range @0.0   @0.5 (MVP)   @1.0
-#   9.81   0.495    3.96 m       5.44 m       6.92 m
-#   3.40   0.840    6.72 m       9.24 m      11.76 m
+#   g      t (s)   weak @0.0   medium @0.5   hard @1.0
+#   3.40   0.840   10.08 m     13.02 m       15.96 m
+#   1.90   1.124   13.49 m     17.42 m       21.36 m   <- current
 #
+# PLAYTEST AMENDMENT: the phone sends three levels. A weak throw carries about
+# 75% of the 18 m court; a hard throw clears the worst case -- corner to corner,
+# a thrower in their own back corner (launch z -7.90 after the offset) against a
+# defender in the far back corner (hit surface z 7.80), 11.10 m apart in x,
+# about 19.3 m -- with some to spare. The release stays horizontal, so the ball
+# only ever drops (1.2 m over its flight): a throw, never a lob over anyone.
+#
+# Original rationale, kept for history:
 # The longest throw the court can require is 9.15 m: a thrower at the no-throw
 # boundary (z = 2.0, launching at 1.35 after the 0.65 offset) against a
 # defender hugging their own back wall (z = 8.55, whose hit surface is one
@@ -107,7 +116,7 @@ GROUND_HEIGHT: float = BALL_RADIUS
 # ball rests higher, which shortens the fall and so shortens every throw. That
 # is exactly how 3.5 stopped working when BALL_RADIUS went 0.15 -> 0.30. The
 # synthetic runner asserts the back-wall case, so it catches a regression.
-GRAVITY: float = 3.4
+GRAVITY: float = 1.9  # was 3.4; see the playtest amendment above
 
 # --- Round and phase timing -------------------------------------------------
 ROUND_TICKS: int = 3600  # 60 seconds of active play

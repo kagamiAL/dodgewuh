@@ -18,7 +18,9 @@ export interface Member { member_id: ID; name: string; device: Device; connected
   camera_team: Team | null }
 export interface Room { room_id: ID; room_code: string; host_id: ID; revision: number;
   members: Member[]; assignments: Assignment[]; assignment_version: number; phase: Phase }
-export interface Character { team: Team; pos: Vec2; aim: Vec2; held_ball_id: ID | null }
+export interface Character { team: Team; pos: Vec2; aim: Vec2; held_ball_id: ID | null;
+  /** Cosmetic throwing-arm angle in degrees (90 up, >90 back, 0 toward the opponent); animation only. */
+  arm_pitch?: number | null }
 export interface Ball { ball_id: ID; mode: 'ground' | 'held' | 'flying' | 'respawning';
   pos: Vec2; velocity: Vec2; owner_team: Team | null; shooter_team: Team | null;
   respawn_in_ms: number; height: number }
@@ -35,7 +37,9 @@ export interface Empty {}
 export interface CameraClaim { team: Team | null }
 export interface Legs { seq: number; epoch: number; move: Vec2 }
 export interface Arms { seq: number; epoch: number; aim: Vec2;
-  action: 'aim' | 'press' | 'release' | 'cancel'; strength: number | null }
+  action: 'aim' | 'press' | 'release' | 'cancel'; strength: number | null;
+  /** Optional, cosmetic: throwing-arm angle in degrees for the screen's throw animation. */
+  arm_pitch?: number | null }
 export interface Welcome { member_id: ID; room: Room; state: State }
 export interface RoomUpdate { room: Room }
 export interface Snapshot { state: State }

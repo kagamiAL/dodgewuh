@@ -956,7 +956,8 @@ def scenario_no_throw_zone(d: Diagnostics) -> None:
 
 def scenario_throw_launch(d: Diagnostics) -> None:
     print("\n[release: launch offset and speed]")
-    for strength, expected in ((0.0, 8.0), (0.5, 11.0), (1.0, 14.0)):
+    for strength in (0.0, 0.5, 1.0):
+        expected = K.THROW_BASE_SPEED + K.THROW_SPEED_PER_STRENGTH * strength
         sim = boot_to_active()
         clear_ground_balls(sim, ("b1",))
         place(sim, 1, 0.0, -4.0)
@@ -983,7 +984,7 @@ def scenario_throw_launch(d: Diagnostics) -> None:
     h.send("release", strength=0.5).step()
     b = ball(sim, "b1")
     launched_z = -4.0 + K.THROW_OFFSET
-    expected_z = launched_z + 11.0 * K.DT
+    expected_z = launched_z + (K.THROW_BASE_SPEED + K.THROW_SPEED_PER_STRENGTH * 0.5) * K.DT
     d.observe("launch at centre + aim x 0.65, then one tick of flight",
               near(b.pos.z, expected_z, 1e-9) and near(b.pos.x, 0.0, 1e-12),
               f"{b.pos} expected z={expected_z:.6f}")
@@ -1180,10 +1181,13 @@ def scenario_ballistic_arc(d: Diagnostics) -> None:
         f"{fall_seconds:.4f} s airborne ({fall_seconds / K.DT:.2f} ticks)"
     )
 
+    # A slow probe (not a real throw speed) so it lands inside the court: with the
+    # playtest speeds every real throw out-ranges the court and ends at a wall.
+    PROBE = 6.0
     sim = boot_to_active()
     clear_ground_balls(sim, ("b1",))
     place(sim, 2, 5.0, 6.0)  # keep the opponent out of the lane
-    launch_ball(sim, "b1", 0.0, -5.0, 0.0, 11.0, shooter_team=1)
+    launch_ball(sim, "b1", 0.0, -5.0, 0.0, PROBE, shooter_team=1)
     d.observe("a throw leaves the hand at release height",
               near(ball(sim, "b1").height, K.THROW_HEIGHT, 1e-12),
               str(ball(sim, "b1").height))
@@ -1206,7 +1210,7 @@ def scenario_ballistic_arc(d: Diagnostics) -> None:
               max(heights) <= K.THROW_HEIGHT + 1e-12,
               f"max {max(heights):.4f}")
     d.observe("horizontal speed is unaffected by gravity",
-              all(near(b - a, 11.0 * K.DT, 1e-9)
+              all(near(b - a, PROBE * K.DT, 1e-9)
                   for a, b in zip(horizontal, horizontal[1:])),
               "constant horizontal step")
 
@@ -1223,10 +1227,10 @@ def scenario_ballistic_arc(d: Diagnostics) -> None:
     d.observe("resting height is one ball radius",
               near(b.height, K.GROUND_HEIGHT, 1e-12), str(b.height))
     d.observe("it lands where the parabola says it should",
-              near(b.pos.z, -5.0 + 11.0 * fall_seconds, 1e-9),
-              f"{b.pos.z:.4f} expected {-5.0 + 11.0 * fall_seconds:.4f}")
+              near(b.pos.z, -5.0 + PROBE * fall_seconds, 1e-9),
+              f"{b.pos.z:.4f} expected {-5.0 + PROBE * fall_seconds:.4f}")
     d.observe("landing is clipped inside the tick, not rounded to a tick edge",
-              not near(b.pos.z, -5.0 + 11.0 * K.DT * round(fall_seconds / K.DT), 1e-9)
+              not near(b.pos.z, -5.0 + PROBE * K.DT * round(fall_seconds / K.DT), 1e-9)
               or True,
               f"landed after {ticks} ticks, {fall_seconds / K.DT:.2f} exact")
     d.observe("a landed ball carries no velocity",
@@ -1289,6 +1293,23 @@ def scenario_ballistic_arc(d: Diagnostics) -> None:
         "so camping there cannot make a team unhittable",
         fixed_range >= longest_required,
         f"range {fixed_range:.2f} m vs the {longest_required:.2f} m worst case",
+    )
+    # Playtest amendment: a hard throw reaches corner to corner; a weak one about
+    # 75% of the court, so it does not sail out the back from deep in your half.
+    depth = (K.T2_Z_MAX - K.COMBINED_RADIUS) - (K.T1_Z_MIN + K.THROW_OFFSET)
+    corner_to_corner = math.hypot(2 * K.CHAR_X_LIMIT, depth)
+    max_range = (K.THROW_BASE_SPEED + K.THROW_SPEED_PER_STRENGTH) * fall_seconds
+    min_range = K.THROW_BASE_SPEED * fall_seconds
+    d.observe(
+        "a hard throw reaches from one back corner to the far back corner",
+        max_range >= corner_to_corner,
+        f"range {max_range:.2f} m vs {corner_to_corner:.2f} m corner to corner",
+    )
+    court = 2 * K.COURT_Z
+    d.observe(
+        "a weak throw carries roughly three quarters of the court (70-80%)",
+        0.70 * court <= min_range <= 0.80 * court,
+        f"range {min_range:.2f} m of a {court:.0f} m court",
     )
 
 

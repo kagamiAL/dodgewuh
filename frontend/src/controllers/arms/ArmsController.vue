@@ -54,6 +54,7 @@ let forward: number | null = null
 let orientationMs: number | null = null
 let motionMs: number | null = null
 let lastOrientationFed: number | null = null
+let armPitch: number | null = null // latest top-of-phone angle, sent for the screen's throw animation
 let calHeadings: number[] | null = null
 let availability: Permission | null = null
 let isCalibrated = false
@@ -117,7 +118,10 @@ function send(action: 'aim' | 'press' | 'release' | 'cancel', aim: Vec2, strengt
   if (!active.value) return
   props.transport.send({
     v: 1, type: 'input.arms',
-    payload: { seq: props.transport.nextInputSeq(), epoch: props.epoch, aim, action, strength },
+    payload: {
+      seq: props.transport.nextInputSeq(), epoch: props.epoch, aim, action, strength,
+      arm_pitch: armPitch === null ? null : Math.round(Math.max(-360, Math.min(360, armPitch)) * 10) / 10,
+    },
   })
 }
 
@@ -164,6 +168,7 @@ function onSample(s: SensorSample): void {
     if (calHeadings && h !== null && sideways.value >= GRIP_OK) calHeadings.push(h)
     pitch = topPitch(s.alpha_deg, s.beta_deg, s.gamma_deg, side.value)
   }
+  armPitch = pitch
   yawDeg.value = heading !== null && forward !== null ? angleDiff(heading, forward) * RAD : null
   locked.value = stage.value === 'live' && forward !== null && assistedAim(heading, 0.5).locked
 

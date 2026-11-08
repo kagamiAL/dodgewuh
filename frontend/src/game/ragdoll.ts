@@ -114,6 +114,22 @@ export interface RagdollInput {
   /** Heading the upper body should face (the Arms player's aim). */
   aimHeading: number
   holding: boolean
+  /**
+   * The Arms phone's throwing-arm angle while carrying (Character.arm_pitch, degrees: 90 up,
+   * >90 back over the shoulder, 0 toward the opponent), or null. Drives the throw pose.
+   */
+  armPitch?: number | null
+}
+
+/**
+ * Phone arm angle → extra right-arm pitch (degrees, chest space; + = back, − = forward, matching
+ * throwKick's negative forward whip). Upright phone = the normal carry pose. Tilting back winds
+ * the arm up over the shoulder; chopping forward brings it through. Exaggerated on purpose: a
+ * small phone tilt should read as a full throwing arm on the TV.
+ */
+export function throwPoseOffset(armPitch: number): number {
+  const off = armPitch >= 90 ? (armPitch - 90) * 2 : (armPitch - 90) * 0.8
+  return Math.max(-72, Math.min(150, off))
 }
 
 export class Ragdoll {
@@ -131,6 +147,8 @@ export class Ragdoll {
   private readonly armRRoll: Spring
   private readonly twist: Spring
   private readonly hold = new Spring(10, 0.8, 1)
+  /** Throwing-arm pose from the phone; a separate spring so it can swing well past armR's limit. */
+  private readonly armThrow = new Spring(16, 0.75, 160)
 
   private svx = 0
   private svz = 0
@@ -243,6 +261,8 @@ export class Ragdoll {
     this.armRRoll.step(-c.armR.gain * 0.7 * aLeft * holdDamp, dt)
 
     this.hold.step(input.holding ? 1 : 0, dt)
+    const armPitch = input.armPitch
+    this.armThrow.step(input.holding && armPitch !== null && armPitch !== undefined ? throwPoseOffset(armPitch) : 0, dt)
     this.walkPhase += ((speed * dt) / c.legs.strideM) * Math.PI * 2
     this.walkAmount = Math.min(1, speed / 3.5)
   }
@@ -266,7 +286,7 @@ export class Ragdoll {
     }
     if (r.armR) {
       tmpBase.slerp(HANG_R, HOLD_R, Math.max(0, Math.min(1, this.hold.x)))
-      tmpQ.setFromEulerAngles(this.armRPitch.x, 0, this.armRRoll.x)
+      tmpQ.setFromEulerAngles(this.armRPitch.x + this.armThrow.x, 0, this.armRRoll.x)
       r.armR.setLocalRotation(tmpQ.mul(tmpBase))
     }
   }

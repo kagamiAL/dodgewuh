@@ -405,7 +405,7 @@ class GameRoom:
             command = LegsCommand(seq=p.seq, epoch=p.epoch, move=move)
         else:
             command = ArmsCommand(seq=p.seq, epoch=p.epoch, aim=Vec2(p.aim.x, p.aim.z),
-                action=p.action, strength=p.strength)
+                action=p.action, strength=p.strength, arm_pitch=p.arm_pitch)
         self.ordinal += 1
         try:
             self.sim.apply_input(actor, command, received_ms=now_ms(), ordinal=self.ordinal)

@@ -72,6 +72,8 @@ class CharacterDTO:
     pos: Vec2
     aim: Vec2
     held_ball_id: str | None
+    # Cosmetic throwing-arm angle (degrees) echoed from the Arms phone; never used by gameplay.
+    arm_pitch: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +156,8 @@ class ArmsCommand:
     aim: Vec2
     action: ArmsAction
     strength: float | None
+    # Cosmetic throwing-arm angle (degrees) for the screen animation; optional.
+    arm_pitch: float | None = None
 
 
 Command = Union[LegsCommand, ArmsCommand]
