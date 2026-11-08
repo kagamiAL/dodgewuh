@@ -30,6 +30,8 @@ export interface Ball {
   owner_team: Team | null
   shooter_team: Team | null
   respawn_in_ms: number
+  /** Ball centre height in metres. Rendering only; never a gameplay input. */
+  height: number
 }
 
 export interface Result {

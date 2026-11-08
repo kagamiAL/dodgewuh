@@ -21,7 +21,7 @@ export interface Room { room_id: ID; room_code: string; host_id: ID; revision: n
 export interface Character { team: Team; pos: Vec2; aim: Vec2; held_ball_id: ID | null }
 export interface Ball { ball_id: ID; mode: 'ground' | 'held' | 'flying' | 'respawning';
   pos: Vec2; velocity: Vec2; owner_team: Team | null; shooter_team: Team | null;
-  respawn_in_ms: number }
+  respawn_in_ms: number; height: number }
 export interface Result { reason: 'hit' | 'timeout' | 'simultaneous'; winner: Team | null;
   hit_ball_id: ID | null; victim_team: Team | null }
 export interface State { tick: number; epoch: number; round: number; phase: Phase;

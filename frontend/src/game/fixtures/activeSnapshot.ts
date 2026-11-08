@@ -16,10 +16,10 @@ export const activeSnapshotState: State = {
     { team: 2, pos: { x: 0, z: 6 }, aim: { x: 0, z: -1 }, held_ball_id: null },
   ],
   balls: [
-    { ball_id: 'b1', mode: 'held', pos: { x: -2, z: -1 }, velocity: { x: 0, z: 0 }, owner_team: 1, shooter_team: null, respawn_in_ms: 0 },
-    { ball_id: 'b2', mode: 'ground', pos: { x: 2, z: -0.6 }, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0 },
-    { ball_id: 'b3', mode: 'ground', pos: { x: -2, z: 0.6 }, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0 },
-    { ball_id: 'b4', mode: 'ground', pos: { x: 2, z: 0.6 }, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0 },
+    { ball_id: 'b1', mode: 'held', pos: { x: -2, z: -1 }, velocity: { x: 0, z: 0 }, owner_team: 1, shooter_team: null, respawn_in_ms: 0, height: 1.5 },
+    { ball_id: 'b2', mode: 'ground', pos: { x: 2, z: -0.6 }, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0, height: 0.15 },
+    { ball_id: 'b3', mode: 'ground', pos: { x: -2, z: 0.6 }, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0, height: 0.15 },
+    { ball_id: 'b4', mode: 'ground', pos: { x: 2, z: 0.6 }, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0, height: 0.15 },
   ],
   assignments: [
     { member_id: 'p1', team: 1, role: 'arms' },

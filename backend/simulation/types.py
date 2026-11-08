@@ -76,6 +76,18 @@ class CharacterDTO:
 
 @dataclass(frozen=True, slots=True)
 class BallDTO:
+    """One ball. `pos` and `velocity` are the gameplay plane; `height` is not.
+
+    height is the ball centre's y in metres. It exists so screens draw the
+    same arc from the same authority instead of each timing it locally, which
+    01 requires of tick-matched state. It never enters a gameplay decision:
+    collision is the flat 2D swept circle in [02].
+
+    NOTE for the adapter: this field is additive and 03's `Ball` does not have
+    it yet. See HANDOFF.md -- it needs the matching wire field before an
+    `extra='forbid'` model will accept a converted snapshot.
+    """
+
     ball_id: str
     mode: BallMode
     pos: Vec2
@@ -83,6 +95,7 @@ class BallDTO:
     owner_team: Team | None
     shooter_team: Team | None
     respawn_in_ms: int
+    height: float
 
 
 @dataclass(frozen=True, slots=True)

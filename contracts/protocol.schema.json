@@ -569,6 +569,9 @@
             "minimum": 0,
             "title": "Respawn In Ms",
             "type": "integer"
+          },
+          "height": {
+            "type": "number"
           }
         },
         "required": [
@@ -578,7 +581,8 @@
           "velocity",
           "owner_team",
           "shooter_team",
-          "respawn_in_ms"
+          "respawn_in_ms",
+          "height"
         ],
         "title": "Ball",
         "type": "object"
