@@ -13,6 +13,8 @@ export interface SensorSample {
   time_ms: number
   orientation_ms: number | null
   motion_ms: number | null
+  /** Rotation about the vertical axis. On iOS it is relative to an arbitrary start, not compass. */
+  alpha_deg: number | null
   beta_deg: number | null
   gamma_deg: number | null
   accel: { x: number; y: number; z: number } | null
@@ -53,18 +55,20 @@ export function createSensorService(): SensorService {
   let listening = false
   let orientation_ms: number | null = null
   let motion_ms: number | null = null
+  let alpha_deg: number | null = null
   let beta_deg: number | null = null
   let gamma_deg: number | null = null
   let accel: SensorSample['accel'] = null
   let rotation_rate: SensorSample['rotation_rate'] = null
 
   function emit(): void {
-    const sample: SensorSample = { time_ms: performance.now(), orientation_ms, motion_ms, beta_deg, gamma_deg, accel, rotation_rate }
+    const sample: SensorSample = { time_ms: performance.now(), orientation_ms, motion_ms, alpha_deg, beta_deg, gamma_deg, accel, rotation_rate }
     for (const h of handlers) h(sample)
   }
 
   function onOrientation(e: DeviceOrientationEvent): void {
     orientation_ms = performance.now()
+    alpha_deg = fin(e.alpha)
     beta_deg = fin(e.beta)
     gamma_deg = fin(e.gamma)
     emit()
@@ -95,7 +99,7 @@ export function createSensorService(): SensorService {
     window.removeEventListener('deviceorientation', onOrientation)
     window.removeEventListener('devicemotion', onMotion)
     listening = false
-    orientation_ms = motion_ms = beta_deg = gamma_deg = null
+    orientation_ms = motion_ms = alpha_deg = beta_deg = gamma_deg = null
     accel = rotation_rate = null
   }
 

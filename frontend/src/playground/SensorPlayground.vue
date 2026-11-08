@@ -10,6 +10,7 @@ import LegsController from '@/controllers/legs/LegsController.vue'
 import { jogTuning } from '@/controllers/legs/jogTracker'
 import { beep, say } from '@/controllers/legs/voice'
 import { createRecordingTransport, type SentMessage } from './recordingTransport'
+import ArmsPanel from './ArmsPanel.vue'
 
 type Dir = 'forward' | 'left' | 'right' | 'back'
 
@@ -27,6 +28,7 @@ const CUE_TEXT: Record<Dir, string> = {
   back: 'Face away from the screen and jog',
 }
 
+const mode = ref<'legs' | 'arms'>('legs')
 const team = ref<Team>(1)
 const scoredTest = ref(true)
 const speakMoves = ref(false)
@@ -179,7 +181,15 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="playground">
-    <h2>Sensor playground · Legs (jog + face)</h2>
+    <h2>Sensor playground · {{ mode === 'legs' ? 'Legs (jog + face)' : 'Arms' }}</h2>
+    <div class="tabs">
+      <button :class="{ on: mode === 'legs' }" :disabled="calibrated" @click="mode = 'legs'">Legs</button>
+      <button :class="{ on: mode === 'arms' }" :disabled="calibrated" @click="mode = 'arms'">Arms</button>
+    </div>
+
+    <ArmsPanel v-if="mode === 'arms'" :sensors="sensors" />
+
+    <template v-else>
     <div class="row">
       <label>Team
         <select v-model.number="team" :disabled="calibrated">
@@ -237,6 +247,7 @@ onBeforeUnmount(() => {
       <p v-for="(p, i) in problems" :key="i" class="bad">rejected: {{ p }}</p>
       <p v-for="(l, i) in log" :key="i">{{ l }}</p>
     </section>
+    </template>
   </main>
 </template>
 
@@ -245,6 +256,24 @@ onBeforeUnmount(() => {
   padding: 0 1rem 3rem;
   max-width: 32rem;
   margin: 0 auto;
+}
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.tabs button {
+  flex: 1;
+  padding: 0.6rem;
+  border: 1px solid #444;
+  border-radius: 10px;
+  background: #222;
+  color: #ccc;
+  font-weight: 700;
+}
+.tabs button.on {
+  background: #eee;
+  color: #000;
 }
 .row {
   display: flex;
