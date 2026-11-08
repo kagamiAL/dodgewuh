@@ -19,8 +19,8 @@ and validated commands, never tokens or SQL credentials. Keep worker ports priva
 Channels use ping/pong to detect loss; failure closes all affected sockets and
 marks the room closed (`worker_lost`) in SQL, revoking memberships. Failed room
 allocations remain blocked in memory even if SQL is unavailable. Create a new room
-after failure; interrupted games never resume. Empty rooms retain their channel
-and allocation until coordinator shutdown. Allocation is runtime-only.
+after failure; interrupted games never resume. Empty rooms close after five minutes; room cleanup closes their worker channel
+and allocation. Allocation metadata is persisted; live channels/simulations are runtime-only.
 Startup closes previous runtime rooms and revokes old memberships, retaining
 records. Do not overlap coordinator instances or use
 multiple Uvicorn workers. Local auto-reload also ends rooms. There is no match
@@ -69,7 +69,14 @@ Do not paste responses into logs or commit them. `ws_path` is the authenticated
 socket route. The first message must be `session.hello` with the token; welcome
 includes complete room and game state. Readiness, host start/reset/rematch, input
 routing, snapshots and `camera.claim` are forwarded to the worker.
-DELETE membership remains unimplemented.
+Authenticated `DELETE /api/rooms/{room_code}/members/me` with a Bearer token
+revokes membership and releases its seat; host leave closes the room. Required
+phone loss or loss of the last screen resets gameplay to lobby. Disconnected or
+unconnected members have a 30-second lobby reservation; an existing valid token
+restores identity before expiry, with fresh calibration/readiness required. Host
+reservation expiry closes the room. Superseded sockets cannot detach replacements.
+Host-only `match.rematch` is accepted at match_end, retains assignments and resets
+scores, arena and readiness to lobby; interrupted matches do not resume.
 Registered lobbies expire after 30 minutes without activity and all rooms after
 four hours. Cleanup runs every 30 seconds and during health
 checks; joins independently reject expired rooms. Closed records are retained.
@@ -106,4 +113,4 @@ EBS disk is not an off-host backup. Terraform destroy still deletes all AWS data
 
 ## Match history persistence
 
-Run Alembic through `0002_history` before starting this release. The coordinator records allocations, versioned assignments, match starts/aborts and authoritative final results from the authenticated worker channel. Restart preserves history and revokes old sessions; active matches are aborted rather than resumed. See [section 4 verification](../docs/demo/section4-persistence.md) for duplicate-report behavior, migration compatibility and unverified full-match completion.
+Run Alembic through `0003_draw_results` before starting this release. `0002_history` adds history tables; `0003_draw_results` makes the result winner nullable for best-of-3 draws. Its downgrade deletes drawn results and must not be used for image rollback. The coordinator records allocations, versioned assignments, match starts/aborts and authoritative final results from the authenticated worker channel. Restart preserves history and revokes old sessions; active matches are aborted rather than resumed. See [section 4 verification](../docs/demo/section4-persistence.md) for duplicate-report behavior, migration compatibility and unverified full-match completion.

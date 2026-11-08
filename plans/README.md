@@ -5,12 +5,12 @@
 Build a cooperative motion dodgeball game with four phone players, two shared characters and one or more browser screens. These documents began as implementation plans; repository code has since landed, so schedules, ownership scaffolds and acceptance checklists below are historical targets unless they match the current code described here.
 
 The current local implementation has room creation/join, authenticated WebSockets,
-readiness and host controls, the Python simulation in the coordinator, 60 Hz
+readiness and host controls, the Python simulation on authenticated game workers, 60 Hz
 simulation steps, 20 Hz snapshots, phone pocket-jog Legs, screen-camera Legs,
 stadium/crowd rendering and a team-specific first-person screen view. The screen
-camera uses browser-local MediaPipe pose processing. Arms phone UI is still a
-placeholder. Production coordinator-to-worker allocation/routing and deployed
-end-to-end gameplay are not established. See the [repository README](../README.md),
+camera uses browser-local MediaPipe pose processing. Arms phone controls, role-switch readiness, best-of-3 results/rematch and SQL
+history are implemented. Coordinator-to-worker allocation/routing is implemented;
+deployed end-to-end gameplay remains to be recorded. See the [repository README](../README.md),
 [contracts handoff](../contracts/README.md), and [backend operations](../backend/README.md)
 for operational status and limitations.
 
@@ -46,11 +46,11 @@ Distribute the shared documents to all five coding agents first, in this exact o
 
 ## Locked architecture and team
 
-The plan documents describe proposed workstream ownership. In current code, the authoritative simulation is called from the coordinator for local integration; although a separate worker service exists, room allocation/routing to it is pending. Current screen code includes PlayCanvas rendering, camera control and first-person view. Production AWS hosting and DNS are not evidenced by this repository status.
+The plan documents describe proposed workstream ownership. Current local Compose and production configuration allocate live rooms to separate authenticated workers; the coordinator owns registration, routing and SQL history. Current screen code includes PlayCanvas rendering, camera control and first-person view. Production AWS hosting and DNS are not evidenced by this repository status.
 
 ## MVP boundary
 
-The planned full game includes private rooms, four phones, Arms+Legs cooperation, movement and throwing, scoring, role swaps and rematch. Current Arms phone UI and production deployment are incomplete; physical-device and full-match acceptance must be confirmed separately. Current screen camera can drive a team's Legs role, and screen view can be selected as team 1, team 2 or overview.
+The planned full game includes private rooms, four phones, Arms+Legs cooperation, movement and throwing, scoring, role swaps and rematch. Arms phone UI is implemented; production deployment remains unfinished; physical-device and full-match acceptance must be confirmed separately. Current screen camera can drive a team's Legs role, and screen view can be selected as team 1, team 2 or overview.
 
 Excluded from the original game scope: sophisticated physics/animations, variable-strength polish, QR generation, accounts, matchmaking, durable gameplay state/resume, prediction, host migration and extra cloud services. Room/member registration metadata is persisted. A disconnect resets an underway match to lobby; players ready and restart.
 
