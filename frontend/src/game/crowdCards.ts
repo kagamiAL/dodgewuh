@@ -113,7 +113,8 @@ export function crowdCardMaterial(device: pc.GraphicsDevice): pc.StandardMateria
   m.diffuseMap = atlas
   m.diffuseVertexColor = true
   m.emissiveMap = texture(device, glow, 'CrowdCardGlow')
-  m.emissive = new pc.Color(1, 1, 1)
+  // Eyes catch a little light in the dark stands rather than glowing full white.
+  m.emissive = new pc.Color(0.4, 0.4, 0.4)
   m.opacityMap = atlas
   m.opacityMapChannel = 'a'
   m.alphaTest = 0.5
