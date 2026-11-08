@@ -240,14 +240,25 @@ function failCalibration(message: string): void {
   setCalibrated(false)
 }
 
-/** Tap = grab. Latches Hold on the server; it picks up the nearest ball in reach, now or later. */
+/**
+ * Tap = grab. Latches Hold on the server; it picks up the nearest ball in reach, now or later.
+ * Every tap without a ball re-sends press, even if we think we're already latched: the server can
+ * clear Hold on its own (250 ms of input silence over a flaky network, a release it didn't honour),
+ * and a repeated press is harmless there. So tapping can never get stuck.
+ */
 function onTap(): void {
   if (stage.value !== 'live' || !active.value || !sensorsFresh()) return
   detector.press(performance.now()) // ignore the thumb-tap jolt
-  if (latched.value || hasBall.value) return
+  if (hasBall.value) return
   latched.value = true
   send('press', aimFrom(heading))
 }
+
+// Losing the ball for any reason (thrown, dropped by the server, round reset) disarms the local
+// latch, so the screen goes back to "tap to grab" and the next tap starts fresh.
+watch(hasBall, (now, before) => {
+  if (before && !now) latched.value = false
+})
 
 function onVisibility(): void {
   if (!document.hidden) return
@@ -320,7 +331,7 @@ const padText = computed(() => {
     <div
       v-else
       class="live"
-      :class="{ holding: hasBall, armed: latched && !hasBall, throw: flash === 'throw', cancel: flash === 'cancel' || flash === 'zone', idle: !active }"
+      :class="{ holding: hasBall, armed: latched && !hasBall, inzone: hasBall && inNoThrowZone && active, throw: flash === 'throw', cancel: flash === 'cancel', zoneflash: flash === 'zone', idle: !active }"
       @pointerdown="onTap"
     >
       <div class="status">
@@ -407,6 +418,20 @@ ol {
 .live.holding {
   background: var(--team);
   color: #000;
+}
+.live.inzone {
+  /* Holding inside the no-throw zone: chops are blocked until you move back. */
+  background: #5a1414;
+  border-color: #e33;
+  color: #fff;
+}
+.live.inzone .status {
+  color: #fcc;
+}
+.live.zoneflash {
+  background: #e33;
+  border-color: #fff;
+  color: #fff;
 }
 .live.armed {
   background: #23303f;
