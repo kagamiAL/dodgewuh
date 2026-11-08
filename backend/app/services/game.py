@@ -24,6 +24,7 @@ OVERLOAD_S = 0.25
 SNAPSHOT_EVERY = 3  # 60 Hz steps -> 20 Hz snapshots
 RELIABLE_LIMIT = 32
 SLOTS = ((1, 'arms'), (1, 'legs'), (2, 'arms'), (2, 'legs'))
+CAMERA_FACING_FRESH_MS = 250  # a camera facing older than this no longer steers the phone's jog
 PLAYING = ('countdown', 'active')
 
 log = logging.getLogger('dodgewuh.game')
@@ -115,7 +116,8 @@ class GameRoom:
         self.sim = Simulation()
         self.peers = {}
         self.status = {}
-        self.cameras = {}  # connected screen member_id -> team whose Legs its camera drives
+        self.cameras = {}  # connected screen member_id -> team whose Legs its camera steers
+        self.camera_facing = {}  # team -> (Vec2, received_ms): latest facing from that team's camera
         self.revision = 0
         self.ordinal = 0
         self.steps = 0
@@ -135,10 +137,14 @@ class GameRoom:
     def _assigned(self, member_id):
         return any(a.member_id == member_id for a in self.sim.snapshot().assignments)
 
-    def _camera_drives(self, member_id):
-        """True when this phone is a Legs player whose team's movement comes from a screen camera."""
-        return any(a.member_id == member_id and a.role == 'legs' and a.team in self.cameras.values()
-                   for a in self.sim.snapshot().assignments)
+    def _camera_facing(self, member_id):
+        """The fresh camera facing for this phone if it is a Legs player whose team has a camera."""
+        team = next((a.team for a in self.sim.snapshot().assignments
+                     if a.member_id == member_id and a.role == 'legs'), None)
+        if team is None or team not in self.cameras.values() or team not in self.camera_facing:
+            return None
+        facing, received = self.camera_facing[team]
+        return facing if now_ms() - received <= CAMERA_FACING_FRESH_MS else None
 
     def _required(self, member_id):
         """Losing an assigned phone or the original host aborts an underway match."""
@@ -328,6 +334,7 @@ class GameRoom:
             for mid in [mid for mid, team in self.cameras.items() if team == p.team]:
                 del self.cameras[mid]
             self.cameras[peer.member_id] = p.team
+            self.camera_facing.pop(p.team, None)
         self._flush(room_changed=True)
 
     def _ready(self, peer, p):
@@ -363,15 +370,17 @@ class GameRoom:
         peer.last_seq = p.seq
         actor = peer.member_id
         if device == 'screen':
-            # The camera moves whoever is this team's Legs right now; players swap spots each round.
-            actor = next((a.member_id for a in self.sim.snapshot().assignments
-                          if a.team == camera_team and a.role == 'legs'), None)
-            if actor is None:
-                return
-        elif kind == 'input.legs' and self._camera_drives(actor):
-            return  # this team's movement comes from the screen camera
+            # Camera + pocket split: the screen camera reports which way the team's Legs player
+            # faces (a unit vector, zero when nobody is tracked); their pocketed phone says when
+            # they jog. Phone accelerometers detect jogging far sooner than pose landmarks do.
+            self.camera_facing[camera_team] = (Vec2(p.move.x, p.move.z), now_ms())
+            return
         if kind == 'input.legs':
-            command = LegsCommand(seq=p.seq, epoch=p.epoch, move=Vec2(p.move.x, p.move.z))
+            move = Vec2(p.move.x, p.move.z)
+            facing = self._camera_facing(actor)
+            if (move.x or move.z) and facing is not None and (facing.x or facing.z):
+                move = facing  # jogging: go the way the camera sees them face
+            command = LegsCommand(seq=p.seq, epoch=p.epoch, move=move)
         else:
             command = ArmsCommand(seq=p.seq, epoch=p.epoch, aim=Vec2(p.aim.x, p.aim.z),
                 action=p.action, strength=p.strength)

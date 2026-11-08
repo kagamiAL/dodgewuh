@@ -5,6 +5,8 @@
 // Start tap (permission, audio, wake lock) → spoken "pocket it" → face the screen and stand still
 // (heading 0 + gyro bias) → while jogging, input.legs carries the facing direction at 20 Hz.
 // Stale sensors, a hidden page, an epoch change or unmount send zero immediately.
+// With a screen camera on this team the phone still says WHEN they jog; the server swaps in the
+// direction the camera sees them face (backend/app/services/game.py).
 // See pocketFrame.ts / jogTracker.ts.
 
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
@@ -68,14 +70,13 @@ function setCalibrated(v: boolean): void {
   if (v !== isCalibrated) emit('calibrated', (isCalibrated = v))
 }
 
-// A screen camera can drive this team's Legs instead (src/camera/CameraLegs.vue). Then the
-// phone only tells the player where to stand, sends no movement and reports itself ready.
+// A screen camera can steer this team's Legs (src/camera/CameraLegs.vue): the pocketed phone
+// still detects jogging (much faster than pose landmarks) and the camera supplies the facing.
 const cameraMode = computed(() =>
   !!session.data.room?.members.some((m) => m.device === 'screen' && m.connected && m.camera_team === props.team),
 )
 
 function send(move: Vec2): void {
-  if (cameraMode.value) return
   // The server accepts movement only while active (03); calibration can finish in the lobby.
   if (!props.connected || props.state.phase !== 'active') return
   props.transport.send({ v: 1, type: 'input.legs', payload: { seq: props.transport.nextInputSeq(), epoch: props.epoch, move } })
@@ -202,18 +203,6 @@ function onVisibility(): void {
 document.addEventListener('visibilitychange', onVisibility)
 
 // A new epoch (countdown/active) clears the input latch but keeps calibration (roleComponent.ts).
-watch(cameraMode, (on) => {
-  if (on) {
-    stop()
-    silence()
-    setAvailability('granted')
-    setCalibrated(true)
-  } else {
-    setCalibrated(false)
-    setAvailability('unknown')
-  }
-}, { immediate: true })
-
 watch(() => props.epoch, () => {
   tracker?.halt()
   if (stage.value === 'live') send({ x: 0, z: 0 })
@@ -231,19 +220,15 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="legs" :style="{ '--team': TEAM_HEX[team] }">
-    <template v-if="cameraMode">
-      <h1>Legs · camera</h1>
-      <p class="camera-note">The screen's camera moves you. Put the phone away.</p>
-      <ol>
-        <li>Stand in the <strong>right half</strong> of the camera view (Arms takes the left half).</li>
+    <template v-if="stage === 'start' || stage === 'blocked'">
+      <h1>Legs{{ cameraMode ? ' · camera' : '' }}</h1>
+      <ol v-if="cameraMode">
+        <li>Tap <strong>Start</strong> and put the phone in your <strong>front pocket</strong>. It senses when you jog.</li>
+        <li><strong>Face the screen</strong> and stand still when the voice says so.</li>
+        <li>Stand in the <strong>right half</strong> of the camera view (Arms takes the left half). The camera sees which way you face.</li>
         <li><strong>Jog in place</strong> to move. Face the way you want to go: the screen = forward; turn to steer.</li>
-        <li>Swap sides with your teammate every round.</li>
       </ol>
-    </template>
-
-    <template v-else-if="stage === 'start' || stage === 'blocked'">
-      <h1>Legs</h1>
-      <ol>
+      <ol v-else>
         <li>Tap <strong>Start</strong>.</li>
         <li>Put the phone in your <strong>front pocket</strong> (any way round).</li>
         <li><strong>Face the screen</strong> and stand still when the voice says so.</li>
@@ -293,10 +278,6 @@ ol {
 }
 .note {
   color: #fb4;
-}
-.camera-note {
-  font-size: 1.2rem;
-  color: #3c6;
 }
 .start {
   width: 100%;

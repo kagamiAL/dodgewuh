@@ -1,11 +1,13 @@
 <script setup lang="ts">
-// Screen camera → a team's Legs. The frame is split down the middle: whoever stands in the
-// RIGHT half of the (mirrored) preview is Legs; the left half (Arms) is ignored. Jogging in place
-// moves the character the way the player faces. Players swap halves each round; during
-// role_switch/countdown a large preview shows where to stand and whether Legs is in position.
+// Screen camera → which way a team's Legs player faces. The frame is split down the middle:
+// whoever stands in the RIGHT half of the (mirrored) preview is Legs; the left half (Arms) is
+// ignored. Their pocketed phone detects jogging; while it does, the character moves the way this
+// camera sees them face. Players swap halves each round; during role_switch/countdown a large
+// preview shows where to stand and whether Legs is in position.
 //
-// The screen claims a team with camera.claim and sends input.legs at 20 Hz while active; the
-// server applies it as that team's current Legs player (backend/app/services/game.py).
+// The screen claims a team with camera.claim and sends input.legs at 20 Hz while active, carrying
+// the facing as a unit vector (zero when nobody is tracked). The server uses it as the direction
+// for that team's Legs phone input (backend/app/services/game.py).
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Team, Vec2 } from '@/contracts/pending'
@@ -25,7 +27,7 @@ const emit = defineEmits<{ facing: [value: { team: Team; dir: Vec2 } | null] }>(
 
 const team = ref<Team | null>(loadTeam())
 const status = ref('')
-const live = ref<PoseState>({ present: false, jogging: false, facing: null, yaw_deg: null, dir: null, move: { r: 0, f: 0 } })
+const live = ref<PoseState>({ present: false, facing: null, yaw_deg: null, dir: null })
 const video = ref<HTMLVideoElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 
@@ -59,9 +61,9 @@ function claim(): void {
 }
 
 // 02: Team 1 forward is +z and right is +x; Team 2 is mirrored (same mapping as phone Legs).
-function toWorld(move: { r: number; f: number }, t: Team): Vec2 {
+function toWorld(dir: { r: number; f: number }, t: Team): Vec2 {
   const s = t === 1 ? 1 : -1
-  return { x: move.r * s, z: move.f * s }
+  return { x: dir.r * s, z: dir.f * s }
 }
 
 async function startCamera(): Promise<void> {
@@ -135,7 +137,7 @@ function draw(): void {
   poses.forEach((lm, i) => {
     const legs = i === legsIndex
     g.lineWidth = legs ? 6 : 3
-    g.strokeStyle = legs ? (live.value.jogging ? '#3c6' : TEAM_HEX[team.value ?? 1]) : 'rgba(255,255,255,0.35)'
+    g.strokeStyle = legs ? TEAM_HEX[team.value ?? 1] : 'rgba(255,255,255,0.35)'
     for (const { start, end } of connections) {
       const a = lm[start]
       const b = lm[end]
@@ -162,7 +164,9 @@ function draw(): void {
 function tick(): void {
   const st = state.value
   if (team.value === null || !st || st.phase !== 'active' || session.data.status !== 'connected') return
-  transport.send({ v: 1, type: 'input.legs', payload: { seq: transport.nextInputSeq(), epoch: st.epoch, move: toWorld(live.value.move, team.value) } })
+  const dir = live.value.present ? live.value.dir : null
+  const facing = dir ? toWorld(dir, team.value) : { x: 0, z: 0 }
+  transport.send({ v: 1, type: 'input.legs', payload: { seq: transport.nextInputSeq(), epoch: st.epoch, move: facing } })
 }
 
 function onPick(e: Event): void {
@@ -202,7 +206,7 @@ watch(
 const facingText = computed(() => {
   const f = live.value.facing
   if (!live.value.present) return 'No one in the LEGS half'
-  return `${live.value.jogging ? 'Jogging' : 'Standing'} · facing ${f === 'screen' ? 'the screen' : f}`
+  return `Legs facing ${f === 'screen' ? 'the screen' : f}`
 })
 
 onMounted(() => {
@@ -229,7 +233,7 @@ onBeforeUnmount(() => {
     </div>
     <video ref="video" class="hidden-video" playsinline muted />
     <canvas v-show="team !== null" ref="canvas" class="preview" />
-    <p v-if="team !== null" class="state" :class="{ ok: big ? inPosition : live.jogging }">
+    <p v-if="team !== null" class="state" :class="{ ok: big ? inPosition : live.present }">
       {{ big ? (inPosition ? '✓ Legs player in position' : facingText) : facingText }}
     </p>
     <p v-if="status" class="status">{{ status }}</p>
