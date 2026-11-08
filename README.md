@@ -1,5 +1,7 @@
 # dodgewuh
 
+![dodgewuh system architecture: four phone controllers and a shared screen connect over HTTPS/WSS to a Caddy-fronted FastAPI coordinator on EC2, which relays commands and snapshots over a private WebSocket to a game worker running the pure-Python 60 Hz simulation, with PostgreSQL on an encrypted EBS volume holding rooms, matches and results.](docs/images/architecture.png)
+
 **Dodgeball where your body is the controller.** Four friends, two teams, one big screen and
 the phones already in their pockets. One teammate runs, the other throws, and when a ball is
 about to hit you, the game drops into slow motion and you have to physically dodge it in front of
