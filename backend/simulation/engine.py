@@ -601,11 +601,6 @@ class Simulation:
         # Held balls follow their character.
         self._sync_held_balls()
 
-        # (4c) Camera dodge: a ball about to hit a still, camera-watched victim
-        # starts slow motion before it connects.
-        if self._dodge is None:
-            self._detect_dodge()
-
         # (5) Advance flight, resolve the earliest valid hit, then respawns.
         decided = self._step_flight(prev_pos)
 
@@ -618,28 +613,6 @@ class Simulation:
         self._advance_dodge()
 
     # --- Internal: camera dodge ---------------------------------------------
-    def _detect_dodge(self) -> None:
-        """Start a dodge for the first flying ball (by ID) within
-        K.DODGE_TRIGGER_DISTANCE of its victim that would really hit them
-        (judged as if they stopped where they are), moving or not -- unless the
-        ball is coming at their back. With no
-        fresh camera facing the dodge is allowed. This runs every tick, so
-        turning to face a ball still starts the dodge."""
-        for ball_id in K.BALL_IDS:
-            ball = self._balls[ball_id]
-            if ball.mode != "flying" or ball_id in self._dodged_balls:
-                continue
-            victim = K.opponent(ball.shooter_team)  # type: ignore[arg-type]
-            if victim not in self._dodge_teams:
-                continue
-            if G.distance(ball.pos, self._characters[victim].pos) > K.DODGE_TRIGGER_DISTANCE:
-                continue  # still too far away
-            if self._at_back(ball, victim):
-                continue  # thrown at their back: no chance to dodge
-            if self._ticks_to_contact(ball, self._characters[victim].pos) is not None:
-                self._dodge = _Dodge(ball_id=ball_id, team=victim)
-                return
-
     def _at_back(self, ball: _Ball, victim: int) -> bool:
         """Is the ball travelling the way the victim faces, i.e. into their back?"""
         seen = self._facing.get(victim)
@@ -649,30 +622,6 @@ class Simulation:
         if not (facing.x or facing.z):
             return False
         return G.dot(G.normalize(ball.velocity), facing) > K.DODGE_BACK_DOT
-
-    @staticmethod
-    def _ticks_to_contact(ball: _Ball, victim: Vec2) -> int | None:
-        """Ticks until `ball` reaches a victim standing at `victim`, or None if
-        it lands, leaves the court or expires first or is further off than the
-        dodge lead. Replays _step_flight's clipping on a copy of the ball."""
-        pos, height, vv = ball.pos, ball.height, ball.vertical_velocity
-        disp = G.scale(ball.velocity, K.DT)
-        remaining = min(K.DODGE_LEAD_TICKS, K.FLIGHT_TICKS - ball.flight_ticks)
-        for n in range(remaining):
-            exit_at = G.wall_exit_fraction(pos, disp)
-            land_at = G.ground_impact_fraction(height, vv)
-            limit = 1.0
-            if exit_at is not None:
-                limit = exit_at
-            if land_at is not None and land_at < limit:
-                limit = land_at
-            if G.swept_hit(pos, disp, victim, victim, limit) is not None:
-                return n
-            if limit < 1.0:
-                return None
-            pos = G.add(pos, disp)
-            height, vv = G.fall(height, vv, K.DT)
-        return None
 
     def _advance_dodge(self) -> None:
         """Count the dodge's ticks: no verdict in time is a hit; once decided,
@@ -848,6 +797,15 @@ class Simulation:
                 )
             )
             d = self._dodge
+            if (
+                hit_at is not None
+                and d is None
+                and victim in self._dodge_teams
+                and not self._at_back(ball, victim)
+            ):
+                # Camera dodge: the ball really connects, but a camera-watched
+                # victim it isn't hitting in the back gets one chance to dodge.
+                d = self._dodge = _Dodge(ball_id=ball_id, team=victim)
             if (
                 hit_at is not None
                 and d is not None

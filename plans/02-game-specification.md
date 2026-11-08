@@ -63,13 +63,18 @@ A valid throw launches the ball at character centre plus aim × 0.65 m, at relea
 
 ### Camera dodge
 
-A team whose Legs a screen camera has claimed can physically dodge. Each active step, after Arms edges and before flight, the first flying ball (by ID) that is within 4 m of its victim (centre to centre) and would really hit them (the normal 0.75 m hit test, judged as if they stopped where they are) starts a dodge for that victim's team, if no dodge is running, whether the victim is moving or not. **Exception: a ball thrown at the victim's back** never starts a dodge. That means its direction of travel is within 45° of the way the victim's screen camera sees them facing. Without a fresh camera facing, the dodge is allowed. The check repeats every tick, so turning to face a ball still starts one. While the dodge runs, `State.dodge` is set and the worker steps the simulation once per 8 real ticks (slow motion: 4 m takes about 1.6–2.7 s real, depending on throw speed). The victim cannot move until they dodge. The incoming ball keeps flying, but if it would connect before the verdict it parks just short of the victim and neither falls nor ages.
+A team whose Legs a screen camera has claimed gets one chance to dodge a ball that **actually hits** them. That means the normal hit test in step 5 (swept circles, combined radius 0.75 m); there is no separate radius or early warning. Instead of ending the round, that hit starts a dodge, if no dodge is running:
+- The ball is held just short of the victim, neither falling nor ageing.
+- The victim is frozen.
+- `State.dodge` is set, and the worker steps the simulation once per 8 real ticks (slow motion) while it runs.
+
+**Exception: a ball thrown at the victim's back** gets no dodge and is an ordinary hit. That means its direction of travel is within 45° of the way the victim's screen camera sees them facing. Without a fresh camera facing, the dodge is allowed. A team without a camera claim never dodges.
 
 The victim's camera screen overlays a ball on its preview, aimed at the Legs player's torso. After 1.1 s real time it reports `dodge.result`:
-- **Dodged** if the ball no longer overlaps the player's skeleton and the player is still in the Legs half of the frame. That ball then passes through the victim for the rest of its flight.
-- **Hit** otherwise, and also when no verdict arrives within 15 ticks (about 2 s real). The frozen victim is then struck when the ball reaches them, scored as an ordinary hit.
+- **Dodged** if the ball no longer overlaps the player's skeleton and the player is still in the Legs half of the frame. The ball then passes through the victim for the rest of its flight, and play goes on.
+- **Hit** otherwise, and also when no verdict arrives within 15 ticks (about 2 s real). The held ball connects on the next step and the victim loses the round, as with any hit.
 
-Slow motion ends 45 ticks after the dodge began once a verdict exists, or as soon as its ball stops flying. Any phase transition clears it. A team without a camera claim never dodges and is hit exactly as before. Other balls resolve normally during a dodge.
+Slow motion ends 45 ticks after the dodge began once a verdict exists, or as soon as its ball stops flying. Any phase transition clears it. Other balls resolve normally during a dodge.
 
 ## Deterministic step order
 

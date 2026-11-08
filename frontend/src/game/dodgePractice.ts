@@ -1,9 +1,9 @@
 // Camera dodge practice feed (/dodge): no backend, one screen with a camera.
 //
-// Team 1 throws at you (Team 2's Legs, standing still) over and over. Each throw starts a
-// dodge exactly as the server would (backend/simulation/engine.py "camera dodge"): slow motion,
-// you are frozen, the ball parks at you until your camera's verdict, a dodged ball passes through
-// and a missed dodge (or no verdict in time) is a hit. Turn your back and there is no dodge. It is a small mirror of those rules for
+// Team 1 throws at you (Team 2's Legs, standing still) over and over. When a throw hits you it
+// starts a dodge exactly as the server would (backend/simulation/engine.py "camera dodge"): slow
+// motion, the ball is held at you until your camera's verdict, a dodged ball passes through and a
+// missed dodge (or no verdict in time) is a hit. Turn your back and there is no dodge. It is a small mirror of those rules for
 // practice only; the server stays the authority. Snapshots go through session.apply like live.
 
 import type { Room, ServerMessage } from '@/contracts/pending'
@@ -17,8 +17,6 @@ const THROW_HEIGHT = 1.5
 const THROW_OFFSET = 0.65
 const GRAVITY = 1.9
 const COMBINED_RADIUS = 0.75
-const DODGE_TRIGGER_DISTANCE = 4
-const DODGE_LEAD_TICKS = 45
 const DODGE_VERDICT_TIMEOUT_TICKS = 15
 const DODGE_SLOWMO_TICKS = 45
 const DODGE_BACK_DOT = 0.7071 // a ball within 45° of straight into your back: no dodge
@@ -95,19 +93,6 @@ export function startDodgePractice(handler: (msg: ServerMessage) => void, onTall
     return (b.vel.x * facing.x + b.vel.z * facing.z) / speed > DODGE_BACK_DOT
   }
 
-  /** Ticks until the flying ball reaches you standing still, within the dodge lead. */
-  function ticksToContact(b: NonNullable<typeof ball>): number | null {
-    let { pos, height, vv } = b
-    for (let n = 0; n < DODGE_LEAD_TICKS; n++) {
-      if (Math.hypot(pos.x - YOU.x, pos.z - YOU.z) <= COMBINED_RADIUS) return n
-      if (height <= BALL_RADIUS || outOfCourt(pos)) return null
-      pos = { x: pos.x + b.vel.x * DT, z: pos.z + b.vel.z * DT }
-      height += vv * DT - 0.5 * GRAVITY * DT * DT
-      vv -= GRAVITY * DT
-    }
-    return null
-  }
-
   /** One simulation tick (60 Hz, or every SLOWMO_FACTOR-th real tick in slow motion). */
   function step(): void {
     tick += 1
@@ -133,11 +118,10 @@ export function startDodgePractice(handler: (msg: ServerMessage) => void, onTall
       return
     }
 
-    const near = Math.hypot(ball.pos.x - YOU.x, ball.pos.z - YOU.z) <= DODGE_TRIGGER_DISTANCE
-    if (!dodge && !dodged && near && !atBack(ball) && ticksToContact(ball) !== null) dodge = { ball_id: 'b1', team: 2, outcome: 'pending', ticks: 0 }
-
     const next = { x: ball.pos.x + ball.vel.x * DT, z: ball.pos.z + ball.vel.z * DT }
     const contact = !dodged && Math.hypot(next.x - YOU.x, next.z - YOU.z) <= COMBINED_RADIUS
+    // The ball really hits you: unless it's in your back, that starts your one chance to dodge.
+    if (contact && !dodge && !atBack(ball)) dodge = { ball_id: 'b1', team: 2, outcome: 'pending', ticks: 0 }
     if (contact && dodge?.outcome === 'pending') {
       // Parked short of you until the camera decides.
     } else if (contact) {

@@ -135,16 +135,14 @@ MATCH_POINTS: int = 2  # best of 3: first to 2 ends the match early
 MAX_ROUNDS: int = 3  # otherwise the match ends after round 3; higher score wins, equal is a draw
 
 # --- Camera dodge -----------------------------------------------------------
-# A flying ball predicted to hit a STANDING-STILL victim whose team has a screen
-# camera starts a dodge: the worker slows the room to 1 step per SLOWMO_FACTOR
-# real ticks, the victim freezes, and the victim's camera screen reports whether
-# the player physically stepped out of an overlaid ball (dodged) or not (hit).
+# A ball that actually hits a victim whose team has a screen camera (and isn't
+# thrown at their back) starts a dodge instead of ending the round: the ball is
+# held at the victim, the worker slows the room to 1 step per SLOWMO_FACTOR real
+# ticks, the victim freezes, and the victim's camera screen reports whether the
+# player physically stepped out of an overlaid ball (dodged: play goes on) or
+# not (hit: they lose the round).
 # Tick counts below are SIMULATION ticks; real time is SLOWMO_FACTOR times longer.
 SLOWMO_FACTOR: int = 8
-# A dodge starts once an on-target ball is within this distance of its victim (centre to
-# centre, metres), so it feels the same for every throw speed.
-DODGE_TRIGGER_DISTANCE: float = 4.0
-DODGE_LEAD_TICKS: int = 45  # how far ahead the on-target prediction looks (covers 4 m at any speed)
 DODGE_VERDICT_TIMEOUT_TICKS: int = 15  # 2 s real: no verdict by then is a hit (window is 1.1 s)
 # No dodge for a ball thrown at your back: its direction of travel within 45 degrees of the way
 # the victim's camera sees them face (dot product above cos 45).
