@@ -421,9 +421,19 @@ class Simulation:
                 if self._phase_ticks_left <= 0:
                     self._enter_role_switch()
         elif phase == "lobby":
+            # Auto-start after a short hold, so a phone that blips right after
+            # readying cancels the start here instead of aborting the countdown
+            # (which would send every phone back to recalibrate). The hold
+            # restarts from full whenever anyone stops being ready.
             self._pending.clear()
-            if self._ready_to_begin():
-                self._control_start()
+            if not self._ready_to_begin():
+                self._phase_ticks_left = None
+            else:
+                if self._phase_ticks_left is None:
+                    self._phase_ticks_left = K.LOBBY_START_TICKS
+                self._phase_ticks_left -= 1
+                if self._phase_ticks_left <= 0:
+                    self._control_start()
         elif phase == "role_switch":
             # Wait here indefinitely. 02: never force-start an unready
             # controller. 03: this decision is taken on the step after
@@ -1101,8 +1111,9 @@ class Simulation:
         return self._ticks_to_ms(remaining)
 
     def _phase_remaining_ms(self) -> int | None:
-        """Non-null only in countdown and round_end; null while waiting."""
-        if self._phase in ("countdown", "round_end") and self._phase_ticks_left is not None:
+        """Non-null in countdown and round_end, and in lobby while the auto-start
+        hold runs; null while waiting."""
+        if self._phase in ("lobby", "countdown", "round_end") and self._phase_ticks_left is not None:
             return self._ticks_to_ms(self._phase_ticks_left)
         return None
 

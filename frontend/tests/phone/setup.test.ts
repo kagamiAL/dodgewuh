@@ -57,4 +57,42 @@ describe('phone setup', () => {
     expect(transport.send).not.toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ ready: true }) }))
     wrapper.unmount()
   })
+
+  it('rides out a brief sensor gap during the countdown but reports a lasting one', async () => {
+    const wrapper = mount(PhoneShell)
+    await flushPromises()
+    const controller = wrapper.findComponent({ name: 'ArmsController' })
+    controller.vm.$emit('ready')
+    controller.vm.$emit('availability', 'granted')
+    controller.vm.$emit('calibrated', true)
+    await flushPromises()
+    expect(transport.send).toHaveBeenLastCalledWith(expect.objectContaining({ payload: expect.objectContaining({ ready: true, permission: 'granted' }) }))
+
+    // Server confirms ready, then starts the countdown.
+    const room = session.data.room!
+    session.apply({ v: 1, type: 'room.updated', server_ms: 0, payload: { room: {
+      ...room, revision: room.revision + 1,
+      members: room.members.map((m) => (m.member_id === 's1' ? { ...m, ready: true, calibrated: true, permission: 'granted' } : m)),
+    } } } as ServerMessage)
+    const st = session.data.state!
+    session.apply({ v: 1, type: 'phase.changed', server_ms: 0, payload: { state: { ...st, phase: 'countdown', epoch: st.epoch + 1 } } } as ServerMessage)
+    await flushPromises()
+    vi.mocked(transport.send).mockClear()
+
+    const readyFalse = expect.objectContaining({ type: 'controller.ready', payload: expect.objectContaining({ ready: false }) })
+    // A short dropout that recovers sends nothing.
+    controller.vm.$emit('availability', 'unknown')
+    await vi.advanceTimersByTimeAsync(1000)
+    controller.vm.$emit('availability', 'granted')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(transport.send).not.toHaveBeenCalledWith(readyFalse)
+
+    // A dropout that outlasts the grace window is reported (and aborts the round server-side).
+    controller.vm.$emit('availability', 'unknown')
+    await vi.advanceTimersByTimeAsync(1400)
+    expect(transport.send).not.toHaveBeenCalledWith(readyFalse)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(transport.send).toHaveBeenCalledWith(readyFalse)
+    wrapper.unmount()
+  })
 })

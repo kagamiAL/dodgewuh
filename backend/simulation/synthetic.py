@@ -338,6 +338,45 @@ def drive(
 
 
 # --- Scenarios --------------------------------------------------------------
+def scenario_lobby_start_hold(d: Diagnostics) -> None:
+    print("\n[lobby auto-start hold]")
+    sim = Simulation(FOUR)
+    sim.step(0)
+    d.observe("no hold timer while nobody is ready", sim.snapshot().phase_remaining_ms is None,
+              str(sim.snapshot().phase_remaining_ms))
+
+    ready_all(sim)
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("all ready starts the hold in lobby, not the countdown",
+              s.phase == "lobby" and s.phase_remaining_ms == 2000 - 1000 // K.TICK_HZ,
+              f"{s.phase} {s.phase_remaining_ms}")
+    epoch = s.epoch
+    for _ in range(K.LOBBY_START_TICKS // 2):
+        sim.step(0)
+    sim.set_readiness(ready_member_ids=frozenset({P1, P2, P3}),
+                      connected_member_ids=frozenset({P1, P2, P3, P4}),
+                      screen_count=1, host_connected=True)
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("a phone un-readying cancels the hold without leaving lobby",
+              s.phase == "lobby" and s.phase_remaining_ms is None and s.epoch == epoch,
+              f"{s.phase} {s.phase_remaining_ms} epoch {epoch}->{s.epoch}")
+
+    ready_all(sim)
+    for _ in range(K.LOBBY_START_TICKS - 1):
+        sim.step(0)
+    s = sim.snapshot()
+    d.observe("the hold restarts from full after a cancel",
+              s.phase == "lobby" and s.phase_remaining_ms == 1000 // K.TICK_HZ + 1,
+              f"{s.phase} {s.phase_remaining_ms}")
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("the countdown begins when the hold runs out",
+              s.phase == "countdown" and s.round == 1 and s.phase_remaining_ms == 3000,
+              f"{s.phase} round {s.round} {s.phase_remaining_ms}")
+
+
 def scenario_reset_snapshot(d: Diagnostics) -> None:
     print("\n[reset/lobby snapshot]")
     sim = Simulation(FOUR)
@@ -1926,7 +1965,7 @@ def scenario_full_match(d: Diagnostics) -> None:
                 violations.append(f"{where}: respawn_in_ms on {b.ball_id}")
             if b.mode != "flying" and (b.velocity.x or b.velocity.z):
                 violations.append(f"{where}: velocity on {b.ball_id}")
-        if s.phase_remaining_ms is not None and s.phase not in ("countdown", "round_end"):
+        if s.phase_remaining_ms is not None and s.phase not in ("lobby", "countdown", "round_end"):
             violations.append(f"{where}: phase_remaining_ms in {s.phase}")
         if s.winner is not None and s.phase != "match_end":
             violations.append(f"{where}: winner in {s.phase}")
@@ -2263,7 +2302,7 @@ def scenario_device_guard(d: Diagnostics) -> None:
     )
     sim.step(0)
     ready_all(sim)  # everyone is back and ready again
-    for _ in range(120):
+    for _ in range(K.LOBBY_START_TICKS + 30):
         sim.step(0)
     d.observe("reconnecting and re-readying automatically starts a fresh match",
               sim.snapshot().phase == "countdown" and sim.snapshot().round == 1,
@@ -2517,6 +2556,7 @@ def main(argv: list[str] | None = None) -> int:
     scenario_best_of_three(diagnostics)
     scenario_full_match(diagnostics)
     scenario_device_guard(diagnostics)
+    scenario_lobby_start_hold(diagnostics)
     scenario_reset_and_rematch(diagnostics)
 
     total = diagnostics.matched + len(diagnostics.deviations)

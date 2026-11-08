@@ -125,6 +125,9 @@ GRAVITY: float = 1.9  # was 3.4; see the playtest amendment above
 ROUND_TICKS: int = 3600  # 60 seconds of active play
 ROUND_MS: int = 60000
 COUNTDOWN_TICKS: int = 180  # 3 seconds
+# Lobby auto-start hold: all four must stay ready this long before the countdown
+# begins. Unlike an abort, a cancelled hold costs nobody their calibration.
+LOBBY_START_TICKS: int = 120  # 2 seconds
 RESULT_TICKS: int = 120  # 2 seconds
 
 # --- Match ------------------------------------------------------------------

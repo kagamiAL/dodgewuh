@@ -47,7 +47,13 @@ const readyCount = computed(() => seats.value.filter((s) => s.member?.connected 
 const generation = ref(0)
 const calibrated = ref(false)
 const setupStage = ref<SetupStage>('start')
+// Lobby auto-start hold: the server sends phase_remaining_ms in lobby only while all four are ready.
+const startingIn = computed(() => {
+  const st = state.value
+  return st?.phase === 'lobby' && st.phase_remaining_ms !== null ? Math.max(1, Math.ceil(st.phase_remaining_ms / 1000)) : null
+})
 const setupStatus = computed(() => {
+  if (me.value?.ready && startingIn.value !== null) return `Everyone's ready — starting in ${startingIn.value}… Stay put.`
   if (me.value?.ready) return 'Ready — waiting for the other players.'
   if (setupStage.value === 'blocked') return 'Motion access needed. Follow the instructions below.'
   if (setupStage.value === 'pocketing') return 'Pocket your phone, then face the screen.'
@@ -72,12 +78,48 @@ function onMessage(message: ServerMessage): void {
   availability.value = 'unknown'
   intent.value = null
   reported = null
+  clearGrace()
+}
+
+// Motion events can pause briefly (main-thread jank, speech/audio starting, the OS throttling a
+// pocketed phone). availability then reads 'unknown' after only SENSOR_STALE_MS, and a ready=false
+// during countdown/active aborts the round for everyone. Treat a sensor gap as healthy until it
+// lasts SENSOR_GRACE_MS. Losing calibration is never debounced.
+const SENSOR_GRACE_MS = 1500
+let sensorLostAt: number | null = null
+let graceTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearGrace(): void {
+  sensorLostAt = null
+  if (graceTimer) clearTimeout(graceTimer)
+  graceTimer = null
+}
+
+function sensorsHealthy(): boolean {
+  if (availability.value === 'granted') {
+    clearGrace()
+    return true
+  }
+  // Only a phone that was live (calibrated) gets the grace; setup still needs real sensor data.
+  if (!calibrated.value) {
+    clearGrace()
+    return false
+  }
+  const now = performance.now()
+  sensorLostAt ??= now
+  if (now - sensorLostAt >= SENSOR_GRACE_MS) return false
+  graceTimer ??= setTimeout(() => {
+    graceTimer = null
+    report()
+  }, SENSOR_GRACE_MS - (now - sensorLostAt))
+  return true
 }
 
 function report(): void {
   const st = state.value
   if (!connected.value || !st || !assignment.value) return
-  const healthy = calibrated.value && availability.value === 'granted'
+  const sensorsOk = sensorsHealthy() // always run: it also resets the grace window
+  const healthy = calibrated.value && sensorsOk
   let ready: boolean
   if (canReady.value) {
     const intentValid =
@@ -88,13 +130,15 @@ function report(): void {
     if (healthy || !me.value?.ready) return
     ready = false
   }
-  const next = { ready, permission: availability.value, calibrated: calibrated.value, epoch: st.epoch, version: st.assignment_version }
+  // Inside the grace window the sensors still count as granted, so the report doesn't flap.
+  const permission: Permission = healthy ? 'granted' : availability.value
+  const next = { ready, permission, calibrated: calibrated.value, epoch: st.epoch, version: st.assignment_version }
   if (reported && JSON.stringify(reported) === JSON.stringify(next)) return
   reported = next
   transport.send({
     v: 1,
     type: 'controller.ready',
-    payload: { epoch: st.epoch, assignment_version: st.assignment_version, ready, permission: availability.value, calibrated: calibrated.value },
+    payload: { epoch: st.epoch, assignment_version: st.assignment_version, ready, permission, calibrated: calibrated.value },
   })
 }
 
@@ -123,6 +167,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   unsubscribe?.()
+  clearGrace()
   transport.close()
   sensors.stop()
 })

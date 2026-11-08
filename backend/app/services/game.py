@@ -122,6 +122,7 @@ class GameRoom:
         self.status = {}
         self.team_choices = set()
         self.last_phase = None
+        self.lobby_hold = False  # last runner snapshot showed the lobby auto-start hold
         self.cameras = {}  # connected screen member_id -> team whose Legs its camera steers
         self.camera_facing = {}  # team -> (Vec2, received_ms): latest facing from that team's camera
         self.turnaround = {}  # team -> 'away', or the now_ms() its turnaround pause ends
@@ -488,8 +489,14 @@ class GameRoom:
                     self.sim.step(now_ms())
                     self._flush()
                     self.steps += 1
-                    if self.steps % SNAPSHOT_EVERY == 0 and self.sim.snapshot().phase != 'lobby':
-                        self._broadcast_snapshot()
+                    if self.steps % SNAPSHOT_EVERY == 0:
+                        snap = self.sim.snapshot()
+                        # Lobby is static, except while the auto-start hold counts down. Keep
+                        # sending through one snapshot after it ends so a cancel reaches clients.
+                        holding = snap.phase == 'lobby' and snap.phase_remaining_ms is not None
+                        if snap.phase != 'lobby' or holding or self.lobby_hold:
+                            self._broadcast_snapshot()
+                        self.lobby_hold = holding
             except Exception:
                 log.exception('room=%s runner step failed', self.code)
 

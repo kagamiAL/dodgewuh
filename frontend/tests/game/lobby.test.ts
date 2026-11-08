@@ -57,3 +57,21 @@ describe('lobby connection states', () => {
     wrapper.unmount()
   })
 })
+
+describe('lobby auto-start hold', () => {
+  it('shows the start countdown while the server holds, and the ready count otherwise', async () => {
+    session.setRegistration(registration)
+    session.setStatus('connected')
+    session.apply(welcome as ServerMessage)
+    const st = session.data.state!
+    const wrapper = mount(Lobby, options)
+    expect(wrapper.find('.starting').exists()).toBe(false)
+    session.apply({ v: 1, type: 'state.snapshot', server_ms: 0, payload: { state: { ...st, phase: 'lobby', tick: st.tick + 1, phase_remaining_ms: 1500 } } } as ServerMessage)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.starting').text()).toContain('starting in 2')
+    session.apply({ v: 1, type: 'state.snapshot', server_ms: 0, payload: { state: { ...st, phase: 'lobby', tick: st.tick + 2, phase_remaining_ms: null } } } as ServerMessage)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.starting').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Match starts automatically')
+  })
+})

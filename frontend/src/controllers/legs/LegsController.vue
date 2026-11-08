@@ -205,6 +205,16 @@ function onVisibility(): void {
 }
 document.addEventListener('visibilitychange', onVisibility)
 
+// Lobby auto-start hold (server phase_remaining_ms in lobby). The phone is pocketed, so say it too.
+const startingIn = computed(() =>
+  props.state.phase === 'lobby' && props.state.phase_remaining_ms !== null
+    ? Math.max(1, Math.ceil(props.state.phase_remaining_ms / 1000))
+    : null,
+)
+watch(() => startingIn.value !== null, (holding) => {
+  if (holding && stage.value === 'live') say('Everyone is ready. Starting soon.')
+})
+
 // A new epoch (countdown/active) clears the input latch but keeps calibration (roleComponent.ts).
 watch(() => props.epoch, () => {
   tracker?.halt()
@@ -248,7 +258,7 @@ onBeforeUnmount(() => {
     </template>
 
     <div v-else class="lock">
-      <p v-if="state.phase === 'lobby' || state.phase === 'role_switch'" class="pocket-ready" role="status">{{ ready ? 'Ready — waiting for the other players.' : 'Calibrated — waiting for ready confirmation…' }}</p>
+      <p v-if="state.phase === 'lobby' || state.phase === 'role_switch'" class="pocket-ready" role="status">{{ !ready ? 'Calibrated — waiting for ready confirmation…' : startingIn !== null ? `Everyone's ready — starting in ${startingIn}…` : 'Ready — waiting for the other players.' }}</p>
       <div class="arrow" :class="{ moving: live.jogging }" :style="{ transform: `rotate(${-live.heading_deg}deg)` }">↑</div>
       <p>{{ live.jogging ? 'Jogging' : 'Standing' }} · facing {{ Math.round(live.heading_deg) }}° · intensity {{ live.intensity.toFixed(1) }}</p>
       <button

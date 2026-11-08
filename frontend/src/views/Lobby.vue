@@ -15,6 +15,13 @@ const state = computed(() => session.data.state)
 const phase = computed(() => state.value?.phase ?? room.value?.phase ?? 'lobby')
 const scoreText = computed(() => (state.value ? `${state.value.score.t1}–${state.value.score.t2}` : ''))
 const router = useRouter()
+// Lobby auto-start hold: the server sends phase_remaining_ms in lobby only while all four are ready.
+const startingIn = computed(() => {
+  const st = state.value
+  return phase.value === 'lobby' && st?.phase === 'lobby' && st.phase_remaining_ms !== null
+    ? Math.max(1, Math.ceil(st.phase_remaining_ms / 1000))
+    : null
+})
 
 const seats = computed(() => {
   const r = room.value
@@ -88,7 +95,8 @@ function returnToMenu(): void {
       </span>
     </p>
 
-    <p v-if="phase === 'lobby'" class="label count" role="status">
+    <p v-if="startingIn !== null" class="starting" role="status">Everyone's ready — starting in {{ startingIn }}…</p>
+    <p v-else-if="phase === 'lobby'" class="label count" role="status">
       {{ readyCount }}/4 ready · Match starts automatically when all 4 players are ready.
     </p>
     <div v-if="session.isHost.value" class="host">
@@ -149,6 +157,13 @@ header {
 }
 .progress span.on {
   background: #6d6;
+}
+.starting {
+  margin: 0.5rem 0 0;
+  text-align: center;
+  color: #6d6;
+  font: italic 900 clamp(1.4rem, 5vw, 2rem) / 1.1 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
 }
 .count {
   font-weight: 700;
