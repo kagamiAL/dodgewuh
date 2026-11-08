@@ -3,10 +3,14 @@
 //
 // Enable motion → hold steady + "Set forward" (calibration) → live:
 //   - aim follows where the phone points (throwGesture.pointingHeading), sent 20 Hz while active
-//   - thumb anywhere on the screen = press (server picks up the nearest ball)
-//   - chop while holding (top of the phone swings down ≥ 90° toward the TV) = release,
-//     aimed where the phone points at that moment, strength from chop speed
-//   - lift without a flick, hidden page, stale sensors, unmount = cancel (never a throw)
+//   - TAP anywhere on the screen = grab: sends press, which latches Hold on the server. The
+//     server retries pickup every tick while Hold is latched, so a tap before or while walking
+//     over a ball grabs it. No need to keep the thumb down.
+//   - chop while carrying a ball (top of the phone swings down ≥ 90° toward the TV) = release,
+//     aimed where the phone points (plus aim assist), strength from chop speed. Blocked inside
+//     the no-throw zone, where the server would drop the ball instead.
+//   - hidden page, stale sensors, unmount = cancel (drops the ball safely, never a throw)
+//   The 20 Hz aim stream also keeps the latch alive: the server drops Hold after 250 ms of silence.
 // The server decides pickup, possession, no-throw zone and whether a release is legal (02).
 
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
@@ -34,8 +38,8 @@ const RAD = 180 / Math.PI
 type Stage = 'start' | 'aim' | 'calibrating' | 'live' | 'blocked'
 const stage = ref<Stage>('start')
 const note = ref('')
-const holding = ref(false)
-const flash = ref<'throw' | 'cancel' | null>(null)
+const latched = ref(false) // we sent press and no release/cancel since: server Hold is on
+const flash = ref<'throw' | 'cancel' | 'zone' | null>(null)
 const yawDeg = ref<number | null>(null)
 const sideways = ref<number | null>(null)
 const locked = ref(false) // aim assist would pull this aim onto the opponent
@@ -45,7 +49,6 @@ let unsubscribe: (() => void) | null = null
 let sendTimer: ReturnType<typeof setInterval> | null = null
 let flashTimer: ReturnType<typeof setTimeout> | null = null
 let wakeLock: WakeLockSentinel | null = null
-let pointerId: number | null = null
 let heading: number | null = null
 let forward: number | null = null
 let orientationMs: number | null = null
@@ -60,6 +63,11 @@ const detector = createChopDetector(() => chopTuning)
 const me = computed(() => props.state.characters.find((c) => c.team === props.team) ?? null)
 const hasBall = computed(() => !!me.value?.held_ball_id)
 const inNoThrowZone = computed(() => !!me.value && Math.abs(me.value.pos.z) <= NO_THROW_Z)
+const PICKUP_RANGE = 1.2 // 02: centre distance, inclusive
+const ballInReach = computed(() => {
+  const c = me.value
+  return !!c && props.state.balls.some((b) => b.mode === 'ground' && Math.hypot(b.pos.x - c.pos.x, b.pos.z - c.pos.z) <= PICKUP_RANGE)
+})
 const active = computed(() => props.connected && props.state.phase === 'active')
 
 function setAvailability(p: Permission): void {
@@ -113,15 +121,16 @@ function send(action: 'aim' | 'press' | 'release' | 'cancel', aim: Vec2, strengt
   })
 }
 
-function showFlash(kind: 'throw' | 'cancel'): void {
+function showFlash(kind: 'throw' | 'cancel' | 'zone'): void {
   flash.value = kind
   if (flashTimer) clearTimeout(flashTimer)
   flashTimer = setTimeout(() => (flash.value = null), 600)
 }
 
+/** Clear the server's Hold latch, dropping any carried ball (stale sensors, hidden page, unmount). */
 function cancelHold(): void {
-  if (!holding.value) return
-  holding.value = false
+  if (!latched.value) return
+  latched.value = false
   send('cancel', aimFrom(heading))
   showFlash('cancel')
 }
@@ -129,7 +138,10 @@ function cancelHold(): void {
 function tick(): void {
   const fresh = sensorsFresh()
   setAvailability(fresh ? 'granted' : 'unknown')
-  if (stage.value !== 'live') return
+  // Keep aiming while re-setting forward mid-round (old forward still applies), so the latch
+  // and a carried ball survive the 0.6 s calibration instead of timing out on the server.
+  const streaming = stage.value === 'live' || (stage.value === 'calibrating' && forward !== null)
+  if (!streaming) return
   if (!fresh) {
     cancelHold()
     return
@@ -157,11 +169,15 @@ function onSample(s: SensorSample): void {
 
   if (stage.value !== 'live') return
   const chop = detector.push(s.time_ms, pitch, heading)
-  if (chop && holding.value) {
-    holding.value = false // auto-release; a fresh press is needed for the next ball
-    send('release', assistedAim(chop.heading ?? heading, chop.strength).aim, chop.strength)
-    showFlash('throw')
+  if (!chop || !hasBall.value) return
+  if (inNoThrowZone.value) {
+    // The server would turn this release into a drop; keep the ball and say why.
+    showFlash('zone')
+    return
   }
+  latched.value = false // release clears Hold; tap again for the next ball
+  send('release', assistedAim(chop.heading ?? heading, chop.strength).aim, chop.strength)
+  showFlash('throw')
 }
 
 function start(): void {
@@ -185,7 +201,6 @@ function start(): void {
 }
 
 function setForward(): void {
-  if (stage.value === 'live') cancelHold()
   stage.value = 'calibrating'
   note.value = ''
   calHeadings = []
@@ -220,19 +235,13 @@ function failCalibration(message: string): void {
   setCalibrated(false)
 }
 
-function onPadDown(e: PointerEvent): void {
-  if (stage.value !== 'live' || pointerId !== null || !sensorsFresh()) return
-  pointerId = e.pointerId
-  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-  holding.value = true
-  detector.press(performance.now()) // forget earlier motion and ignore the thumb-press jolt
+/** Tap = grab. Latches Hold on the server; it picks up the nearest ball in reach, now or later. */
+function onTap(): void {
+  if (stage.value !== 'live' || !active.value || !sensorsFresh()) return
+  detector.press(performance.now()) // ignore the thumb-tap jolt
+  if (latched.value || hasBall.value) return
+  latched.value = true
   send('press', aimFrom(heading))
-}
-
-function onPadUp(e: PointerEvent): void {
-  if (e.pointerId !== pointerId) return
-  pointerId = null
-  cancelHold() // no-op if a flick already released
 }
 
 function onVisibility(): void {
@@ -249,7 +258,7 @@ document.addEventListener('visibilitychange', onVisibility)
 
 // New epoch (countdown/active): the server already cleared Hold; drop the local latch, keep calibration.
 watch(() => props.epoch, () => {
-  holding.value = false
+  latched.value = false
   detector.reset()
 })
 
@@ -267,9 +276,11 @@ onBeforeUnmount(() => {
 const padText = computed(() => {
   if (flash.value === 'throw') return 'Thrown!'
   if (flash.value === 'cancel') return 'Dropped'
+  if (flash.value === 'zone') return 'Move back to throw!'
   if (!active.value) return 'Waiting for the round…'
-  if (holding.value) return hasBall.value ? (inNoThrowZone.value ? 'Move back to throw' : 'Flick to throw!') : 'Grabbing…'
-  return 'Hold to grab'
+  if (hasBall.value) return inNoThrowZone.value ? 'Move back to throw' : 'Chop to throw!'
+  if (latched.value) return ballInReach.value ? 'Grabbing…' : 'Grab ready — walk over a ball'
+  return ballInReach.value ? 'Ball in reach — tap!' : 'Tap to grab a ball'
 })
 </script>
 
@@ -280,7 +291,7 @@ const padText = computed(() => {
       <ol>
         <li>Tap <strong>Enable motion</strong>.</li>
         <li>Stand facing the TV. Hold the phone <strong>like a stick at chest height</strong>, <strong>screen facing sideways</strong> under your thumb.</li>
-        <li>Point where you want to throw. <strong>Thumb on the screen</strong> to grab, then <strong>chop down toward the TV</strong> to throw.</li>
+        <li><strong>Tap the screen</strong> to grab a ball. Point where you want to throw, then <strong>chop down toward the TV</strong>.</li>
       </ol>
       <p v-if="note" class="note">{{ note }}</p>
       <button v-if="stage === 'start'" class="big" @click="start">Enable motion</button>
@@ -300,15 +311,12 @@ const padText = computed(() => {
       </button>
     </template>
 
-    <!-- The whole live area is the Hold button: thumb anywhere on the screen grabs. -->
+    <!-- The whole live area is the grab button: a tap anywhere grabs. -->
     <div
       v-else
       class="live"
-      :class="{ holding, throw: flash === 'throw', cancel: flash === 'cancel', idle: !active }"
-      @pointerdown="onPadDown"
-      @pointerup="onPadUp"
-      @pointercancel="onPadUp"
-      @lostpointercapture="onPadUp"
+      :class="{ holding: hasBall, armed: latched && !hasBall, throw: flash === 'throw', cancel: flash === 'cancel' || flash === 'zone', idle: !active }"
+      @pointerdown="onTap"
     >
       <div class="status">
         <span :class="{ on: hasBall }">{{ hasBall ? '● Ball' : '○ No ball' }}</span>
@@ -394,6 +402,10 @@ ol {
 .live.holding {
   background: var(--team);
   color: #000;
+}
+.live.armed {
+  background: #23303f;
+  border-style: dashed;
 }
 .live.holding .status {
   color: #000;
