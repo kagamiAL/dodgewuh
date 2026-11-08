@@ -14,7 +14,8 @@
 // The server decides pickup, possession, no-throw zone and whether a release is legal (02).
 
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import type { RoleComponentProps } from '@/phone/roleComponent'
+import '@/phone/controllerSetup.css'
+import type { RoleComponentProps, SetupStage } from '@/phone/roleComponent'
 import type { Permission, Vec2 } from '@/contracts/pending'
 import { SENSOR_STALE_MS, type SensorSample } from '@/sensors/sensorService'
 import { TEAM_HEX } from '@/theme'
@@ -25,7 +26,7 @@ import {
 } from './throwGesture'
 
 const props = defineProps<RoleComponentProps>()
-const emit = defineEmits<{ calibrated: [value: boolean]; availability: [value: Permission] }>()
+const emit = defineEmits<{ ready: []; 'setup-stage': [value: SetupStage]; calibrated: [value: boolean]; availability: [value: Permission] }>()
 
 const SEND_MS = 50 // 20 Hz (03)
 const CAL_MS = 600
@@ -37,6 +38,7 @@ const RAD = 180 / Math.PI
 
 type Stage = 'start' | 'aim' | 'calibrating' | 'live' | 'blocked'
 const stage = ref<Stage>('start')
+watch(stage, (value) => emit('setup-stage', value), { immediate: true })
 const note = ref('')
 const latched = ref(false) // we sent press and no release/cancel since: server Hold is on
 const flash = ref<'throw' | 'cancel' | 'zone' | null>(null)
@@ -206,6 +208,7 @@ function start(): void {
 }
 
 function setForward(): void {
+  emit('ready')
   stage.value = 'calibrating'
   note.value = ''
   calHeadings = []
@@ -310,20 +313,21 @@ const padText = computed(() => {
         <li><strong>Tap the screen</strong> to grab a ball. Point where you want to throw, then <strong>chop down toward the TV</strong>.</li>
       </ol>
       <p v-if="note" class="note">{{ note }}</p>
-      <button v-if="stage === 'start'" class="big" @click="start">Enable motion</button>
+      <button v-if="stage === 'start'" class="setup-action" @click="start">Enable motion</button>
     </template>
 
     <template v-else-if="stage === 'aim' || stage === 'calibrating'">
-      <h1>{{ stage === 'calibrating' ? 'Hold still…' : 'Set forward' }}</h1>
+      <h1>{{ stage === 'calibrating' ? 'Hold still…' : 'Get ready' }}</h1>
       <p>Face the TV, phone like a stick at chest height, <strong>screen facing {{ side }}</strong>.</p>
       <div class="hand">
-        <button :class="{ on: side === 'left' }" @click="side = 'left'">Right hand<br><small>screen faces left</small></button>
-        <button :class="{ on: side === 'right' }" @click="side = 'right'">Left hand<br><small>screen faces right</small></button>
+        <button :class="{ on: side === 'left' }" :aria-pressed="side === 'left'" :disabled="stage === 'calibrating'" @click="side = 'left'">Right hand<br><small>screen faces left</small></button>
+        <button :class="{ on: side === 'right' }" :aria-pressed="side === 'right'" :disabled="stage === 'calibrating'" @click="side = 'right'">Left hand<br><small>screen faces right</small></button>
       </div>
       <p v-if="sideways !== null && sideways < GRIP_OK" class="note">Turn the screen to face {{ side }}.</p>
       <p v-if="note" class="note">{{ note }}</p>
-      <button class="big" :disabled="stage === 'calibrating'" @click="setForward">
-        {{ stage === 'calibrating' ? 'Setting…' : 'Set forward' }}
+      <p class="setup-help">Calibrates your controller and readies you for the game.</p>
+      <button class="setup-action" :aria-busy="stage === 'calibrating'" :disabled="stage === 'calibrating'" @click="setForward">
+        {{ stage === 'calibrating' ? 'Calibrating…' : 'Ready to start' }}
       </button>
     </template>
 
@@ -367,16 +371,7 @@ ol {
 .note {
   color: #fb4;
 }
-.big {
-  width: 100%;
-  min-height: 120px;
-  font-size: 1.6rem;
-  font-weight: 700;
-  border: 0;
-  border-radius: 14px;
-  background: var(--team);
-  color: #000;
-}
+
 .hand {
   display: flex;
   gap: 0.5rem;
@@ -395,9 +390,7 @@ ol {
   border-color: var(--team);
   color: #fff;
 }
-.big:disabled {
-  opacity: 0.5;
-}
+.hand button:disabled { cursor: wait; }
 .live {
   display: flex;
   flex-direction: column;

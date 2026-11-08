@@ -439,6 +439,31 @@
         ],
         "title": "session_ping",
         "type": "object"
+      },
+      "team_choose": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "team.choose",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/CameraClaim"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "team_choose",
+        "type": "object"
       }
     },
     "discriminator": {
@@ -451,7 +476,8 @@
         "match.reset": "#/$defs/match_reset",
         "match.start": "#/$defs/match_start",
         "session.hello": "#/$defs/session_hello",
-        "session.ping": "#/$defs/session_ping"
+        "session.ping": "#/$defs/session_ping",
+        "team.choose": "#/$defs/team_choose"
       },
       "propertyName": "type"
     },
@@ -482,6 +508,9 @@
       },
       {
         "$ref": "#/$defs/camera_claim"
+      },
+      {
+        "$ref": "#/$defs/team_choose"
       }
     ]
   },

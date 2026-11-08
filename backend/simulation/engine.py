@@ -420,6 +420,10 @@ class Simulation:
                 self._phase_ticks_left -= 1
                 if self._phase_ticks_left <= 0:
                     self._enter_role_switch()
+        elif phase == "lobby":
+            self._pending.clear()
+            if self._ready_to_begin():
+                self._control_start()
         elif phase == "role_switch":
             # Wait here indefinitely. 02: never force-start an unready
             # controller. 03: this decision is taken on the step after
@@ -428,7 +432,7 @@ class Simulation:
             if self._ready_to_begin():
                 self._enter_countdown()
         else:
-            # lobby and match_end hold. The tick still advances, which is what
+            # match_end holds. The tick still advances, which is what
             # 03 requires of every phase.
             self._pending.clear()
 

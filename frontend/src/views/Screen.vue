@@ -104,9 +104,9 @@ onMounted(async () => {
     scene.value = createScene(canvas.value)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
-    return
   }
-  if (session.data.state) scene.value.renderState(session.data.state)
+  // Room connection and host controls must work even when WebGL is unavailable.
+  if (session.data.state) scene.value?.renderState(session.data.state)
 
   if (live) {
     if (session.data.registration) connect().catch(() => {}) // status/overlay report failures

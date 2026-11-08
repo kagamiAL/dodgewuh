@@ -223,7 +223,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="camera" :class="{ big }">
+  <div class="camera" :class="{ big }" :data-team="team">
     <div v-if="big" class="switch">
       <h2>{{ phase === 'role_switch' ? 'Switch spots!' : 'Get in position' }}</h2>
       <p>
@@ -238,12 +238,19 @@ onBeforeUnmount(() => {
     </p>
     <p v-if="status" class="status">{{ status }}</p>
     <label v-if="!big" class="pick">
-      Camera controls
-      <select :value="team ?? ''" @change="onPick">
-        <option value="">nobody</option>
-        <option value="1">Team 1 Legs</option>
-        <option value="2">Team 2 Legs</option>
-      </select>
+      <span class="pick-title">Screen for team:</span>
+      <span id="camera-team-hint" class="pick-hint">Choose a team to steer its Legs player with this camera.</span>
+      <span class="select-wrap">
+        <span class="team-dot" aria-hidden="true" />
+        <select :value="team ?? ''" aria-describedby="camera-team-hint" @change="onPick">
+          <option value="">{{ team === null ? 'Choose your team…' : 'Turn camera off' }}</option>
+          <option value="1">Team 1</option>
+          <option value="2">Team 2</option>
+        </select>
+        <svg class="select-chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </span>
     </label>
   </div>
 </template>
@@ -251,15 +258,20 @@ onBeforeUnmount(() => {
 <style scoped>
 .camera {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
-  width: min(320px, 40vw);
-  padding: 8px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.6);
+  --camera-accent: var(--blue);
+  right: calc(12px + env(safe-area-inset-right));
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  width: min(360px, calc(100% - 24px));
+  padding: 20px;
+  border: 2px solid var(--camera-accent);
+  border-radius: 16px;
+  background: var(--bg);
+  color: var(--text);
   font-size: 0.85rem;
   z-index: 5;
 }
+.camera[data-team="1"] { --camera-accent: var(--blue); }
+.camera[data-team="2"] { --camera-accent: var(--orange); }
 .camera.big {
   inset: 6vh 8vw;
   width: auto;
@@ -306,9 +318,81 @@ onBeforeUnmount(() => {
 }
 .pick {
   display: flex;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.pick-title {
+  color: var(--text);
+  font: italic 900 1.8rem / 1.1 'Barlow Condensed', sans-serif;
+}
+.pick-hint {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+.camera:not([data-team]) .pick select {
+  background: var(--blue);
+  color: var(--bg);
+  border-color: var(--blue);
+}
+.camera:not([data-team]) .team-dot {
+  background: var(--bg);
+}
+.camera:not([data-team]) .select-chevron {
+  color: var(--bg);
+}
+.preview:not([style*="display: none"]) ~ .pick {
+  margin-top: 16px;
+}
+.select-wrap {
+  position: relative;
+  display: flex;
   align-items: center;
-  margin-top: 0.4rem;
-  color: #ccc;
+}
+.pick select {
+  appearance: none;
+  width: 100%;
+  min-height: 56px;
+  padding: 9px 38px 9px 34px;
+  border: 1px solid var(--blue);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 120ms ease-out;
+}
+.pick select:hover {
+  border-color: var(--camera-accent);
+}
+.pick select:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+}
+.pick option {
+  background: var(--surface);
+  color: var(--text);
+}
+.team-dot {
+  position: absolute;
+  left: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--camera-accent);
+  pointer-events: none;
+}
+.select-chevron {
+  position: absolute;
+  right: 14px;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  pointer-events: none;
 }
 </style>
