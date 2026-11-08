@@ -42,12 +42,19 @@ interface CharacterView {
   holding: boolean
   heldBallId: string | null
   epoch: number
+  /**
+   * Which way the character faces (scene space, unit), taken from its movement: Legs
+   * players jog the way they face. Null until it moves after a reset; held when it stops.
+   */
+  heading: pc.Vec3 | null
 }
 
 // Snapshot-derived velocity is dropped if positions jump this far (reset/teleport)
 // or no snapshot arrives for this long (stale stream).
 const TELEPORT_M = 1.5
 const VELOCITY_STALE_MS = 250
+/** Slower than this (m/s) counts as standing still, so heading holds instead of jittering. */
+const HEADING_MIN_SPEED = 0.6
 
 function createCharacter(team: Team): CharacterView {
   const color = TEAM_COLORS[team]
@@ -83,7 +90,7 @@ function createCharacter(team: Team): CharacterView {
   return {
     team, root, body, aimPivot, facing, rig: null, ragdoll: null,
     lastPos: null, lastSnapshotMs: 0, velX: 0, velZ: 0, aimHeading: 0,
-    holding: false, heldBallId: null, epoch: -1,
+    holding: false, heldBallId: null, epoch: -1, heading: null,
   }
 }
 
@@ -122,6 +129,8 @@ export class StateRenderer {
   private readonly ballRoot = new pc.Entity('Balls')
   /** ball_id -> owning team, for balls that must follow a hand every frame. */
   private readonly heldBy = new Map<string, Team>()
+  /** The first-person viewer's own character is not drawn. */
+  private hiddenTeam: Team | null = null
 
   constructor(parent: pc.Entity) {
     parent.addChild(this.characterRoot)
@@ -141,15 +150,21 @@ export class StateRenderer {
     for (const b of state.balls) this.renderBall(b, state.characters)
   }
 
+  /** Hide one team's character (the first-person viewer's own body); null shows both. */
+  setHiddenTeam(team: Team | null): void {
+    this.hiddenTeam = team
+    for (const view of this.characters.values()) view.root.enabled = view.team !== team
+  }
+
   /**
-   * Where a team's character is and which way it aims (scene space), for a camera to
-   * follow. Hides that character so a first-person camera isn't inside its head.
+   * Where a team's character is and which way it faces (scene space), for a camera to
+   * follow. Facing comes from movement; before the first move it is the team's forward.
    */
   pointOfView(team: Team): { pos: pc.Vec3; forward: pc.Vec3 } | null {
     const view = this.characters.get(team)
     if (!view) return null
-    view.root.enabled = false
-    return { pos: view.root.getPosition(), forward: view.aimPivot.forward }
+    const forward = view.heading ?? toScene(0, team === 1 ? 1 : -1)
+    return { pos: view.root.getPosition(), forward }
   }
 
   /** Per-frame cosmetic animation. Never changes where anything is in the game. */
@@ -179,6 +194,7 @@ export class StateRenderer {
       view = createCharacter(c.team)
       this.characters.set(c.team, view)
       this.characterRoot.addChild(view.root)
+      view.root.enabled = view.team !== this.hiddenTeam
       if (this.model) attachModel(view, this.model.asset, this.model.cfg)
     }
     const pos = toScene(c.pos.x, c.pos.z)
@@ -206,9 +222,13 @@ export class StateRenderer {
     if (last && dtMs > 0 && dtMs < VELOCITY_STALE_MS && !jumped && epoch === view.epoch) {
       view.velX = ((pos.x - last.x) * 1000) / dtMs
       view.velZ = ((pos.z - last.z) * 1000) / dtMs
+      const speed = Math.hypot(view.velX, view.velZ)
+      if (speed > HEADING_MIN_SPEED) view.heading = new pc.Vec3(view.velX / speed, 0, view.velZ / speed)
     } else {
       view.velX = 0
       view.velZ = 0
+      // Reset or teleport (new round, abort): face the opponent again until the next move.
+      if (jumped || epoch !== view.epoch) view.heading = null
     }
     view.lastPos = pos.clone()
     view.lastSnapshotMs = now

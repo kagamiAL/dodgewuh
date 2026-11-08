@@ -15,25 +15,28 @@ export interface GameScene {
   readonly app: pc.Application
   /** Draw one authoritative server State. The only way game data reaches the scene. */
   renderState(state: State): void
+  /** Ride along with this team's character (first person), or null for the elevated overview. */
+  setPointOfView(team: Team | null): void
+  /**
+   * Where a team's player is facing (world x/z, unit), measured locally (e.g. this screen's
+   * camera). The first-person view follows it instead of movement; null clears it.
+   */
+  setFacing(team: Team, dir: { x: number; z: number } | null): void
   destroy(): void
 }
+
+/** Eye height for a first-person camera (character is 1.8 m tall). */
+const EYE_HEIGHT = 1.6
+const FIRST_PERSON_FOV = 75
+const OVERVIEW_FOV = 45
+/** Higher = camera catches up to the 20 Hz snapshots faster (1/s). */
+const FIRST_PERSON_FOLLOW = 12
 
 /**
  * Creates the PlayCanvas application on `canvas`. The canvas's CSS box decides its
  * size; the drawing buffer follows it via ResizeObserver. Call destroy() on unmount.
  */
-/** Eye height for a first-person camera (character is 1.8 m tall). */
-const EYE_HEIGHT = 1.6
-const FIRST_PERSON_FOV = 75
-/** Higher = camera catches up to the 20 Hz snapshots faster (1/s). */
-const FIRST_PERSON_FOLLOW = 12
-
-export interface SceneOptions {
-  /** Ride along with this team's character instead of the shared elevated camera. */
-  firstPerson?: Team
-}
-
-export function createScene(canvas: HTMLCanvasElement, options: SceneOptions = {}): GameScene {
+export function createScene(canvas: HTMLCanvasElement): GameScene {
   const app = new pc.Application(canvas, {})
 
   // Render at device resolution (capped at 2x) and size from the canvas's CSS box.
@@ -54,11 +57,15 @@ export function createScene(canvas: HTMLCanvasElement, options: SceneOptions = {
   const camera = new pc.Entity('Camera')
   camera.addComponent('camera', {
     clearColor: sky,
-    fov: 45,
+    fov: OVERVIEW_FOV,
   })
-  // Raised behind Team 1's baseline and tilted so both baselines stay in frame.
-  camera.setPosition(toScene(0, -COURT_HALF_DEPTH - 7, 16))
-  camera.lookAt(toScene(0, -1.5))
+  // Overview: raised behind Team 1's baseline and tilted so both baselines stay in frame.
+  const useOverview = () => {
+    camera.camera!.fov = OVERVIEW_FOV
+    camera.setPosition(toScene(0, -COURT_HALF_DEPTH - 7, 16))
+    camera.lookAt(toScene(0, -1.5))
+  }
+  useOverview()
   app.root.addChild(camera)
 
   const lights = new pc.Entity('Lights')
@@ -78,30 +85,47 @@ export function createScene(canvas: HTMLCanvasElement, options: SceneOptions = {
   })
 
   // First person: follow the character smoothly so 20 Hz snapshots don't judder.
+  let povTeam: Team | null = null
   const eye = new pc.Vec3()
-  const look = new pc.Vec3()
+  let yaw = 0 // radians; forward = (sin, 0, cos) in scene space
+  const facing = new Map<Team, pc.Vec3>()
   let haveEye = false
-  if (options.firstPerson) camera.camera!.fov = FIRST_PERSON_FOV
 
   app.on('update', (dt: number) => {
     stateRenderer.update(dt)
     stadium.update(dt)
-    if (!options.firstPerson) return
-    const pov = stateRenderer.pointOfView(options.firstPerson)
+    if (!povTeam) return
+    const pov = stateRenderer.pointOfView(povTeam)
     if (!pov) return
     const targetEye = new pc.Vec3(pov.pos.x, EYE_HEIGHT, pov.pos.z)
     const k = haveEye ? 1 - Math.exp(-dt * FIRST_PERSON_FOLLOW) : 1
     eye.lerp(eye, targetEye, k)
-    look.lerp(look, pov.forward, k).normalize()
+    // Turn by the shorter way round so a 180° reversal swings instead of glitching.
+    const forward = facing.get(povTeam) ?? pov.forward
+    const targetYaw = Math.atan2(forward.x, forward.z)
+    const turn = Math.atan2(Math.sin(targetYaw - yaw), Math.cos(targetYaw - yaw))
+    yaw += turn * k
     haveEye = true
     camera.setPosition(eye)
-    camera.lookAt(eye.x + look.x, EYE_HEIGHT - 0.1, eye.z + look.z)
+    camera.lookAt(eye.x + Math.sin(yaw), EYE_HEIGHT - 0.1, eye.z + Math.cos(yaw))
   })
   app.start()
 
   return {
     app,
     renderState: (state) => stateRenderer.render(state),
+    setFacing(team, dir) {
+      if (dir) facing.set(team, toScene(dir.x, dir.z))
+      else facing.delete(team)
+    },
+    setPointOfView(team) {
+      if (team === povTeam) return
+      povTeam = team
+      haveEye = false // snap to the new viewpoint instead of gliding across the court
+      stateRenderer.setHiddenTeam(team)
+      if (team) camera.camera!.fov = FIRST_PERSON_FOV
+      else useOverview()
+    },
     destroy() {
       destroyed = true
       stadium.destroy()

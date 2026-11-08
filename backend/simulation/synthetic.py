@@ -14,11 +14,14 @@ instruction explicitly retains.
     PYTHONPATH=backend python -m simulation.synthetic
     PYTHONPATH=backend python -m simulation.synthetic --fixtures backend/simulation/fixtures
 
-Milestone 1 covers the deterministic movement surface: four directions,
-diagonal speed cap, both half-court clamps, all four ball spawns, stale-input
-stop, replay determinism, and the epoch/ordinal/role rejection paths.
-Acquisition, flight, collision, scoring and the round lifecycle arrive in
-M3-M6 and get their scenarios then.
+Covered so far: the deterministic movement surface (four directions, diagonal
+speed cap, both half-court clamps, all four ball spawns, stale-input stop,
+replay determinism, epoch/ordinal/role rejection); Hold acquisition, ownership,
+safe cancel and the no-throw zone; and constant-speed flight, wall/expiry
+respawn, swept-circle collision and earliest-hit resolution.
+
+The score, the timeout draw and the round/match/role lifecycle arrive in tasks
+7-8 and get their scenarios then.
 """
 
 from __future__ import annotations
@@ -33,7 +36,8 @@ from typing import Any
 
 from . import constants as K
 from .engine import Simulation
-from .types import ArmsCommand, Assignment, LegsCommand, SimulationError, Vec2
+from .types import (ArmsCommand, Assignment, InputRejected, LegsCommand,
+                    SimulationError, Vec2)
 
 # Readable substitutes for opaque production IDs, as used in 03's examples.
 P1, P2, P3, P4 = "p1", "p2", "p3", "p4"
@@ -106,6 +110,130 @@ def character(sim: Simulation, team: int):
         if c.team == team:
             return c
     raise AssertionError("no character")
+
+
+def arms_member(sim: Simulation, team: int) -> str:
+    for a in sim.snapshot().assignments:
+        if a.team == team and a.role == "arms":
+            return a.member_id
+    raise AssertionError("no arms assignment")
+
+
+def ball(sim: Simulation, ball_id: str):
+    for b in sim.snapshot().balls:
+        if b.ball_id == ball_id:
+            return b
+    raise AssertionError(f"no ball {ball_id}")
+
+
+class Hands:
+    """Drives one team's Arms phone through the real apply_input seam."""
+
+    def __init__(self, sim: Simulation, team: int, ordinal: int | None = None,
+                 now_ms: int = 0):
+        self.sim = sim
+        self.team = team
+        self.member = arms_member(sim, team)
+        # The receive ordinal is room-wide, so continue the room's sequence
+        # rather than restarting at 1 (which the engine rightly rejects).
+        self.ordinal = ordinal if ordinal is not None else sim._last_ordinal + 1  # noqa: SLF001
+        self.now_ms = now_ms
+        self.forward = Vec2(0.0, 1.0 if team == 1 else -1.0)
+
+    def send(self, action: str, aim: Vec2 | None = None, strength: float | None = None):
+        self.sim.apply_input(
+            self.member,
+            ArmsCommand(
+                seq=self.ordinal,
+                epoch=self.sim.snapshot().epoch,
+                aim=aim or self.forward,
+                action=action,  # type: ignore[arg-type]
+                strength=strength,
+            ),
+            received_ms=self.now_ms,
+            ordinal=self.ordinal,
+        )
+        self.ordinal += 1
+        return self
+
+    def step(self):
+        self.sim.step(self.now_ms)
+        self.now_ms += 17
+        return self
+
+
+def place(sim: Simulation, team: int, x: float, z: float) -> None:
+    """Teleport a character for a boundary check.
+
+    Reaches into internals deliberately: these scenarios probe exact geometric
+    boundaries, and walking there by command would accumulate float drift and
+    obscure the very boundary under examination.
+    """
+    sim._characters[team].pos = Vec2(x, z)  # noqa: SLF001
+    sim._sync_held_balls()  # noqa: SLF001
+
+
+def put_ball(sim: Simulation, ball_id: str, x: float, z: float) -> None:
+    sim._balls[ball_id].pos = Vec2(x, z)  # noqa: SLF001
+
+
+def launch_ball(
+    sim: Simulation,
+    ball_id: str,
+    x: float,
+    z: float,
+    vx: float,
+    vz: float,
+    shooter_team: int,
+    flight_ticks: int = 0,
+) -> None:
+    """Put a ball straight into flight, for collision geometry probes.
+
+    Reaches into internals in the same spirit as place(): these scenarios pin
+    exact impact geometry, and a few of them need a speed no legal throw can
+    produce, which is the only way to show the solver is genuinely swept rather
+    than a per-tick overlap sample. Legal-speed throws are exercised through the
+    real release path in the task 5 scenarios and in scenario_collision.
+    """
+    b = sim._balls[ball_id]  # noqa: SLF001
+    b.mode = "flying"
+    b.pos = Vec2(x, z)
+    b.velocity = Vec2(vx, vz)
+    b.owner_team = None
+    b.shooter_team = shooter_team
+    b.flight_ticks = flight_ticks
+    b.respawn_ticks = 0
+
+
+def park_respawning(sim: Simulation, ball_id: str, x: float, z: float,
+                    ticks: int = 30) -> None:
+    """Hold a ball in respawning mode at a chosen spot."""
+    b = sim._balls[ball_id]  # noqa: SLF001
+    b.mode = "respawning"
+    b.pos = Vec2(x, z)
+    b.velocity = Vec2(0.0, 0.0)
+    b.owner_team = None
+    b.shooter_team = None
+    b.respawn_ticks = ticks
+    b.flight_ticks = 0
+
+
+def step_until_result(sim: Simulation, limit: int = 120) -> int:
+    """Step until the round is decided or `limit` ticks pass. Returns ticks."""
+    ticks = 0
+    while sim.snapshot().result is None and ticks < limit:
+        sim.step(0)
+        ticks += 1
+    return ticks
+
+
+def clear_ground_balls(sim: Simulation, keep: tuple[str, ...]) -> None:
+    """Park unwanted balls far away so a scenario isolates specific ones."""
+    for bid in sim._balls:  # noqa: SLF001
+        if bid not in keep:
+            sim._balls[bid].pos = Vec2(0.0, 0.0)  # noqa: SLF001
+            sim._balls[bid].mode = "respawning"  # noqa: SLF001
+            sim._balls[bid].respawn_ticks = 10_000  # noqa: SLF001
 
 
 def drive(
@@ -609,6 +737,638 @@ def scenario_immutability(d: Diagnostics) -> None:
     )
 
 
+# --- Task 5: acquisition, ownership, cancel, no-throw zone ------------------
+def scenario_pickup(d: Diagnostics) -> None:
+    print("\n[acquisition: nearest in range, ties by ball ID]")
+
+    # Nearest grounded ball wins.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1", "b2"))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 1.0, -3.0)  # 1.0 m away
+    put_ball(sim, "b2", 0.5, -3.0)  # 0.5 m away - nearer
+    Hands(sim, 1).send("press").step()
+    d.observe("nearest ball is acquired", character(sim, 1).held_ball_id == "b2",
+              str(character(sim, 1).held_ball_id))
+
+    # Equal distance -> lowest ball ID.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b3", "b4"))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b3", 0.8, -3.0)
+    put_ball(sim, "b4", -0.8, -3.0)  # exactly the same distance
+    Hands(sim, 1).send("press").step()
+    d.observe("equal-distance tie breaks to the lower ball ID",
+              character(sim, 1).held_ball_id == "b3",
+              str(character(sim, 1).held_ball_id))
+
+    # Inclusive range boundary at exactly 1.2 m.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 0.0, -3.0 + K.PICKUP_RANGE)
+    Hands(sim, 1).send("press").step()
+    d.observe("pickup at exactly 1.2 m succeeds (inclusive)",
+              character(sim, 1).held_ball_id == "b1")
+
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 0.0, -3.0 + K.PICKUP_RANGE + 1e-6)
+    Hands(sim, 1).send("press").step()
+    d.observe("pickup just beyond 1.2 m fails",
+              character(sim, 1).held_ball_id is None)
+
+    # Hold is retried each tick: walk into range while already holding Hold.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -5.0)
+    put_ball(sim, "b1", 0.0, -3.0)
+    h = Hands(sim, 1).send("press").step()
+    d.observe("press out of range acquires nothing",
+              character(sim, 1).held_ball_id is None)
+    place(sim, 1, 0.0, -3.9)
+    h.step()
+    d.observe("latched Hold re-acquires once in range",
+              character(sim, 1).held_ball_id == "b1")
+
+
+def scenario_ownership(d: Diagnostics) -> None:
+    print("\n[ownership: one ball each, never acquired twice]")
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1", "b2"))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 0.3, -3.0)
+    put_ball(sim, "b2", 0.4, -3.0)
+    h = Hands(sim, 1).send("press").step()
+    first = character(sim, 1).held_ball_id
+    h.send("press").step()
+    d.observe("a second press does not take a second ball",
+              character(sim, 1).held_ball_id == first, str(first))
+    held_count = sum(1 for b in sim.snapshot().balls if b.mode == "held")
+    d.observe("exactly one ball is held", held_count == 1, str(held_count))
+
+    b = ball(sim, first)
+    d.observe("held ball reports owner_team", b.owner_team == 1, str(b.owner_team))
+    d.observe("held ball has no shooter_team", b.shooter_team is None)
+    d.observe("held ball has zero velocity", (b.velocity.x, b.velocity.z) == (0.0, 0.0))
+
+    # The opponent cannot take a ball that is already held.
+    place(sim, 2, 0.0, 0.5)
+    put_ball(sim, first, 0.0, 0.5)  # park it right on top of Team 2
+    Hands(sim, 2).send("press").step()
+    d.observe("a held ball cannot be acquired by the opponent",
+              character(sim, 2).held_ball_id is None,
+              str(character(sim, 2).held_ball_id))
+
+    # Held balls follow their character.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 0.3, -3.0)
+    Hands(sim, 1).send("press").step()
+    drive(sim, 1, Vec2(0.0, 1.0), 10, ordinal=500)
+    c, b = character(sim, 1), ball(sim, "b1")
+    d.observe("held ball follows the character",
+              (b.pos.x, b.pos.z) == (c.pos.x, c.pos.z), f"ball {b.pos} vs char {c.pos}")
+
+
+def scenario_no_throw_zone(d: Diagnostics) -> None:
+    print("\n[no-throw zone: inclusive boundary at abs(z) = 2.0]")
+
+    def release_at(z: float, strength: float = 0.5):
+        sim = boot_to_active()
+        clear_ground_balls(sim, ("b1",))
+        place(sim, 1, 0.0, z)
+        put_ball(sim, "b1", 0.0, z)
+        h = Hands(sim, 1).send("press")
+        h.step()
+        sim.drain_events()
+        place(sim, 1, 0.0, z)
+        h.send("release", strength=strength).step()
+        return sim, sim.drain_events()
+
+    # Exactly on the boundary: rejected, because the rule is inclusive.
+    sim, events = release_at(-K.NO_THROW_ABS_Z)
+    b = ball(sim, "b1")
+    codes = [e.code for e in events if isinstance(e, InputRejected)]
+    d.observe("release at exactly z = -2.0 does not launch", b.mode == "ground", b.mode)
+    d.observe("release at the boundary emits NO_THROW_ZONE",
+              codes == ["NO_THROW_ZONE"], str(codes))
+    d.observe("safe cancel drops the ball at the character centre",
+              (b.pos.x, b.pos.z) == (0.0, -K.NO_THROW_ABS_Z), str(b.pos))
+    d.observe("safe cancel clears possession", character(sim, 1).held_ball_id is None)
+    rejected = [e for e in events if isinstance(e, InputRejected)]
+    d.observe("rejection carries ref_seq", rejected and rejected[0].ref_seq is not None,
+              str(rejected[0].ref_seq) if rejected else "none")
+
+    # Inside the zone, well clear of the boundary.
+    sim, events = release_at(-1.0)
+    d.observe("release deep inside the zone does not launch",
+              ball(sim, "b1").mode == "ground")
+
+    # Just outside: a legal throw.
+    sim, events = release_at(-K.NO_THROW_ABS_Z - 1e-6)
+    b = ball(sim, "b1")
+    d.observe("release just outside the zone launches", b.mode == "flying", b.mode)
+    d.observe("legal throw emits no rejection",
+              not [e for e in events if isinstance(e, InputRejected)])
+    d.observe("flying ball records shooter_team", b.shooter_team == 1, str(b.shooter_team))
+    d.observe("flying ball has no owner_team", b.owner_team is None)
+
+
+def scenario_throw_launch(d: Diagnostics) -> None:
+    print("\n[release: launch offset and speed]")
+    for strength, expected in ((0.0, 8.0), (0.5, 11.0), (1.0, 14.0)):
+        sim = boot_to_active()
+        clear_ground_balls(sim, ("b1",))
+        place(sim, 1, 0.0, -4.0)
+        put_ball(sim, "b1", 0.0, -4.0)
+        h = Hands(sim, 1).send("press").step()
+        place(sim, 1, 0.0, -4.0)
+        h.send("release", strength=strength).step()
+        b = ball(sim, "b1")
+        speed = math.hypot(b.velocity.x, b.velocity.z)
+        d.observe(f"strength {strength} gives speed {expected}",
+                  near(speed, expected, 1e-9), f"{speed:.6f}")
+
+    # Launch point is centre + aim * 0.65. The release is step (4) of a tick and
+    # flight advances in step (5) of the SAME tick, so one tick of travel at the
+    # launch speed is already on the board when the step returns. That ordering
+    # is the rule in 02, so the offset is checked through it rather than by
+    # pretending the ball has not moved.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -4.0)
+    put_ball(sim, "b1", 0.0, -4.0)
+    h = Hands(sim, 1).send("press").step()
+    place(sim, 1, 0.0, -4.0)
+    h.send("release", strength=0.5).step()
+    b = ball(sim, "b1")
+    launched_z = -4.0 + K.THROW_OFFSET
+    expected_z = launched_z + 11.0 * K.DT
+    d.observe("launch at centre + aim x 0.65, then one tick of flight",
+              near(b.pos.z, expected_z, 1e-9) and near(b.pos.x, 0.0, 1e-12),
+              f"{b.pos} expected z={expected_z:.6f}")
+
+
+def scenario_cancel_and_edges(d: Diagnostics) -> None:
+    print("\n[cancel and same-tick edge ordering]")
+
+    # Cancel drops without launching, anywhere on the court.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    h = Hands(sim, 1).send("press").step()
+    place(sim, 1, 0.0, -6.0)
+    h.send("cancel").step()
+    b = ball(sim, "b1")
+    d.observe("cancel never launches", b.mode == "ground", b.mode)
+    d.observe("cancel drops at the character centre", (b.pos.x, b.pos.z) == (0.0, -6.0))
+    d.observe("cancel has zero velocity", (b.velocity.x, b.velocity.z) == (0.0, 0.0))
+    d.observe("cancel clears possession", character(sim, 1).held_ball_id is None)
+
+    # Must press again after cancelling: the latch is gone.
+    h.step()
+    d.observe("no re-acquire after cancel without a fresh press",
+              character(sim, 1).held_ball_id is None)
+
+    # press + release in the SAME tick throws.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    Hands(sim, 1).send("press").send("release", strength=0.5).step()
+    d.observe("press + release in one tick throws",
+              ball(sim, "b1").mode == "flying", ball(sim, "b1").mode)
+
+    # release then cancel in one tick: cancel cannot undo a legal throw.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    Hands(sim, 1).send("press").send("release", strength=0.5).send("cancel").step()
+    d.observe("cancel after release cannot undo the throw",
+              ball(sim, "b1").mode == "flying", ball(sim, "b1").mode)
+
+    # A later aim cannot redirect an earlier release.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    straight = Vec2(0.0, 1.0)
+    sideways = Vec2(0.6, 0.8)
+    (Hands(sim, 1).send("press", aim=straight)
+                  .send("release", aim=straight, strength=0.5)
+                  .send("aim", aim=sideways).step())
+    b = ball(sim, "b1")
+    d.observe("a later aim does not redirect an earlier release",
+              near(b.velocity.x, 0.0, 1e-12), f"vx={b.velocity.x}")
+
+    # Releasing with no ball clears Hold and does nothing else.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ())
+    place(sim, 1, 0.0, -6.0)
+    h = Hands(sim, 1).send("release", strength=0.5).step()
+    flying = [b for b in sim.snapshot().balls if b.mode == "flying"]
+    d.observe("release with no ball launches nothing", not flying)
+    d.observe("release with no ball emits no rejection",
+              not [e for e in sim.drain_events() if isinstance(e, InputRejected)])
+
+
+def scenario_drop_paths(d: Diagnostics) -> None:
+    print("\n[drop paths: stale input and phase transition]")
+
+    # Stale Arms input drops the held ball.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    h = Hands(sim, 1)
+    h.now_ms = 1000
+    h.send("press")
+    sim.step(1000)
+    d.observe("ball acquired before silence", character(sim, 1).held_ball_id == "b1")
+    sim.step(1251)  # 251 ms since the last Arms input
+    d.observe("stale Arms input drops the held ball",
+              character(sim, 1).held_ball_id is None)
+    d.observe("dropped ball is grounded, not flying",
+              ball(sim, "b1").mode == "ground", ball(sim, "b1").mode)
+
+    # A phase transition drops the held ball too.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    put_ball(sim, "b1", 0.0, -6.0)
+    Hands(sim, 1).send("press").step()
+    d.observe("ball held before reset", character(sim, 1).held_ball_id == "b1")
+    sim.control("reset")
+    held = [b for b in sim.snapshot().balls if b.mode == "held"]
+    d.observe("reset to lobby leaves no held ball", not held)
+    d.observe("reset clears possession on the character",
+              character(sim, 1).held_ball_id is None)
+
+
+# --- Task 6: flight, respawn, swept collision, earliest hit -----------------
+def scenario_flight(d: Diagnostics) -> None:
+    print("\n[flight: constant speed, straight, no bounce]")
+    sim = boot_to_active()
+    place(sim, 2, 5.0, 6.0)  # keep the opponent out of the lane
+    launch_ball(sim, "b1", 0.0, -5.0, 0.0, 12.0, shooter_team=1)
+    before = ball(sim, "b1").pos
+    sim.step(0)
+    after = ball(sim, "b1").pos
+    d.observe(
+        "one tick advances the ball by velocity * dt",
+        near(after.z - before.z, 12.0 * K.DT, 1e-12) and near(after.x, 0.0, 1e-12),
+        f"dz={after.z - before.z:.6f} expected {12.0 * K.DT:.6f}",
+    )
+
+    for _ in range(29):
+        sim.step(0)
+    b = ball(sim, "b1")
+    d.observe(
+        "velocity never changes in flight",
+        (b.velocity.x, b.velocity.z) == (0.0, 12.0),
+        str(b.velocity),
+    )
+    d.observe(
+        "30 ticks travel exactly 30 * v * dt in a straight line",
+        near(b.pos.z, -5.0 + 30 * 12.0 * K.DT, 1e-9) and near(b.pos.x, 0.0, 1e-12),
+        f"{b.pos} expected z={-5.0 + 30 * 12.0 * K.DT:.6f}",
+    )
+    d.observe("a travelling ball reports its shooter team", b.shooter_team == 1)
+    d.observe("a flying ball has no owner_team", b.owner_team is None)
+
+
+def scenario_wall_respawn(d: Diagnostics) -> None:
+    print("\n[respawn: court exit and the 1 second delay]")
+    sim = boot_to_active()
+    place(sim, 2, 5.0, 6.0)
+    launch_ball(sim, "b1", 0.0, 8.0, 0.0, 14.0, shooter_team=1)
+
+    ticks = 0
+    while ball(sim, "b1").mode == "flying" and ticks < 30:
+        sim.step(0)
+        ticks += 1
+    b = ball(sim, "b1")
+    d.observe("leaving the court starts a respawn", b.mode == "respawning", b.mode)
+    d.observe("no bounce: the ball does not come back into play", b.mode != "flying")
+    d.observe(
+        "respawn_in_ms is the specified 1000",
+        b.respawn_in_ms == K.RESPAWN_MS,
+        str(b.respawn_in_ms),
+    )
+    d.observe(
+        "a respawning ball waits at its own original spawn",
+        (b.pos.x, b.pos.z) == K.BALL_SPAWNS["b1"],
+        str(b.pos),
+    )
+    d.observe(
+        "a respawning ball carries no shooter, owner or velocity",
+        b.shooter_team is None
+        and b.owner_team is None
+        and (b.velocity.x, b.velocity.z) == (0.0, 0.0),
+    )
+
+    for _ in range(K.RESPAWN_TICKS - 1):
+        sim.step(0)
+    d.observe(
+        "still respawning one tick short of the full second",
+        ball(sim, "b1").mode == "respawning",
+        ball(sim, "b1").mode,
+    )
+    sim.step(0)
+    b = ball(sim, "b1")
+    d.observe(
+        f"grounded again after exactly {K.RESPAWN_TICKS} ticks", b.mode == "ground", b.mode
+    )
+    d.observe(
+        "respawns at its original spawn", (b.pos.x, b.pos.z) == K.BALL_SPAWNS["b1"], str(b.pos)
+    )
+    d.observe("respawn_in_ms returns to zero", b.respawn_in_ms == 0, str(b.respawn_in_ms))
+
+
+def scenario_expiry_respawn(d: Diagnostics) -> None:
+    print("\n[respawn: 2 second flight lifetime]")
+    # Thrown from the back wall at the minimum speed, a ball runs out its
+    # lifetime (16 m) before reaching the far wall, which is the only way to
+    # observe expiry rather than a court exit.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, K.T1_Z_MIN)
+    place(sim, 2, 5.0, 6.0)
+    launch_ball(sim, "b1", 0.0, K.T1_Z_MIN + K.THROW_OFFSET, 0.0, 8.0, shooter_team=1)
+
+    for _ in range(K.FLIGHT_TICKS - 1):
+        sim.step(0)
+    b = ball(sim, "b1")
+    d.observe(
+        "still flying one tick before the 2 second lifetime", b.mode == "flying", b.mode
+    )
+    d.observe("and still inside the court, so this is expiry not a wall", abs(b.pos.z) < K.COURT_Z,
+              f"z={b.pos.z:.4f}")
+    sim.step(0)
+    d.observe(
+        f"lifetime expiry at exactly {K.FLIGHT_TICKS} ticks starts a respawn",
+        ball(sim, "b1").mode == "respawning",
+        ball(sim, "b1").mode,
+    )
+
+
+def scenario_collision(d: Diagnostics) -> None:
+    print("\n[collision: swept circles against the opponent only]")
+
+    # A real throw at the maximum legal speed.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    launch_ball(sim, "b1", 0.0, -2.0, 0.0, 14.0, shooter_team=1)
+    step_until_result(sim)
+    s = sim.snapshot()
+    d.observe(
+        "a ball at the maximum legal speed hits the opposing character",
+        s.result is not None and s.result.reason == "hit",
+        str(s.result),
+    )
+    d.observe("the hit names the shooter", s.result is not None and s.result.winner == 1)
+    d.observe("the hit names the victim", s.result is not None and s.result.victim_team == 2)
+    d.observe("the hit names the ball", s.result is not None and s.result.hit_ball_id == "b1")
+    gap = 3.0 - ball(sim, "b1").pos.z
+    d.observe(
+        "impact is caught at the combined radius, never past the centre",
+        gap > 0.0,
+        f"ball stopped {gap:.4f} m short of the character centre",
+    )
+    d.note(f"combined radius {K.COMBINED_RADIUS} m, one tick of travel {14.0 * K.DT:.4f} m")
+
+    # The swept solver, not a per-tick overlap sample.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    # 10 m per tick, far more than the 0.60 m combined radius: both tick
+    # endpoints sit clear of the character, so only a swept test finds this.
+    launch_ball(sim, "b1", 0.0, -3.0, 0.0, 600.0, shooter_team=1)
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe(
+        "a ball crossing the character within one tick still hits (no tunnelling)",
+        s.result is not None and s.result.reason == "hit",
+        str(s.result),
+    )
+    d.observe(
+        "and its tick endpoints really were both clear of the character",
+        abs(-3.0 - 3.0) > K.COMBINED_RADIUS and abs(7.0 - 3.0) > K.COMBINED_RADIUS,
+    )
+
+    # A moving target: the character's own movement segment is swept too.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 1.0)
+    launch_ball(sim, "b1", 0.0, -2.0, 0.0, 14.0, shooter_team=1)
+    ordinal = sim._last_ordinal + 1  # noqa: SLF001
+    member = legs_member(sim, 2)
+    epoch = sim.snapshot().epoch
+    ticks = 0
+    while sim.snapshot().result is None and ticks < 60:
+        sim.apply_input(
+            member,
+            LegsCommand(seq=ordinal, epoch=epoch, move=Vec2(0.0, 1.0)),
+            received_ms=0,
+            ordinal=ordinal,
+        )
+        ordinal += 1
+        sim.step(0)
+        ticks += 1
+    d.observe(
+        "a character retreating from the ball is still hit on its swept segment",
+        sim.snapshot().result is not None,
+        str(sim.snapshot().result),
+    )
+
+    # Only the opposing character can be hit.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 5.0, 6.0)
+    launch_ball(sim, "b1", 0.0, -3.0, 0.0, 8.0, shooter_team=1)  # on top of its thrower
+    for _ in range(5):
+        sim.step(0)
+    d.observe(
+        "a ball never hits its own thrower",
+        sim.snapshot().result is None,
+        str(sim.snapshot().result),
+    )
+
+    # Grounded and respawning balls damage nobody.
+    sim = boot_to_active()
+    place(sim, 2, 0.0, 3.0)
+    put_ball(sim, "b1", 0.0, 3.0)
+    for _ in range(5):
+        sim.step(0)
+    d.observe("a grounded ball damages nobody", sim.snapshot().result is None)
+
+    sim = boot_to_active()
+    place(sim, 2, 0.0, 3.0)
+    park_respawning(sim, "b1", 0.0, 3.0)
+    for _ in range(5):
+        sim.step(0)
+    d.observe("a respawning ball damages nobody", sim.snapshot().result is None)
+
+    # A held ball cannot shield its holder.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1", "b2"))
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    put_ball(sim, "b2", 0.0, 3.0)
+    Hands(sim, 2).send("press").step()
+    d.observe(
+        "the holder really is carrying the ball between them and the throw",
+        character(sim, 2).held_ball_id == "b2",
+        str(character(sim, 2).held_ball_id),
+    )
+    launch_ball(sim, "b1", 0.0, -2.0, 0.0, 14.0, shooter_team=1)
+    step_until_result(sim)
+    s = sim.snapshot()
+    d.observe(
+        "a held ball does not block a throw",
+        s.result is not None and s.result.hit_ball_id == "b1",
+        str(s.result),
+    )
+
+    # A hit at or before the clipped wall endpoint counts.
+    sim = boot_to_active()
+    place(sim, 2, 0.0, K.T2_Z_MAX)  # hard against the back wall
+    launch_ball(sim, "b1", 0.0, 7.9, 0.0, 600.0, shooter_team=1)
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe(
+        "a hit before the wall endpoint counts as a hit, not a respawn",
+        s.result is not None and s.result.reason == "hit",
+        str(s.result),
+    )
+    d.observe(
+        "the hit ball is not respawned in the deciding tick",
+        ball(sim, "b1").mode == "flying",
+        ball(sim, "b1").mode,
+    )
+
+
+def scenario_earliest_hit(d: Diagnostics) -> None:
+    print("\n[hit resolution: earliest, ties by ball ID, opposing draw]")
+
+    # Earliest impact decides, even when a higher ball ID gets there first.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    launch_ball(sim, "b1", 0.0, -5.0, 0.0, 10.0, shooter_team=1)  # far
+    launch_ball(sim, "b2", 0.0, 1.0, 0.0, 10.0, shooter_team=1)  # near
+    step_until_result(sim)
+    s = sim.snapshot()
+    d.observe(
+        "the earliest impact decides, not the lowest ball ID",
+        s.result is not None and s.result.hit_ball_id == "b2",
+        str(s.result),
+    )
+
+    # Equal impact times break by ball ID.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    launch_ball(sim, "b1", 0.5, -1.0, 0.0, 10.0, shooter_team=1)
+    launch_ball(sim, "b2", -0.5, -1.0, 0.0, 10.0, shooter_team=1)  # mirror image
+    step_until_result(sim)
+    s = sim.snapshot()
+    d.observe(
+        "equal impact times break by ball ID",
+        s.result is not None and s.result.hit_ball_id == "b1",
+        str(s.result),
+    )
+    d.observe("a tie on one victim is still a scoring hit",
+              s.result is not None and s.result.reason == "hit", str(s.result))
+
+    # Two opposing hits at the same instant are a draw.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    launch_ball(sim, "b1", 0.0, -1.0, 0.0, 10.0, shooter_team=1)
+    launch_ball(sim, "b2", 0.0, 1.0, 0.0, -10.0, shooter_team=2)  # mirror image
+    step_until_result(sim)
+    s = sim.snapshot()
+    d.observe(
+        "two opposing hits within 1e-9 are a draw",
+        s.result is not None and s.result.reason == "simultaneous",
+        str(s.result),
+    )
+    d.observe("a draw names no winner", s.result is not None and s.result.winner is None)
+    d.observe(
+        "a draw names no victim and no ball",
+        s.result is not None
+        and s.result.victim_team is None
+        and s.result.hit_ball_id is None,
+    )
+    d.observe(
+        "a draw awards no point", s.score.t1 == 0 and s.score.t2 == 0, str(s.score)
+    )
+
+
+def scenario_round_decided(d: Diagnostics) -> None:
+    print("\n[a decided round ignores everything after it]")
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    launch_ball(sim, "b1", 0.0, -2.0, 0.0, 14.0, shooter_team=1)
+    launch_ball(sim, "b3", 0.0, 2.0, 0.0, 14.0, shooter_team=1)  # would hit later
+    step_until_result(sim)
+    decided = sim.snapshot().result
+    d.observe("a hit is resolved", decided is not None, str(decided))
+    d.observe(
+        "the nearer ball decided it", decided is not None and decided.hit_ball_id == "b3",
+        str(decided),
+    )
+
+    tick_before = sim.snapshot().tick
+    remaining_before = sim.snapshot().remaining_ms
+    for _ in range(10):
+        sim.step(0)
+    s = sim.snapshot()
+    d.observe("later hit candidates are ignored", s.result == decided, str(s.result))
+    d.observe(
+        "the round clock stops at the decided tick, it does not drain on",
+        s.remaining_ms == remaining_before,
+        f"{s.remaining_ms} vs {remaining_before}",
+    )
+    d.observe(
+        "tick still advances once per step after the round is decided",
+        s.tick == tick_before + 10,
+        f"{s.tick} vs {tick_before + 10}",
+    )
+    d.observe("no command changes a decided round", s.result == decided)
+    d.note(
+        "score stays 0-0 and phase stays active: the round_end transition and "
+        "the point itself are task 7, not task 6"
+    )
+
+    # The next round clears the result and re-arms the arena. Reset clears the
+    # ready set, so readiness has to be supplied again before start, exactly as
+    # a real lobby would.
+    sim.control("reset")
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3, P4}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.control("start")
+    s = sim.snapshot()
+    d.observe("a new round clears the result", s.result is None, str(s.result))
+    d.observe("a new round re-grounds all four balls",
+              all(b.mode == "ground" for b in s.balls))
+    d.observe(
+        "a new round restores all four ball spawns",
+        all((b.pos.x, b.pos.z) == K.BALL_SPAWNS[b.ball_id] for b in s.balls),
+    )
+
+
 # --- Fixture emission -------------------------------------------------------
 def _plain(value: Any) -> Any:
     if is_dataclass(value) and not isinstance(value, type):
@@ -642,6 +1402,36 @@ def write_fixtures(directory: str) -> list[str]:
     drive(sim, 2, Vec2(-1.0, 0.0), 30, ordinal, now)
     fixtures.append(("active-movement.json", envelope(sim.snapshot(), 5000)))
 
+    # Possession: Team 1 holds the nearest ball, which rides on its centre.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 0.4, -3.0)
+    Hands(sim, 1).send("press").step()
+    fixtures.append(("active-held.json", envelope(sim.snapshot(), 5500)))
+
+    # A real throw in flight, launched through the release path.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    put_ball(sim, "b1", 0.4, -3.0)
+    hands = Hands(sim, 1).send("press").step()
+    place(sim, 1, 0.0, -3.0)
+    hands.send("release", strength=0.5).step()
+    for _ in range(10):
+        sim.step(0)
+    fixtures.append(("active-flying.json", envelope(sim.snapshot(), 6000)))
+
+    # A resolved hit. NOTE for consumers: task 6 resolves the outcome into
+    # state.result and freezes the round, so this fixture still reads
+    # phase=active with score 0-0. Task 7 replaces it with a round_end state
+    # carrying the point. Build result UI against the result object, which is
+    # final, not against the phase in this file.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    launch_ball(sim, "b1", 0.0, -2.0, 0.0, 14.0, shooter_team=1)
+    step_until_result(sim)
+    fixtures.append(("hit-resolved-task6.json", envelope(sim.snapshot(), 7000)))
+
     for name, payload in fixtures:
         path = os.path.join(directory, name)
         with open(path, "w", encoding="utf-8") as handle:
@@ -670,7 +1460,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     print("Authoritative gameplay simulation - synthetic runner")
-    print("Milestone 1: DTOs, reset state, deterministic movement, input defense")
+    print("Tasks 1-6: DTOs, reset state, movement, input defense, acquisition,")
+    print("ownership, no-throw zone, flight, respawn and swept collision")
 
     diagnostics = Diagnostics()
     scenario_reset_snapshot(diagnostics)
@@ -682,6 +1473,18 @@ def main(argv: list[str] | None = None) -> int:
     scenario_determinism(diagnostics)
     scenario_lifecycle_m1(diagnostics)
     scenario_immutability(diagnostics)
+    scenario_pickup(diagnostics)
+    scenario_ownership(diagnostics)
+    scenario_no_throw_zone(diagnostics)
+    scenario_throw_launch(diagnostics)
+    scenario_cancel_and_edges(diagnostics)
+    scenario_drop_paths(diagnostics)
+    scenario_flight(diagnostics)
+    scenario_wall_respawn(diagnostics)
+    scenario_expiry_respawn(diagnostics)
+    scenario_collision(diagnostics)
+    scenario_earliest_hit(diagnostics)
+    scenario_round_decided(diagnostics)
 
     total = diagnostics.matched + len(diagnostics.deviations)
     print(f"\n{diagnostics.matched}/{total} observations match the specified rules")
@@ -690,9 +1493,11 @@ def main(argv: list[str] | None = None) -> int:
         for rule in diagnostics.deviations:
             print(f"  - {rule}")
         return 1
-    print("\nNot yet implemented (M3-M6): acquisition, throw, flight, swept")
-    print("collision, hit scoring, round timeout, round_end/role_switch/")
-    print("match_end, role swapping, readiness abort guard.")
+    print("\nNot yet implemented (task 7 onward): the point itself, the")
+    print("3600-tick timeout draw, round_end/role_switch/match_end, role")
+    print("swapping, first-to-three, rematch and the readiness abort guard.")
+    print("A hit or draw IS resolved and published in state.result, and the")
+    print("round then freezes; task 7 turns that into round_end and the score.")
     return 0
 
 
