@@ -19,6 +19,10 @@ const MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/p
 const STORE_KEY = 'dodgewuh.cameraTeam'
 const SEND_MS = 50 // 20 Hz (03)
 
+// The player's facing in world x/z while tracked, so this screen's first-person view can
+// turn with them even when they are standing still (facing is not part of input.legs).
+const emit = defineEmits<{ facing: [value: { team: Team; dir: Vec2 } | null] }>()
+
 const team = ref<Team | null>(loadTeam())
 const status = ref('')
 const live = ref<PoseState>({ present: false, jogging: false, facing: null, yaw_deg: null, dir: null, move: { r: 0, f: 0 } })
@@ -185,6 +189,15 @@ watch(team, (t) => {
 watch(() => session.data.status, (s) => {
   if (s === 'connected' && team.value !== null) claim()
 })
+
+watch(
+  () => [team.value, live.value.present ? live.value.dir : null] as const,
+  ([t, dir]) => {
+    // Keep the last facing while nobody is tracked; clear it only when the claim ends.
+    if (t === null) emit('facing', null)
+    else if (dir) emit('facing', { team: t, dir: toWorld(dir, t) })
+  },
+)
 
 const facingText = computed(() => {
   const f = live.value.facing

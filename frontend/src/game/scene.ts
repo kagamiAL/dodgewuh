@@ -17,6 +17,11 @@ export interface GameScene {
   renderState(state: State): void
   /** Ride along with this team's character (first person), or null for the elevated overview. */
   setPointOfView(team: Team | null): void
+  /**
+   * Where a team's player is facing (world x/z, unit), measured locally (e.g. this screen's
+   * camera). The first-person view follows it instead of movement; null clears it.
+   */
+  setFacing(team: Team, dir: { x: number; z: number } | null): void
   destroy(): void
 }
 
@@ -83,6 +88,7 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   let povTeam: Team | null = null
   const eye = new pc.Vec3()
   let yaw = 0 // radians; forward = (sin, 0, cos) in scene space
+  const facing = new Map<Team, pc.Vec3>()
   let haveEye = false
 
   app.on('update', (dt: number) => {
@@ -95,7 +101,8 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
     const k = haveEye ? 1 - Math.exp(-dt * FIRST_PERSON_FOLLOW) : 1
     eye.lerp(eye, targetEye, k)
     // Turn by the shorter way round so a 180° reversal swings instead of glitching.
-    const targetYaw = Math.atan2(pov.forward.x, pov.forward.z)
+    const forward = facing.get(povTeam) ?? pov.forward
+    const targetYaw = Math.atan2(forward.x, forward.z)
     const turn = Math.atan2(Math.sin(targetYaw - yaw), Math.cos(targetYaw - yaw))
     yaw += turn * k
     haveEye = true
@@ -107,6 +114,10 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   return {
     app,
     renderState: (state) => stateRenderer.render(state),
+    setFacing(team, dir) {
+      if (dir) facing.set(team, toScene(dir.x, dir.z))
+      else facing.delete(team)
+    },
     setPointOfView(team) {
       if (team === povTeam) return
       povTeam = team

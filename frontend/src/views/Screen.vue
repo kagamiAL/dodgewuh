@@ -74,6 +74,14 @@ watch(
 )
 watch([pointOfView, scene], ([team]) => scene.value?.setPointOfView(team))
 
+// The camera-controlled team's facing comes straight from this screen's pose tracker.
+let facingTeam: Team | null = null
+function onFacing(value: { team: Team; dir: { x: number; z: number } } | null): void {
+  if (facingTeam !== null && facingTeam !== value?.team) scene.value?.setFacing(facingTeam, null)
+  facingTeam = value?.team ?? null
+  if (value) scene.value?.setFacing(value.team, value.dir)
+}
+
 onMounted(async () => {
   if (!canvas.value) return
   try {
@@ -119,7 +127,7 @@ onBeforeUnmount(() => {
       <p v-if="banner" class="banner">{{ banner }}</p>
     </template>
     <div v-if="showLobby" class="overlay"><Lobby /></div>
-    <CameraLegs v-if="live" />
+    <CameraLegs v-if="live" @facing="onFacing" />
     <p v-if="connection" class="connection">
       {{ connection }} <RouterLink v-if="session.data.status === 'closed'" to="/">Home</RouterLink>
     </p>
