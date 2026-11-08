@@ -69,6 +69,46 @@ FLIGHT_TICKS: int = 120  # 2 seconds
 RESPAWN_TICKS: int = 60  # 1 second
 RESPAWN_MS: int = 1000
 
+# --- Ballistic flight (amended rule; see 02 "Acquisition, hold, aim, release")
+# A throw leaves the hands horizontally, because aim is a 2D {x,z} direction
+# and the phone has no vertical-aim channel. Gravity then pulls the ball down,
+# so the trajectory is the descending half of a parabola: flat at first, then
+# drooping. The ball never rises, so it never leaves the vertical extent of a
+# 1.8 m character, which is why the flat 2D swept-circle collision test stays
+# exactly correct and is left untouched.
+#
+# Release height on a 1.8 m character: an overhand throw from shoulder level.
+THROW_HEIGHT: float = 1.5
+# A ball at rest sits on the floor, so its centre is one radius up.
+GROUND_HEIGHT: float = BALL_RADIUS
+
+# GRAVITY is a GAME-FEEL value, deliberately well below Earth's 9.81 m/s^2.
+# It is the single dial for throw range, and the reason it is not 9.81:
+#
+#   fall time to the floor   t = sqrt(2 * (THROW_HEIGHT - GROUND_HEIGHT) / g)
+#   horizontal range         r = speed * t,  speed = 8 + 6 * strength
+#
+#   g      t (s)   range @0.0   @0.5 (MVP)   @1.0
+#   9.81   0.495    3.96 m       5.44 m       6.92 m
+#   3.40   0.840    6.72 m       9.24 m      11.76 m
+#
+# The longest throw the court can require is 9.15 m: a thrower at the no-throw
+# boundary (z = 2.0, launching at 1.35 after the 0.65 offset) against a
+# defender hugging their own back wall (z = 8.55, whose hit surface is one
+# COMBINED_RADIUS nearer at 7.80). At 9.81 a fixed-strength throw reaches only
+# 5.44 m, so a defender who simply stands at their back wall cannot be hit at
+# all and every round times out as a draw -- the "long draw chain" risk in
+# plans/07. This value keeps the whole court reachable at the MVP's fixed
+# strength 0.5 while still visibly arcing. Raise it for a steeper, shorter lob;
+# lower it for a flatter, longer one.
+#
+# RECHECK THIS IF BALL_RADIUS, THROW_HEIGHT OR COMBINED_RADIUS CHANGES. The
+# margin is only +0.09 m, and all three feed the arithmetic above: a bigger
+# ball rests higher, which shortens the fall and so shortens every throw. That
+# is exactly how 3.5 stopped working when BALL_RADIUS went 0.15 -> 0.30. The
+# synthetic runner asserts the back-wall case, so it catches a regression.
+GRAVITY: float = 3.4
+
 # --- Round and phase timing -------------------------------------------------
 ROUND_TICKS: int = 3600  # 60 seconds of active play
 ROUND_MS: int = 60000

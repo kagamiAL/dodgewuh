@@ -114,6 +114,57 @@ def wall_exit_fraction(pos: Vec2, disp: Vec2) -> float | None:
     return earliest
 
 
+def ground_impact_fraction(
+    height: float,
+    vertical_velocity: float,
+    floor: float = K.GROUND_HEIGHT,
+    gravity: float = K.GRAVITY,
+) -> float | None:
+    """Tick fraction at which a falling ball's centre reaches the floor.
+
+    None means it is still airborne at the end of the tick. Solves the exact
+    parabola rather than stepping it, so the landing point does not depend on
+    tick granularity:
+
+        floor = height + vy*t - g*t^2/2   ->   (g/2)t^2 - vy*t - drop = 0
+
+    A ball already at or below the floor returns 0.0.
+    """
+    drop = height - floor
+    if drop <= 0.0:
+        return 0.0
+    if gravity <= 0.0:
+        return None  # no gravity configured, so it never comes down
+
+    disc = vertical_velocity * vertical_velocity + 2.0 * gravity * drop
+    if disc < 0.0:  # unreachable for drop > 0 and gravity > 0
+        return None
+    seconds = (vertical_velocity + math.sqrt(disc)) / gravity
+    if seconds < 0.0:
+        return None
+    fraction = seconds / K.DT
+    if fraction > 1.0:
+        return None
+    return fraction
+
+
+def fall(
+    height: float,
+    vertical_velocity: float,
+    seconds: float,
+    gravity: float = K.GRAVITY,
+) -> tuple[float, float]:
+    """Advance a ballistic height and vertical velocity by `seconds`.
+
+    Closed form for constant acceleration, so there is no Euler drift and the
+    published height is the true parabola at every tick.
+    """
+    new_height = (
+        height + vertical_velocity * seconds - 0.5 * gravity * seconds * seconds
+    )
+    return new_height, vertical_velocity - gravity * seconds
+
+
 def swept_hit(
     ball_pos: Vec2,
     ball_disp: Vec2,

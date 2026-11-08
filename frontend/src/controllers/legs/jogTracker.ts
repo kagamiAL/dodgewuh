@@ -2,10 +2,12 @@
 //
 // Tuned on a scripted pocket recording (knee lifts, jogging in four facings, walking, turning,
 // fidgeting):
-// - Jogging is detected from the RMS of gravity-excluded acceleration over 500 ms: jogging read
-//   19–28 m/s², slow walking 7, turning steps 3–6, knee lifts 2.4, fidgeting 2.1, still 0.3.
-//   Start after start_hold_ms above start_rms; stop after stop_hold_ms below stop_rms
-//   (≈0.55 s to start and ≈0.6 s to stop after the body does).
+// - Jogging is detected from the RMS of gravity-excluded acceleration over 250 ms: jogging read
+//   19–28 m/s² (500 ms RMS), slow walking 7, turning steps 3–6, knee lifts 2.4, fidgeting 2.1,
+//   still 0.3. Start after start_hold_ms above start_rms; stop after stop_hold_ms below stop_rms.
+//   Replayed on the full pocket run: ≈0.3 s to start and ≈0.3 s to stop after the body does
+//   (was ≈0.55/0.6 s with a 500 ms window), no dropouts, and no false starts on any of the 25
+//   non-jogging pocket/held recordings (4 people; start_rms 9 let two side-steps through).
 // - Facing is the rotation about vertical (gyro · up from beta/gamma), 0 = facing the screen at
 //   calibration, + = turned left. A pocketed thigh twists up to ~65° while jogging in place and
 //   untwists after stopping, so facing is frozen while jogging, and for settle_ms afterwards only
@@ -17,11 +19,11 @@ import { dot, rotationVector, upFromOrientation, type Vec3 } from './pocketFrame
 
 /** Live-tunable from the /sensors playground; trackers read it on every sample. */
 export const jogTuning = {
-  rms_window_ms: 500,
-  start_rms: 9,
+  rms_window_ms: 250,
+  start_rms: 11,
   stop_rms: 5,
-  start_hold_ms: 300,
-  stop_hold_ms: 300,
+  start_hold_ms: 50,
+  stop_hold_ms: 150,
   settle_ms: 1500,
   settle_turn_dps: 40,
   turn_smooth_ms: 300,
@@ -32,7 +34,7 @@ export const jogTuning = {
 export interface JogState {
   jogging: boolean
   heading_deg: number
-  /** 500 ms RMS of |accel| (m/s²): the jog-intensity signal. */
+  /** rms_window_ms RMS of |accel| (m/s²): the jog-intensity signal. */
   intensity: number
   /** Team-local unit direction while jogging (+r right, +f toward the screen), else null. */
   dir: { r: number; f: number } | null

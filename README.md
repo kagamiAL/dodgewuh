@@ -120,8 +120,8 @@ screens receive snapshots at 20 Hz in `backend/app/services/game.py`.
    ```
 6. On an iPhone open the tunnel URL, join with the code as **Phone**, tap **Ready**,
    then set up Legs: tap Start, allow motion access, pocket the phone, and follow
-   the spoken instruction to face the screen and jog in place. A phone does not
-   need to be calibrated when a screen camera is driving that team's Legs.
+   the spoken instruction to face the screen and jog in place. The pocketed phone
+   is needed even when a screen camera steers that team's Legs.
 7. If using four real phones, fill the remaining three seats instead of running
    the synthetic-phone command above. Arms is currently a placeholder and cannot
    aim or throw; the development-only stand-in can report ready for movement
@@ -131,9 +131,11 @@ screens receive snapshots at 20 Hz in `backend/app/services/game.py`.
 ### Camera-driven Legs and screen view
 
 On `/screen`, choose a team in the camera panel and allow camera access. The
-preview identifies the Legs player in its right half; that player jogs in place
-to move their team's character. The server records the camera claim and routes
-screen `input.legs` to the team's current Legs assignment. Stop camera sharing or
+preview identifies the Legs player in its right half and tracks which way they
+face. The player still pockets their Legs phone, which detects jogging (about
+0.3 s, far sooner than pose landmarks can). While the phone reports jogging, the
+server moves the character in the camera's facing direction; if the camera loses
+the player, it falls back to the phone's own heading. Stop camera sharing or
 choose no team to release the claim. Each screen can also view from the team it
 drives; use `?view=fp1`, `?view=fp2`, or `?view=overview` to override the default.
 These options affect local rendering only. Camera/MediaPipe access requires HTTPS

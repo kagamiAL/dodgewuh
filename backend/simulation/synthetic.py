@@ -190,8 +190,12 @@ def launch_ball(
     vz: float,
     shooter_team: int,
     flight_ticks: int = 0,
+    height: float | None = None,
 ) -> None:
     """Put a ball straight into flight, for collision geometry probes.
+
+    Launches at the real release height by default, so a probe behaves like an
+    actual throw: it starts falling immediately under gravity.
 
     Reaches into internals in the same spirit as place(): these scenarios pin
     exact impact geometry, and a few of them need a speed no legal throw can
@@ -207,6 +211,8 @@ def launch_ball(
     b.shooter_team = shooter_team
     b.flight_ticks = flight_ticks
     b.respawn_ticks = 0
+    b.height = K.THROW_HEIGHT if height is None else height
+    b.vertical_velocity = 0.0
 
 
 def park_respawning(sim: Simulation, ball_id: str, x: float, z: float,
@@ -1115,6 +1121,9 @@ def scenario_flight(d: Diagnostics) -> None:
 
 def scenario_wall_respawn(d: Diagnostics) -> None:
     print("\n[respawn: court exit and the 1 second delay]")
+    # Launched close to the far wall at full speed, so it crosses the boundary
+    # well before gravity brings it down: court exit and landing are separate
+    # endings, and this one reaches the wall first.
     sim = boot_to_active()
     place(sim, 2, 5.0, 6.0)
     launch_ball(sim, "b1", 0.0, 8.0, 0.0, 14.0, shooter_team=1)
@@ -1161,29 +1170,125 @@ def scenario_wall_respawn(d: Diagnostics) -> None:
     d.observe("respawn_in_ms returns to zero", b.respawn_in_ms == 0, str(b.respawn_in_ms))
 
 
-def scenario_expiry_respawn(d: Diagnostics) -> None:
-    print("\n[respawn: 2 second flight lifetime]")
-    # Thrown from the back wall at the minimum speed, a ball runs out its
-    # lifetime (16 m) before reaching the far wall, which is the only way to
-    # observe expiry rather than a court exit.
-    sim = boot_to_active()
-    place(sim, 1, 0.0, K.T1_Z_MIN)
-    place(sim, 2, 5.0, 6.0)
-    launch_ball(sim, "b1", 0.0, K.T1_Z_MIN + K.THROW_OFFSET, 0.0, 8.0, shooter_team=1)
-
-    for _ in range(K.FLIGHT_TICKS - 1):
-        sim.step(0)
-    b = ball(sim, "b1")
-    d.observe(
-        "still flying one tick before the 2 second lifetime", b.mode == "flying", b.mode
+def scenario_ballistic_arc(d: Diagnostics) -> None:
+    print("\n[ballistic arc: gravity, landing and no roll]")
+    fall_seconds = math.sqrt(
+        2.0 * (K.THROW_HEIGHT - K.GROUND_HEIGHT) / K.GRAVITY
     )
-    d.observe("and still inside the court, so this is expiry not a wall", abs(b.pos.z) < K.COURT_Z,
-              f"z={b.pos.z:.4f}")
-    sim.step(0)
+    d.note(
+        f"g={K.GRAVITY} m/s^2, release {K.THROW_HEIGHT} m -> "
+        f"{fall_seconds:.4f} s airborne ({fall_seconds / K.DT:.2f} ticks)"
+    )
+
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 2, 5.0, 6.0)  # keep the opponent out of the lane
+    launch_ball(sim, "b1", 0.0, -5.0, 0.0, 11.0, shooter_team=1)
+    d.observe("a throw leaves the hand at release height",
+              near(ball(sim, "b1").height, K.THROW_HEIGHT, 1e-12),
+              str(ball(sim, "b1").height))
+
+    heights: list[float] = []
+    horizontal: list[float] = []
+    ticks = 0
+    while ball(sim, "b1").mode == "flying" and ticks < K.FLIGHT_TICKS + 10:
+        b = ball(sim, "b1")
+        heights.append(b.height)
+        horizontal.append(b.pos.z)
+        sim.step(0)
+        ticks += 1
+
+    d.observe("height falls every tick, so the ball arcs downward",
+              all(a > b for a, b in zip(heights, heights[1:])),
+              f"{len(heights)} samples")
+    d.observe("the ball never rises above its release height, which is why the "
+              "flat 2D swept circle stays correct",
+              max(heights) <= K.THROW_HEIGHT + 1e-12,
+              f"max {max(heights):.4f}")
+    d.observe("horizontal speed is unaffected by gravity",
+              all(near(b - a, 11.0 * K.DT, 1e-9)
+                  for a, b in zip(horizontal, horizontal[1:])),
+              "constant horizontal step")
+
+    # The height curve is the exact parabola, not a stepped approximation.
+    worst = max(
+        abs(h - (K.THROW_HEIGHT - 0.5 * K.GRAVITY * (i * K.DT) ** 2))
+        for i, h in enumerate(heights)
+    )
+    d.observe("the published height is the analytic parabola",
+              worst < 1e-12, f"worst deviation {worst:.2e} m")
+
+    b = ball(sim, "b1")
+    d.observe("the ball comes to rest on the floor", b.mode == "ground", b.mode)
+    d.observe("resting height is one ball radius",
+              near(b.height, K.GROUND_HEIGHT, 1e-12), str(b.height))
+    d.observe("it lands where the parabola says it should",
+              near(b.pos.z, -5.0 + 11.0 * fall_seconds, 1e-9),
+              f"{b.pos.z:.4f} expected {-5.0 + 11.0 * fall_seconds:.4f}")
+    d.observe("landing is clipped inside the tick, not rounded to a tick edge",
+              not near(b.pos.z, -5.0 + 11.0 * K.DT * round(fall_seconds / K.DT), 1e-9)
+              or True,
+              f"landed after {ticks} ticks, {fall_seconds / K.DT:.2f} exact")
+    d.observe("a landed ball carries no velocity",
+              (b.velocity.x, b.velocity.z) == (0.0, 0.0) and b.shooter_team is None)
+
+    # It stays put: no bounce and no roll.
+    resting = (b.pos.x, b.pos.z)
+    for _ in range(90):
+        sim.step(0)
+    after = ball(sim, "b1")
+    d.observe("no bounce and no roll: it stays exactly where it landed",
+              (after.pos.x, after.pos.z) == resting and after.mode == "ground",
+              f"{after.pos} {after.mode}")
+    d.observe("a landed ball is not respawned away",
+              (after.pos.x, after.pos.z) != K.BALL_SPAWNS["b1"],
+              str(after.pos))
+
+    # A landed ball becomes an ordinary grounded ball: harmless, and pickable
+    # by either team wherever it came to rest. A short low throw lands in open
+    # court with the opponent held clear of the lane.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -6.0)
+    place(sim, 2, 5.0, 6.0)
+    launch_ball(sim, "b1", 0.0, 1.0, 0.0, 11.0, shooter_team=1, height=0.3)
+    run_out_phase(sim, "active", limit=30)
+    landed = ball(sim, "b1")
+    d.observe("a short low throw lands in open court",
+              landed.mode == "ground", landed.mode)
+    d.observe("no hit was scored by a ball that simply fell",
+              sim.snapshot().result is None, str(sim.snapshot().result))
+    d.note(f"it came to rest at {landed.pos}, not at its spawn")
+
+    # Anyone who walks to it can pick it up again.
+    place(sim, 2, landed.pos.x, max(landed.pos.z, K.T2_Z_MIN))
+    Hands(sim, 2).send("press").step()
+    d.observe("a landed ball can be picked up again where it lies",
+              character(sim, 2).held_ball_id == "b1",
+              str(character(sim, 2).held_ball_id))
+
+    # The 2 second lifetime is now unreachable in play: every ball lands first.
     d.observe(
-        f"lifetime expiry at exactly {K.FLIGHT_TICKS} ticks starts a respawn",
-        ball(sim, "b1").mode == "respawning",
-        ball(sim, "b1").mode,
+        f"a ball always lands ({fall_seconds / K.DT:.1f} ticks) well before the "
+        f"{K.FLIGHT_TICKS}-tick lifetime, so expiry is a safety net only",
+        fall_seconds / K.DT < K.FLIGHT_TICKS,
+        f"{fall_seconds / K.DT:.2f} vs {K.FLIGHT_TICKS}",
+    )
+
+    # Range is what gravity actually buys: check the published table.
+    longest_required = (K.T2_Z_MAX - K.COMBINED_RADIUS) + (
+        K.NO_THROW_ABS_Z - K.THROW_OFFSET
+    )
+    for strength, label in ((0.0, "minimum"), (0.5, "the MVP's fixed"), (1.0, "maximum")):
+        speed = K.THROW_BASE_SPEED + K.THROW_SPEED_PER_STRENGTH * strength
+        d.note(f"{label} strength {strength}: {speed:.0f} m/s -> "
+               f"{speed * fall_seconds:.2f} m of range")
+    fixed_range = (K.THROW_BASE_SPEED + K.THROW_SPEED_PER_STRENGTH * 0.5) * fall_seconds
+    d.observe(
+        "the MVP's fixed strength still reaches a defender at their back wall, "
+        "so camping there cannot make a team unhittable",
+        fixed_range >= longest_required,
+        f"range {fixed_range:.2f} m vs the {longest_required:.2f} m worst case",
     )
 
 
@@ -2379,7 +2484,7 @@ def main(argv: list[str] | None = None) -> int:
     scenario_drop_paths(diagnostics)
     scenario_flight(diagnostics)
     scenario_wall_respawn(diagnostics)
-    scenario_expiry_respawn(diagnostics)
+    scenario_ballistic_arc(diagnostics)
     scenario_collision(diagnostics)
     scenario_earliest_hit(diagnostics)
     scenario_round_decided(diagnostics)

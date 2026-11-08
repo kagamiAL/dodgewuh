@@ -8,7 +8,7 @@ the work progressed — same owned paths throughout).
 (acquisition, ownership, safe cancel, no-throw zone), task 6 (flight, respawn, swept collision, earliest-hit
 resolution), task 7 (scoring, timeout draw, round/match lifecycle, role swapping, readiness gating) and
 task 8 (reset/rematch, abort-to-lobby and the simulation-owned device guard).
-**Manual checks performed:** build check (`compileall`, all modules), runtime diagnostics (413/413 observations
+**Manual checks performed:** build check (`compileall`, all modules), runtime diagnostics (427/427 observations
 matching, including a complete four-round match with a draw, a winner and a rematch, and the device guard in
 every phase), constants audit against the 02 table, seam-signature and DTO field-set introspection against 03,
 and fixture field-set validation. All listed under "Manual verification steps" below.
@@ -42,6 +42,43 @@ note below before integrating.
 
 ---
 
+## ⚠ REVIEW REQUESTED — `Ball.height` touched files I do not own
+
+Ball flight is now ballistic, and rendering an arc needs the height to reach the screens, so `Ball` gained
+**one additive field** end to end: `height: float` — ball centre y in metres, `0.15` at rest, `1.5` at
+release. It is rendering-only and never a gameplay input.
+
+This could not be a simulation-only change. `encode()` in `app/services/game.py` validates outbound against
+Pydantic, and `defs.Ball` in `generated/validators.ts` is `.strict()` — so adding the field to my DTO alone
+would have made every snapshot **fail validation on both sides**. Rather than leave the chain half-wired I
+completed it, which means I edited files outside `backend/simulation/**`. Each edit is one mechanical field
+mirroring the pattern already there:
+
+| File | Owner | Change |
+|---|---|---|
+| `plans/03-api-contracts.md` | Alan | `height: number` on the TS `Ball`, `height: Fin` on the Pydantic `Ball`, and `"height"` added to the 16 ball objects in the 4 JSON examples so they still validate against their own schema |
+| `backend/app/protocol.py` | Alan | `height: Fin` on `class Ball` |
+| `frontend/src/generated/protocol.ts` | Alan | `height: number` on `interface Ball` |
+| `frontend/src/generated/validators.ts` | Alan | `"height":z.number().finite()` in the strict `defs.Ball` |
+| `contracts/protocol.schema.json`, `contracts/fixtures/valid/*.json` | Alan | field added to the Ball definition and to every fixture ball |
+| `frontend/src/game/state.ts` | Ryan | `height` on the renderer's local `Ball` mirror |
+| `frontend/src/game/entities.ts` | Ryan | draw a flying ball at `b.height` instead of the constant `FLYING_BALL_HEIGHT`; add the air trail |
+| `frontend/src/game/constants.ts` | Ryan | trail tuning constants; `FLYING_BALL_HEIGHT` marked `@deprecated` rather than deleted |
+| `frontend/src/game/mockSource.ts`, `fixtures/*` | Ryan | mock screen arcs and lands like the real engine, so `/screen?mock=1` does not contradict it |
+
+**Alan — please re-approve or correct 03.** 04 makes you the wire-schema owner; I amended it to avoid the
+undocumented drift of shipping a field the spec did not describe. Nothing else moved: `velocity` is still a
+2D `Vec2` (horizontal, unchanged by gravity) and vertical velocity stays internal, because the renderer only
+needs one position per snapshot.
+
+Verified rather than assumed: `npm run typecheck` and `npm run build` both clean, and a real fixture from
+`backend/simulation/fixtures/` parses against the strict Zod `Ball` while the pre-change schema rejects it.
+
+**Ryan — one behaviour change to watch.** A landed ball reports `mode:"ground"` **where it came to rest**,
+which is no longer its spawn. Anything that assumed grounded balls sit at spawn positions needs a second look.
+
+---
+
 ## Manual verification steps
 
 ```sh
@@ -55,7 +92,7 @@ PYTHONPATH=backend python -m simulation.synthetic
 PYTHONPATH=backend python -m simulation.synthetic --fixtures backend/simulation/fixtures
 ```
 
-Step 2 currently reports **413/413 observations match the specified rules**, printing each rule it observed so
+Step 2 currently reports **427/427 observations match the specified rules**, printing each rule it observed so
 the output can be read and judged by a person. A deviation prints `DEVIATION` with observed-vs-expected values
 and exits non-zero.
 
@@ -289,35 +326,56 @@ role-switch and winner. Please commit them under `contracts/fixtures/valid/` —
 3. **`remaining_ms` is derived from elapsed active ticks in every phase**, so it reads 60000 in lobby and
    countdown, counts down during active, and retains the ended round's value through `round_end` /
    `role_switch` / `match_end` — matching the 57000 in example 13.
-4. **A respawning ball waits at its own original spawn for the whole 1 second**, rather than at the point it
+4. **Ball flight is ballistic, and the flat 2D collision test is unchanged** — these are compatible, not a
+   contradiction. Aim is a 2D direction and there is no vertical-aim channel on the phone, so a throw leaves
+   the hand horizontally and gravity only pulls it *down*. A ball therefore never rises above its 1.5 m
+   release height, which keeps it inside a 1.8 m character's vertical extent for the whole flight, so the
+   swept circle in [02](../../plans/02-game-specification.md) stays exactly correct. Gravity changes **where
+   a ball ends up and how long it stays dangerous**, not how a hit is computed. The solver was not touched.
+   - **Gravity is 3.4 m/s², not 9.81, and that is deliberate.** Range is `speed × sqrt(2 × 1.20 / g)`. At
+     9.81 a fixed-strength throw carries 5.44 m, but the longest throw the court can demand is 9.15 m (a
+     thrower at the no-throw boundary against a defender on their own back wall) — so a camper at the back
+     wall would be *unhittable* and every round would time out, the long-draw risk in
+     [07](../../plans/07-risks-and-fallbacks.md). At 3.4 the ranges are 6.72 / 9.24 / 11.76 m for strength
+     0 / 0.5 / 1.0, so the whole court stays reachable at the MVP's fixed strength. It is one constant,
+     `K.GRAVITY`; raise it for a steeper, shorter lob.
+   - **A ball that touches down stays there** — no bounce, no roll, no respawn. It becomes an ordinary
+     grounded ball at the impact point, harmless, and either team can pick it up. Balls now accumulate where
+     they were thrown rather than always returning to spawn.
+   - **The 2 second lifetime is now unreachable in play.** Every ball lands after ~0.84 s (50.4 ticks), so
+     expiry never fires. It is kept as a safety net. Court exit still fires for a throw that crosses a wall
+     before landing.
+   - Height is advanced in closed form, not stepped, so the published curve is the exact parabola and the
+     landing point is clipped inside the tick rather than rounded to a tick boundary.
+5. **A respawning ball waits at its own original spawn for the whole 1 second**, rather than at the point it
    left play. 02 specifies the delay and the spawn but no intermediate position, and a respawning ball damages
    nobody, so it is parked where it will reappear. Ryan: a respawning ball therefore has a meaningful `pos`
    plus a counting-down `respawn_in_ms`, which is enough to fade it in.
-5. **The ball that scores a hit stays `flying`** at the position its advance reached, matching the `round_end`
+6. **The ball that scores a hit stays `flying`** at the position its advance reached, matching the `round_end`
    example at [03:328](../../plans/03-api-contracts.md), which shows the hit ball still flying with velocity.
    It is not snapped to the exact impact point and not respawned in the deciding tick.
-6. **A hit at or before a clipped wall/lifetime endpoint is a hit, not a respawn** — 02 states this directly,
+7. **A hit at or before a clipped wall/lifetime endpoint is a hit, not a respawn** — 02 states this directly,
    and the runner checks the case where both would happen in one tick.
-7. **The round number increments on entering countdown**, so the first round of a match is round 1 and
+8. **The round number increments on entering countdown**, so the first round of a match is round 1 and
    `lobby` reads round 0. A timeout or draw still advances the round number, since a round was played.
-8. **The deciding tick counts toward the round clock, and the clock then stops.** The tick a hit lands in did
+9. **The deciding tick counts toward the round clock, and the clock then stops.** The tick a hit lands in did
    elapse, so it is counted; every tick after the round is decided is not. That is what makes `remaining_ms`
    retain the ended round's value through `round_end` / `role_switch` / `match_end` per 03.
-9. **The role swap happens on entering `role_switch`, before the `match_end` check**, because 02 says to swap
+10. **The role swap happens on entering `role_switch`, before the `match_end` check**, because 02 says to swap
    after *every* round "including the winning round" and to enter match_end "after the swap". So a won match
    emits `PhaseChanged(role_switch)`, `RolesChanged`, then `PhaseChanged(match_end)` from one `step()`, and
    the final assignments a rematch retains are the post-swap ones.
-10. **The device guard treats `match_end` as abortable**, because 02 says "any non-lobby phase" and 03 says
+11. **The device guard treats `match_end` as abortable**, because 02 says "any non-lobby phase" and 03 says
    "a required-device disconnect aborts any non-lobby phase". A disconnect at `match_end` therefore clears the
    winner and score and returns to lobby. That is the literal rule and is harmless — `rematch` does the same
    reset — but if the team wants the final score to survive a post-match disconnect, that is a rules change
    and goes through the coordinated process in 04.
-11. **`control("start")` additionally requires `host_connected=True`.** 02's start gate names four ready
+12. **`control("start")` additionally requires `host_connected=True`.** 02's start gate names four ready
    phones and a screen but not the host; however 02 also makes an original-host disconnect an immediate
    reset, so starting without a host would abort on the first step. Refusing at `start` is the same rule
    applied earlier, and it raises `NOT_READY` like the other start gates. Flagging because it is the one
    place I tightened a gate 02 states loosely.
-12. **Gameplay edge worth a team decision: a throw launched from the sideline can be lost instantly.** 02 says
+13. **Gameplay edge worth a team decision: a throw launched from the sideline can be lost instantly.** 02 says
    a throw launches at `centre + aim × 0.65`, and the character `x` limit is 5.55 while the court wall is 6.0.
    A character hugging the sideline and aiming diagonally (`aim.x` up to ~0.98, since only `|aim.z| ≥ 0.2` is
    required) launches at `x ≈ 6.19`, already outside the court — so "court exit triggers respawn" fires in the

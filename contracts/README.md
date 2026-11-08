@@ -13,13 +13,17 @@ are in [plan 02](../plans/02-game-specification.md).
   coordinator. It advances at 60 Hz and publishes snapshots at 20 Hz.
 - Readiness, host start/reset/rematch, Legs/Arms input routing, state snapshots,
   role changes and gameplay errors are wired through the simulation.
-- Screens can claim a team's Legs control with `camera.claim` and send
-  `input.legs`. A camera-driven Legs phone is ignored for movement while that
-  screen owns the team's camera input.
+- Screens can claim a team's Legs steering with `camera.claim` and send
+  `input.legs` carrying the Legs player's facing (unit vector, zero when nobody
+  is tracked). While that facing is fresh (250 ms) and non-zero, a non-zero
+  `input.legs` from the team's Legs phone moves in the camera's direction
+  instead of the phone's; the phone still decides when the player jogs. A jog
+  that turns from back-to-the-screen to facing it without a stop halts until
+  the phone reports a fresh jog, so players don't run back into the no-throw zone.
 - `Member.camera_team` reports the team's camera claim, or `null` for no claim.
   Team claims are exclusive; the latest screen claim wins.
 - The frontend camera uses MediaPipe pose landmarks, locally in the browser, to
-  detect the player in the right half of the preview and jog direction. Raw video
+  detect the player in the right half of the preview and their facing. Raw video
   and pose samples are not sent to the backend.
 - Arms input is part of the protocol and simulation, but the phone Arms UI is
   still a placeholder. A dev-only control can mark it ready; it does not aim or
@@ -55,8 +59,8 @@ When changing a wire message, update `backend/app/protocol.py`,
 `contracts/protocol.schema.json`, and the relevant fixtures together. The
 `camera.claim` client message carries `{ "team": 1 | 2 | null }`; null releases
 the screen's claim. It is authorized for screens only. `input.legs` remains the
-same normalized world-vector message whether sent by a phone or an authorized
-screen camera.
+same normalized world-vector message whether sent by a phone (movement) or an
+authorized screen camera (facing).
 
 Keep fixtures aligned with the strict Python and TypeScript validators. Do not
 add automated test files or test-only dependencies; verify contract changes with

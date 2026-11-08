@@ -4,14 +4,14 @@
   "server_ms": 120000,
   "payload": {
     "state": {
-      "tick": 959,
-      "epoch": 13,
-      "round": 3,
+      "tick": 639,
+      "epoch": 9,
+      "round": 2,
       "phase": "match_end",
       "remaining_ms": 59684,
       "phase_remaining_ms": null,
       "score": {
-        "t1": 3,
+        "t1": 2,
         "t2": 0
       },
       "characters": [
@@ -19,7 +19,7 @@
           "team": 1,
           "pos": {
             "x": 0.0,
-            "z": -6.0
+            "z": -3.0
           },
           "aim": {
             "x": 0.0,
@@ -31,7 +31,7 @@
           "team": 2,
           "pos": {
             "x": 0.0,
-            "z": 6.0
+            "z": 3.0
           },
           "aim": {
             "x": 0.0,
@@ -43,18 +43,19 @@
       "balls": [
         {
           "ball_id": "b1",
-          "mode": "ground",
+          "mode": "flying",
           "pos": {
-            "x": -2.0,
-            "z": -0.6
+            "x": 0.0,
+            "z": -2.0
           },
           "velocity": {
             "x": 0.0,
-            "z": 0.0
+            "z": 14.0
           },
           "owner_team": null,
-          "shooter_team": null,
-          "respawn_in_ms": 0
+          "shooter_team": 1,
+          "respawn_in_ms": 0,
+          "height": 1.5
         },
         {
           "ball_id": "b2",
@@ -69,7 +70,8 @@
           },
           "owner_team": null,
           "shooter_team": null,
-          "respawn_in_ms": 0
+          "respawn_in_ms": 0,
+          "height": 0.3
         },
         {
           "ball_id": "b3",
@@ -84,7 +86,8 @@
           },
           "owner_team": null,
           "shooter_team": null,
-          "respawn_in_ms": 0
+          "respawn_in_ms": 0,
+          "height": 0.3
         },
         {
           "ball_id": "b4",
@@ -99,32 +102,33 @@
           },
           "owner_team": null,
           "shooter_team": null,
-          "respawn_in_ms": 0
+          "respawn_in_ms": 0,
+          "height": 0.3
         }
       ],
       "assignments": [
         {
-          "member_id": "p2",
-          "team": 1,
-          "role": "arms"
-        },
-        {
           "member_id": "p1",
           "team": 1,
-          "role": "legs"
+          "role": "arms"
         },
         {
-          "member_id": "p4",
-          "team": 2,
-          "role": "arms"
+          "member_id": "p2",
+          "team": 1,
+          "role": "legs"
         },
         {
           "member_id": "p3",
           "team": 2,
+          "role": "arms"
+        },
+        {
+          "member_id": "p4",
+          "team": 2,
           "role": "legs"
         }
       ],
-      "assignment_version": 4,
+      "assignment_version": 3,
       "result": {
         "reason": "hit",
         "winner": 1,
