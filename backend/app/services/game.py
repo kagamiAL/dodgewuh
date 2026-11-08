@@ -121,6 +121,7 @@ class GameRoom:
         self.peers = {}
         self.status = {}
         self.team_choices = set()
+        self.last_phase = None
         self.cameras = {}  # connected screen member_id -> team whose Legs its camera steers
         self.camera_facing = {}  # team -> (Vec2, received_ms): latest facing from that team's camera
         self.turnaround = {}  # team -> 'away', or the now_ms() its turnaround pause ends
@@ -219,8 +220,25 @@ class GameRoom:
 
     def _abort(self, reason):
         if self.sim.snapshot().phase != 'lobby':
-            log.info('room=%s aborted to lobby: %s', self.code, reason)
+            log.warning('room=%s aborted to lobby: %s (%s)', self.code, reason, self._abort_facts())
             self.sim.control('abort', reason)
+
+    def _abort_facts(self):
+        """Why the simulation's device guard would stop a round, for logs: who is missing or unready."""
+        problems = []
+        for a in self.sim.snapshot().assignments:
+            name = (self._member(a.member_id) or {}).get('name', '?')
+            seat = f'T{a.team} {a.role} {name} ({a.member_id[:8]})'
+            st = self.status.get(a.member_id, {})
+            if a.member_id not in self.peers:
+                problems.append(f'{seat} disconnected')
+            elif not st.get('ready'):
+                problems.append(f"{seat} not ready (permission={st.get('permission')}, calibrated={st.get('calibrated')})")
+        if self.facts['host_id'] not in self.peers:
+            problems.append('host screen disconnected')
+        if not self._screens():
+            problems.append('no screen connected')
+        return '; '.join(problems) or 'all devices connected and ready'
 
     # --- outbound ------------------------------------------------------------
     def _room(self, state=None):
@@ -265,7 +283,11 @@ class GameRoom:
                 if bundle_open:
                     self._broadcast_room(bundle_state)
                 if event.state.phase == 'lobby':
+                    if self.last_phase not in (None, 'lobby', 'match_end'):
+                        # Covers the simulation's own device-guard aborts, which log nothing.
+                        log.warning('room=%s %s -> lobby: %s', self.code, self.last_phase, self._abort_facts())
                     self._clear_readiness()
+                self.last_phase = event.state.phase
                 self._broadcast(encode('phase.changed', dict(state=plain(event.state))))
                 bundle_open = True
                 # A winning step captures role_switch and match_end. Keep each
