@@ -1,15 +1,15 @@
 {
   "v": 1,
   "type": "state.snapshot",
-  "server_ms": 7000,
+  "server_ms": 70000,
   "payload": {
     "state": {
-      "tick": 199,
-      "epoch": 2,
+      "tick": 3781,
+      "epoch": 3,
       "round": 1,
-      "phase": "active",
-      "remaining_ms": 59684,
-      "phase_remaining_ms": null,
+      "phase": "round_end",
+      "remaining_ms": 0,
+      "phase_remaining_ms": 2000,
       "score": {
         "t1": 0,
         "t2": 0
@@ -19,7 +19,7 @@
           "team": 1,
           "pos": {
             "x": 0.0,
-            "z": -3.0
+            "z": -6.0
           },
           "aim": {
             "x": 0.0,
@@ -31,7 +31,7 @@
           "team": 2,
           "pos": {
             "x": 0.0,
-            "z": 3.0
+            "z": 6.0
           },
           "aim": {
             "x": 0.0,
@@ -43,17 +43,17 @@
       "balls": [
         {
           "ball_id": "b1",
-          "mode": "flying",
+          "mode": "ground",
           "pos": {
-            "x": 0.0,
-            "z": 2.433333333333334
+            "x": -2.0,
+            "z": -0.6
           },
           "velocity": {
             "x": 0.0,
-            "z": 14.0
+            "z": 0.0
           },
           "owner_team": null,
-          "shooter_team": 1,
+          "shooter_team": null,
           "respawn_in_ms": 0
         },
         {
@@ -126,10 +126,10 @@
       ],
       "assignment_version": 1,
       "result": {
-        "reason": "hit",
-        "winner": 1,
-        "hit_ball_id": "b1",
-        "victim_team": 2
+        "reason": "timeout",
+        "winner": null,
+        "hit_ball_id": null,
+        "victim_team": null
       },
       "winner": null
     }
