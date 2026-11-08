@@ -1,7 +1,8 @@
 name: dodgewuh-worker
 services:
   game-worker:
-    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to an immutable backend image tag}
+    build: ../backend
+    image: dodgewuh-backend:${BUILD_SHA:?Set BUILD_SHA}
     command: ["/app/.venv/bin/uvicorn", "app.worker:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
     restart: unless-stopped
     ports:
