@@ -25,6 +25,7 @@ const THROW_OFFSET = 0.65
 const FLIGHT_MS = 2000
 const RESPAWN_MS = 1000
 const ME: Vec2 = { x: 0, z: -6 } // T1 spawn
+const GROUND_BALL: Vec2 = { x: 0.7, z: -5.6 } // respawns within pickup reach (1.2 m)
 const RAD = 180 / Math.PI
 
 const movingTarget = ref(false)
@@ -32,12 +33,13 @@ const assist = reactive(assistTuning) // edits the controller's live assist sett
 const target = ref<Vec2>({ x: 0, z: 6 })
 const ball = ref<{ pos: Vec2; vel: Vec2; born: number } | null>(null)
 const trail = ref<string>('')
-const hasBall = ref(true)
+const hasBall = ref(false)
+const ballOnGround = ref(true) // a ball waiting beside you to be tapped up
 const hits = ref(0)
 const thrown = ref(0)
 const last = ref<{ result: 'hit' | 'miss'; speed: number; strength: number; aim_deg: number } | null>(null)
 const problems = ref<string[]>([])
-const holding = ref(false)
+const latched = ref(false) // server-style Hold latch: set by press, cleared by release/cancel
 
 const state = shallowRef<State>(makeState())
 function makeState(): State {
@@ -48,7 +50,19 @@ function makeState(): State {
       { team: 1, pos: ME, aim: { x: 0, z: 1 }, held_ball_id: hasBall.value ? 'b1' : null },
       { team: 2, pos: target.value, aim: { x: 0, z: -1 }, held_ball_id: null },
     ],
-    balls: [], assignments: [], assignment_version: 1, result: null, winner: null,
+    balls: ballOnGround.value
+      ? [{ ball_id: 'b1', mode: 'ground', pos: GROUND_BALL, velocity: { x: 0, z: 0 }, owner_team: null, shooter_team: null, respawn_in_ms: 0 }]
+      : [],
+    assignments: [], assignment_version: 1, result: null, winner: null,
+  }
+}
+
+// Like the server: a latched Hold picks up the ball as soon as one is in reach.
+function tryAcquire(): void {
+  if (latched.value && ballOnGround.value && !hasBall.value) {
+    ballOnGround.value = false
+    hasBall.value = true
+    publish()
   }
 }
 function publish(): void {
@@ -65,12 +79,21 @@ function onSent({ message, problem }: SentMessage): void {
 function handle(m: ClientMessage): void {
   if (m.type !== 'input.arms') return
   const { action, aim, strength } = m.payload
-  if (action === 'press') holding.value = true
-  if (action === 'cancel') holding.value = false
+  if (action === 'press') {
+    latched.value = true
+    tryAcquire()
+  }
+  if (action === 'cancel') {
+    latched.value = false
+    if (hasBall.value) {
+      hasBall.value = false // dropped beside you
+      ballOnGround.value = true
+      publish()
+    }
+  }
   if (action !== 'release') return
-  const wasHolding = holding.value
-  holding.value = false
-  if (!wasHolding || !hasBall.value || strength === null) return
+  latched.value = false
+  if (!hasBall.value || strength === null) return
   const speed = THROW_BASE + THROW_PER_STRENGTH * strength
   const pos = { x: ME.x + aim.x * THROW_OFFSET, z: ME.z + aim.z * THROW_OFFSET }
   ball.value = { pos, vel: { x: aim.x * speed, z: aim.z * speed }, born: performance.now() }
@@ -97,8 +120,9 @@ function endFlight(result: 'hit' | 'miss'): void {
     placeTarget()
   }
   later(RESPAWN_MS, () => {
-    hasBall.value = true
+    ballOnGround.value = true
     publish()
+    tryAcquire()
   })
 }
 
@@ -185,6 +209,7 @@ const accuracy = computed(() => (thrown.value ? Math.round((hits.value / thrown.
       <circle :cx="target.x" :cy="-target.z" :r="COMBINED_RADIUS" class="hitzone" />
       <circle :cx="ME.x" :cy="-ME.z" r="0.45" class="me" />
       <circle v-if="hasBall" :cx="ME.x" :cy="-ME.z + 0.8" :r="BALL_R" class="ball" />
+      <circle v-if="ballOnGround" :cx="GROUND_BALL.x" :cy="-GROUND_BALL.z" :r="BALL_R" class="ball ground" />
       <circle v-if="ball" :cx="ball.pos.x" :cy="-ball.pos.z" :r="BALL_R" class="ball" />
     </svg>
 
@@ -277,5 +302,10 @@ const accuracy = computed(() => (thrown.value ? Math.round((hits.value / thrown.
 }
 .ball {
   fill: #fff;
+}
+.ball.ground {
+  fill: #bbb;
+  stroke: #fff;
+  stroke-width: 0.05;
 }
 </style>
