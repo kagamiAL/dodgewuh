@@ -1,8 +1,8 @@
-"""Pure 2D vector maths, clamps and input validation. Standard library only.
+"""Pure 2D vector maths, clamps, collision and input validation.
 
-The swept-circle collision solver is added in M4; this module currently holds
-the vector helpers, half-court clamps and the move/aim validators needed by
-movement and snapshots.
+Standard library only. Holds the vector helpers, half-court clamps, the
+move/aim validators, and the relative-motion swept-circle solver and court-exit
+clip used by ball flight.
 """
 
 from __future__ import annotations
@@ -83,6 +83,83 @@ def in_court(pos: Vec2) -> bool:
     centre is used and recorded rather than silently choosing an inset.
     """
     return -K.COURT_X <= pos.x <= K.COURT_X and -K.COURT_Z <= pos.z <= K.COURT_Z
+
+
+# --- Flight clipping and swept collision ------------------------------------
+# Both helpers below are parametrized by the SAME quantity: u, the fraction of
+# one tick, 0.0 at tick start and 1.0 at tick end. Keeping one shared time base
+# is what lets a ball be clipped to a wall endpoint while the character still
+# moves across the whole tick, without the two segments drifting apart.
+def wall_exit_fraction(pos: Vec2, disp: Vec2) -> float | None:
+    """Tick fraction at which a ball centre leaves the court, or None.
+
+    Court exit is the ball CENTRE leaving the rectangle, the decision recorded
+    on in_court(). 02 specifies no bounce, so the first boundary crossing on
+    either axis ends the flight. None means the ball stays inside for the whole
+    tick. A ball that somehow starts outside returns 0.0 rather than a negative
+    fraction.
+    """
+    earliest: float | None = None
+    for p, d, limit in ((pos.x, disp.x, K.COURT_X), (pos.z, disp.z, K.COURT_Z)):
+        if d > 0.0:
+            u = (limit - p) / d
+        elif d < 0.0:
+            u = (-limit - p) / d
+        else:
+            continue  # no motion on this axis, so it cannot cross either side
+        if u < 0.0:
+            u = 0.0
+        if u <= 1.0 and (earliest is None or u < earliest):
+            earliest = u
+    return earliest
+
+
+def swept_hit(
+    ball_pos: Vec2,
+    ball_disp: Vec2,
+    char_from: Vec2,
+    char_to: Vec2,
+    limit: float = 1.0,
+) -> float | None:
+    """Earliest tick fraction in [0, limit] where a flying ball touches a
+    moving character, or None if it never does within that window.
+
+    Relative-motion swept circles with the combined radius from 02 (0.60 m):
+    the ball's segment is swept against the character's movement segment, which
+    is what prevents tunnelling at high speed. `limit` is the ball's clipped
+    wall/lifetime endpoint for this tick; 02 says a hit at or before that
+    endpoint counts, so u == limit is a hit.
+
+    ball_disp is the ball's displacement over the WHOLE tick, not the clipped
+    part: clipping is expressed through `limit` so that both segments stay on
+    the same time base.
+    """
+    if limit < 0.0:
+        return None
+
+    d0 = sub(ball_pos, char_from)
+    # Relative displacement per tick: ball motion minus character motion.
+    w = sub(ball_disp, sub(char_to, char_from))
+    radius = K.COMBINED_RADIUS
+
+    # |d0 + w*u| = radius  ->  a*u^2 + b*u + c = 0
+    c = dot(d0, d0) - radius * radius
+    if c <= 0.0:
+        return 0.0  # already touching at tick start
+    a = dot(w, w)
+    if a == 0.0:
+        return None  # no relative motion, and not already touching
+    b = 2.0 * dot(d0, w)
+    disc = b * b - 4.0 * a * c
+    if disc < 0.0:
+        return None  # closest approach never reaches the combined radius
+
+    u = (-b - math.sqrt(disc)) / (2.0 * a)
+    # c > 0 means both roots carry the same sign, so a negative entry root puts
+    # the whole crossing before this tick: nothing to resolve now.
+    if u < 0.0 or u > limit:
+        return None
+    return u
 
 
 # --- Input validation -------------------------------------------------------
