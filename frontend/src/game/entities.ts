@@ -2,7 +2,9 @@ import * as pc from 'playcanvas'
 import {
   AIM_ARROW_LENGTH,
   BALL_COLOR,
+  BALL_GRAVITY,
   BALL_RADIUS,
+  BALL_TEAM_GLOW,
   CHARACTER_HEIGHT,
   CHARACTER_RADIUS,
   HELD_BALL_FORWARD,
@@ -10,6 +12,9 @@ import {
   HELD_BALL_SIDE,
   SLOWMO_FACTOR,
   TEAM_COLORS,
+  THROW_HEIGHT,
+  TRAIL_LENGTH,
+  TRAIL_SPACING,
 } from './constants'
 import { CHARACTER_GLOW, instantiateCharacterModel, RIGHT_HAND_LOCAL, type CharacterRig } from './characterModel'
 import { toScene } from './coords'
@@ -114,8 +119,16 @@ interface BallView {
   entity: pc.Entity
   material: pc.StandardMaterial
   tint: string
-  /** While flying: last server position/velocity (scene space) and when it arrived. */
-  flight: { from: pc.Vec3; vel: pc.Vec3; at: number } | null
+  /**
+   * While flying: last server position/velocity (scene space), when it arrived, and the vertical
+   * velocity / gravity (already scaled for slow motion) to continue the arc between snapshots.
+   */
+  flight: { from: pc.Vec3; vel: pc.Vec3; at: number; vy: number; g: number } | null
+  /** Thrower while flying, for the trail colour. */
+  shooter: Team | null
+  /** Recent drawn positions (newest last) and the ghost balls that show them. */
+  trail: pc.Vec3[]
+  ghosts: pc.Entity[]
 }
 
 function createBall(id: string): BallView {
@@ -124,7 +137,35 @@ function createBall(id: string): BallView {
   entity.addComponent('render', { type: 'sphere', material: m })
   entity.setLocalScale(BALL_RADIUS * 2, BALL_RADIUS * 2, BALL_RADIUS * 2)
   litAsActor(entity)
-  return { entity, material: m, tint: '', flight: null }
+  const ghosts: pc.Entity[] = []
+  for (let i = 0; i < TRAIL_LENGTH; i++) {
+    const g = new pc.Entity(`BallTrail_${id}_${i}`)
+    g.addComponent('render', { type: 'sphere', castShadows: false, receiveShadows: false })
+    const s = BALL_RADIUS * 2 * (0.9 - (0.6 * i) / TRAIL_LENGTH)
+    g.setLocalScale(s, s, s)
+    g.enabled = false
+    ghosts.push(g)
+  }
+  return { entity, material: m, tint: '', flight: null, shooter: null, trail: [], ghosts }
+}
+
+/** Unlit, see-through team-coloured materials for trail ghost i (0 = nearest the ball). */
+const trailMaterials = new Map<string, pc.StandardMaterial>()
+function trailMaterial(team: Team, i: number): pc.StandardMaterial {
+  const key = `${team}:${i}`
+  let m = trailMaterials.get(key)
+  if (!m) {
+    m = new pc.StandardMaterial()
+    m.diffuse = new pc.Color(0, 0, 0)
+    m.emissive = TEAM_COLORS[team]
+    m.useLighting = false
+    m.opacity = 0.85 * (1 - i / TRAIL_LENGTH) ** 1.3
+    m.blendType = pc.BLEND_NORMAL
+    m.depthWrite = false
+    m.update()
+    trailMaterials.set(key, m)
+  }
+  return m
 }
 
 /**
@@ -223,10 +264,59 @@ export class StateRenderer {
     }
     for (const ball of this.balls.values()) {
       const f = ball.flight
-      if (!f) continue
+      if (!f) {
+        this.clearTrail(ball)
+        continue
+      }
       const s = Math.min(now - f.at, FLIGHT_EXTRAPOLATE_MAX_MS) / 1000
-      ball.entity.setPosition(f.from.x + f.vel.x * s, f.from.y, f.from.z + f.vel.z * s)
+      // Continue the server's arc between snapshots so the fall is smooth, not 20 Hz steps.
+      const y = Math.max(BALL_RADIUS, f.from.y + f.vy * s - 0.5 * f.g * s * s)
+      ball.entity.setPosition(f.from.x + f.vel.x * s, y, f.from.z + f.vel.z * s)
+      this.updateTrail(ball)
     }
+  }
+
+  private updateTrail(ball: BallView): void {
+    if (!ball.shooter || !ball.entity.enabled) return this.clearTrail(ball)
+    // Record the drawn path (newest last), keeping a little more than the trail's length.
+    const here = ball.entity.getPosition().clone()
+    const path = ball.trail
+    const last = path[path.length - 1]
+    if (!last || last.distance(here) > 0.01) path.push(here)
+    let kept = 0
+    for (let i = path.length - 1; i > 0 && kept < (TRAIL_LENGTH + 2) * TRAIL_SPACING; i--) kept += path[i].distance(path[i - 1])
+    while (path.length > 2 && kept > (TRAIL_LENGTH + 2) * TRAIL_SPACING) {
+      kept -= path[1].distance(path[0])
+      path.shift()
+    }
+    // Ghost i sits (i + 1) × TRAIL_SPACING back along that path, so the streak is evenly spaced
+    // whatever the frame rate.
+    let seg = path.length - 1
+    let walked = 0
+    for (let i = 0; i < TRAIL_LENGTH; i++) {
+      const g = ball.ghosts[i]
+      const want = (i + 1) * TRAIL_SPACING
+      while (seg > 0 && walked + path[seg].distance(path[seg - 1]) < want) {
+        walked += path[seg].distance(path[seg - 1])
+        seg--
+      }
+      if (seg <= 0) {
+        g.enabled = false
+        continue
+      }
+      const a = path[seg], b = path[seg - 1]
+      const len = a.distance(b)
+      const u = len > 0 ? (want - walked) / len : 0
+      if (!g.parent) this.ballRoot.addChild(g)
+      g.render!.material = trailMaterial(ball.shooter, i)
+      g.setPosition(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u)
+      g.enabled = true
+    }
+  }
+
+  private clearTrail(ball: BallView): void {
+    if (ball.trail.length) ball.trail = []
+    for (const g of ball.ghosts) g.enabled = false
   }
 
   private renderCharacter(c: Character, state: State, now: number): void {
@@ -290,6 +380,7 @@ export class StateRenderer {
 
     view.entity.enabled = b.mode !== 'respawning'
     view.flight = null
+    view.shooter = b.mode === 'flying' ? b.shooter_team : null
 
     if (b.mode === 'held' && b.owner_team !== null && b.owner_team === this.hiddenTeam) {
       this.ownHeld = view.entity // positioned by the scene, in front of the camera
@@ -326,7 +417,10 @@ export class StateRenderer {
       const pos = toScene(b.pos.x, b.pos.z, b.height)
       view.entity.setPosition(pos)
       if (b.mode === 'flying') {
-        view.flight = { from: pos, vel: toScene(b.velocity.x * timeScale, b.velocity.z * timeScale), at: now }
+        // Released flat from THROW_HEIGHT, so its fall speed follows from how far it has dropped.
+        const vy = -Math.sqrt(2 * BALL_GRAVITY * Math.max(0, THROW_HEIGHT - b.height)) * timeScale
+        const g = BALL_GRAVITY * timeScale * timeScale
+        view.flight = { from: pos, vel: toScene(b.velocity.x * timeScale, b.velocity.z * timeScale), at: now, vy, g }
       }
     }
 
@@ -338,7 +432,10 @@ export class StateRenderer {
     const team = b.mode === 'held' ? b.owner_team : b.mode === 'flying' ? b.shooter_team : null
     const tint = team ? `t${team}` : ''
     if (tint !== view.tint) {
-      view.material.emissive = team ? TEAM_COLORS[team] : new pc.Color(0, 0, 0)
+      const glow = team ? TEAM_COLORS[team] : null
+      view.material.emissive = glow
+        ? new pc.Color(glow.r * BALL_TEAM_GLOW, glow.g * BALL_TEAM_GLOW, glow.b * BALL_TEAM_GLOW)
+        : new pc.Color(0, 0, 0)
       view.material.update()
       view.tint = tint
     }

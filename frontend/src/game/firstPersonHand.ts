@@ -1,5 +1,5 @@
 import * as pc from 'playcanvas'
-import { TEAM_COLORS } from './constants'
+import { BALL_COLOR, TEAM_COLORS } from './constants'
 import { litAsActor } from './lighting'
 import type { Team } from './state'
 
@@ -53,8 +53,28 @@ export function instantiateFirstPersonHand(asset: pc.Asset): FirstPersonHand {
 
   // One cloned skin material shared by the palm, fingers, thumb and arm.
   let skin: pc.StandardMaterial | null = null
+  // The modelled ball is yellow in the .glb; match the red in-game balls (seam a darker red).
+  const ballColors: Record<string, pc.Color> = {
+    FP_Ball: BALL_COLOR,
+    FP_BallSeam: new pc.Color(BALL_COLOR.r * 0.45, BALL_COLOR.g * 0.45, BALL_COLOR.b * 0.45),
+  }
+  const recoloured = new Map<pc.Material, pc.StandardMaterial>()
   for (const rc of entity.findComponents('render') as pc.RenderComponent[]) {
     for (const mi of rc.meshInstances) {
+      const original = mi.material
+      const ballColor = original ? ballColors[original.name] : undefined
+      if (original && ballColor) {
+        let m = recoloured.get(original)
+        if (!m) {
+          m = original.clone() as pc.StandardMaterial
+          m.diffuse = ballColor.clone()
+          m.diffuseMap = null
+          m.update()
+          recoloured.set(original, m)
+        }
+        mi.material = m
+        continue
+      }
       if (mi.material?.name !== SKIN_MATERIAL) continue
       skin ??= mi.material.clone() as pc.StandardMaterial
       mi.material = skin

@@ -24,7 +24,16 @@ export const HELD_BALL_SIDE = 0.8 // character radius + ball radius + a little g
 export const HELD_BALL_FORWARD = 0.15
 export const FLYING_BALL_HEIGHT = 1.0
 export const AIM_ARROW_LENGTH = 1.4
-export const BALL_COLOR = new pc.Color(0.95, 0.85, 0.2)
+export const BALL_COLOR = new pc.Color(0.85, 0.07, 0.09) // red (was yellow 0.95, 0.85, 0.2)
+/** How much of the team colour glows on a held/flying ball: a hint, so the ball still reads red. */
+export const BALL_TEAM_GLOW = 0.35
+// Ball flight, mirrored from backend/simulation/constants.py for smooth display between snapshots.
+export const BALL_GRAVITY = 1.9
+export const THROW_HEIGHT = 1.5
+// Trail behind flying balls: ghost balls in the thrower's team colour, spaced by distance travelled
+// (not per frame), so it's the same streak at any frame rate and during dodge slow motion.
+export const TRAIL_LENGTH = 14
+export const TRAIL_SPACING = 0.25 // metres between ghosts along the ball's path -> ~3.5 m streak
 export const TEAM_COLORS: Record<1 | 2, pc.Color> = {
   1: new pc.Color().fromString(TEAM_HEX[1]),
   2: new pc.Color().fromString(TEAM_HEX[2]),
