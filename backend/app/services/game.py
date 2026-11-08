@@ -28,6 +28,7 @@ CAMERA_FACING_FRESH_MS = 250  # a camera facing older than this no longer steers
 # Team-local forward component of the camera facing: below -this is "back to the screen",
 # above it is "facing the screen" (0.5 = within 60 degrees of straight).
 TURNAROUND_FORWARD = 0.5
+TURNAROUND_PAUSE_MS = 500  # how long that turnaround halts a jog that carries on
 PLAYING = ('countdown', 'active')
 
 log = logging.getLogger('dodgewuh.game')
@@ -121,7 +122,7 @@ class GameRoom:
         self.status = {}
         self.cameras = {}  # connected screen member_id -> team whose Legs its camera steers
         self.camera_facing = {}  # team -> (Vec2, received_ms): latest facing from that team's camera
-        self.turnaround = {}  # team -> 'away' | 'halted' for the current unbroken camera-steered jog
+        self.turnaround = {}  # team -> 'away', or the now_ms() its turnaround pause ends
         self.revision = 0
         self.ordinal = 0
         self.steps = 0
@@ -155,8 +156,8 @@ class GameRoom:
         """A jogging Legs phone goes the way the camera sees them face.
 
         Turnaround catch: running back with your back to the screen, then turning to face it
-        without stopping halts you, so you don't jog straight back into the no-throw zone. The
-        next fresh jog (the phone reports a stop, then jogging again) moves normally.
+        without stopping cancels your momentum for TURNAROUND_PAUSE_MS, so you don't carry
+        straight on into the no-throw zone. Keep jogging and you move forward after the pause.
         """
         if not (move.x or move.z):
             self.turnaround.pop(team, None)
@@ -164,11 +165,17 @@ class GameRoom:
         if facing is None:
             return move
         forward = facing.z if team == 1 else -facing.z  # 02: Team 2's forward is world -z
+        now = now_ms()
         if forward < -TURNAROUND_FORWARD:
             self.turnaround[team] = 'away'
         elif forward > TURNAROUND_FORWARD and self.turnaround.get(team) == 'away':
-            self.turnaround[team] = 'halted'
-        return Vec2(0.0, 0.0) if self.turnaround.get(team) == 'halted' else facing
+            self.turnaround[team] = now + TURNAROUND_PAUSE_MS
+        pause_ends = self.turnaround.get(team)
+        if isinstance(pause_ends, int):
+            if now < pause_ends:
+                return Vec2(0.0, 0.0)
+            del self.turnaround[team]
+        return facing
 
     def _required(self, member_id):
         """Losing an assigned phone or the original host aborts an underway match."""
