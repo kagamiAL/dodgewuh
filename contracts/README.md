@@ -17,7 +17,9 @@ are in [plan 02](../plans/02-game-specification.md).
   `input.legs` carrying the Legs player's facing (unit vector, zero when nobody
   is tracked). While that facing is fresh (250 ms) and non-zero, a non-zero
   `input.legs` from the team's Legs phone moves in the camera's direction
-  instead of the phone's; the phone still decides when the player jogs.
+  instead of the phone's; the phone still decides when the player jogs. A jog
+  that turns from back-to-the-screen to facing it without a stop halts until
+  the phone reports a fresh jog, so players don't run back into the no-throw zone.
 - `Member.camera_team` reports the team's camera claim, or `null` for no claim.
   Team claims are exclusive; the latest screen claim wins.
 - The frontend camera uses MediaPipe pose landmarks, locally in the browser, to
