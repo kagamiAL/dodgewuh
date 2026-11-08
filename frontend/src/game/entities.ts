@@ -128,7 +128,7 @@ function createBall(id: string): BallView {
 }
 
 /**
- * Flying balls are drawn ahead of the last snapshot along their velocity so a 20 Hz feed
+ * Flying balls are drawn ahead of the last snapshot along their velocity so a 30 Hz feed
  * looks smooth up close. Capped so a ball that just hit or expired doesn't sail on.
  * Display only: the server's next position always replaces it.
  */
