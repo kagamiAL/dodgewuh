@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { createScene, type GameScene } from '@/game/scene'
 import { session } from '@/stores/session'
 import { connect, transport } from '@/stores/connection'
+import type { Team } from '@/contracts/pending'
 import { TEAM_HEX } from '@/theme'
 import Lobby from './Lobby.vue'
 import CameraLegs from '@/camera/CameraLegs.vue'
@@ -14,11 +15,11 @@ const route = useRoute()
 //   /screen?mock=lobby     Richard's reset-lobby fixture
 //   /screen?mock=movement  Richard's active-movement fixture
 //   /screen?mock=held      03 example 11–12 (Team 1 holding b1)
-// Add &view=fp1 or &view=fp2 to watch from that team's character (first-person preview).
 const mock = import.meta.env.DEV ? (route.query.mock as string | undefined) : undefined
-const firstPerson = import.meta.env.DEV
-  ? ({ fp1: 1, fp2: 2 } as const)[route.query.view as string]
-  : undefined
+// View: first person from the team this screen's camera drives (Member.camera_team), else
+// the elevated overview. ?view=fp1|fp2|overview overrides it, live or mock.
+const VIEW_QUERY: Record<string, Team | null> = { fp1: 1, fp2: 2, overview: null }
+const viewOverride = route.query.view as string | undefined
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const error = ref<string | null>(null)
@@ -28,6 +29,11 @@ let stopMock: (() => void) | null = null
 const live = !mock
 
 const state = computed(() => session.data.state)
+const pointOfView = computed<Team | null>(() => {
+  if (viewOverride !== undefined && viewOverride in VIEW_QUERY) return VIEW_QUERY[viewOverride]
+  const me = session.data.room?.members.find((m) => m.member_id === session.data.registration?.member_id)
+  return me?.camera_team ?? null
+})
 const phase = computed(() => state.value?.phase ?? 'lobby')
 const showLobby = computed(() => live && (phase.value === 'lobby' || phase.value === 'match_end'))
 const PHASE_LABEL: Record<string, string> = {
@@ -66,11 +72,12 @@ watch(
     if (state) scene.value?.renderState(state)
   },
 )
+watch([pointOfView, scene], ([team]) => scene.value?.setPointOfView(team))
 
 onMounted(async () => {
   if (!canvas.value) return
   try {
-    scene.value = createScene(canvas.value, { firstPerson })
+    scene.value = createScene(canvas.value)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
     return
