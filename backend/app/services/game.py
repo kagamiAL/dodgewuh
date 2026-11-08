@@ -472,6 +472,8 @@ class GameRoom:
             # faces (a unit vector, zero when nobody is tracked); their pocketed phone says when
             # they jog. Phone accelerometers detect jogging far sooner than pose landmarks do.
             self.camera_facing[camera_team] = (Vec2(p.move.x, p.move.z), now_ms())
+            # The dodge rule needs it too: no dodge for a ball thrown at their back.
+            self.sim.set_facing(camera_team, Vec2(p.move.x, p.move.z), now_ms())
             return
         if kind == 'input.legs':
             team, facing = self._camera_facing(actor)

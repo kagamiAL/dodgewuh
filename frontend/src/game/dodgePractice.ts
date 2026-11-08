@@ -3,7 +3,7 @@
 // Team 1 throws at you (Team 2's Legs, standing still) over and over. Each throw starts a
 // dodge exactly as the server would (backend/simulation/engine.py "camera dodge"): slow motion,
 // you are frozen, the ball parks at you until your camera's verdict, a dodged ball passes through
-// and a missed dodge (or no verdict in time) is a hit. It is a small mirror of those rules for
+// and a missed dodge (or no verdict in time) is a hit. Turn your back and there is no dodge. It is a small mirror of those rules for
 // practice only; the server stays the authority. Snapshots go through session.apply like live.
 
 import type { Room, ServerMessage } from '@/contracts/pending'
@@ -20,6 +20,7 @@ const COMBINED_RADIUS = 0.75
 const DODGE_LEAD_TICKS = 45
 const DODGE_VERDICT_TIMEOUT_TICKS = 12
 const DODGE_SLOWMO_TICKS = 45
+const DODGE_BACK_DOT = 0.7071 // a ball within 45° of straight into your back: no dodge
 
 const SNAPSHOT_MS = 50
 const AIM_S = 1.5 // Team 1 holds and aims this long before each throw
@@ -50,6 +51,8 @@ export interface PracticeTally { dodged: number; hit: number }
 export interface DodgePractice {
   /** The camera's verdict for the pending dodge (CameraLegs' dodge-result). */
   verdict(ballId: string, dodged: boolean): void
+  /** Which way the camera sees you face (world, unit), or null if unknown. */
+  setFacing(dir: Vec2 | null): void
   stop(): void
 }
 
@@ -64,6 +67,7 @@ export function startDodgePractice(handler: (msg: ServerMessage) => void, onTall
   let dodged = false
   let wait = AIM_S // seconds of real time until the next scripted action
   let lastResult: 'hit' | null = null
+  let facing: Vec2 | null = null
 
   const aim = (): Vec2 => {
     const dx = YOU.x - thrower.x
@@ -81,6 +85,13 @@ export function startDodgePractice(handler: (msg: ServerMessage) => void, onTall
     dodge = null
     dodged = false
     wait = REST_S
+  }
+
+  /** Thrown at your back: the ball travels within 45° of the way you face. */
+  function atBack(b: NonNullable<typeof ball>): boolean {
+    if (!facing || (!facing.x && !facing.z)) return false
+    const speed = Math.hypot(b.vel.x, b.vel.z) || 1
+    return (b.vel.x * facing.x + b.vel.z * facing.z) / speed > DODGE_BACK_DOT
   }
 
   /** Ticks until the flying ball reaches you standing still, within the dodge lead. */
@@ -121,7 +132,7 @@ export function startDodgePractice(handler: (msg: ServerMessage) => void, onTall
       return
     }
 
-    if (!dodge && !dodged && ticksToContact(ball) !== null) dodge = { ball_id: 'b1', team: 2, outcome: 'pending', ticks: 0 }
+    if (!dodge && !dodged && !atBack(ball) && ticksToContact(ball) !== null) dodge = { ball_id: 'b1', team: 2, outcome: 'pending', ticks: 0 }
 
     const next = { x: ball.pos.x + ball.vel.x * DT, z: ball.pos.z + ball.vel.z * DT }
     const contact = !dodged && Math.hypot(next.x - YOU.x, next.z - YOU.z) <= COMBINED_RADIUS
@@ -188,6 +199,9 @@ export function startDodgePractice(handler: (msg: ServerMessage) => void, onTall
       if (!dodge || dodge.outcome !== 'pending' || dodge.ball_id !== ballId) return
       dodge.outcome = wasDodged ? 'dodged' : 'hit'
       dodged = wasDodged
+    },
+    setFacing(dir) {
+      facing = dir
     },
     stop() {
       clearInterval(stepTimer)

@@ -106,6 +106,7 @@ function onFacing(value: { team: Team; dir: { x: number; z: number } } | null): 
   if (facingTeam !== null && facingTeam !== value?.team) scene.value?.setFacing(facingTeam, null)
   facingTeam = value?.team ?? null
   if (value) scene.value?.setFacing(value.team, value.dir)
+  practiceFeed?.setFacing(value?.dir ?? null)
 }
 
 onMounted(async () => {

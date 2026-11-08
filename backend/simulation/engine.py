@@ -190,6 +190,9 @@ class Simulation:
         # Camera dodge: teams whose screen camera can judge a dodge, the dodge in
         # progress, and balls their victim already dodged (they can no longer hit).
         self._dodge_teams: frozenset[int] = frozenset()
+        # team -> (unit world facing from its camera, received_ms); stale after K.INPUT_TIMEOUT_MS.
+        self._facing: dict[int, tuple[Vec2, int]] = {}
+        self._now_ms: int = 0
         self._dodge: _Dodge | None = None
         self._dodged_balls: set[str] = set()
 
@@ -259,6 +262,12 @@ class Simulation:
         """Adapter fact: teams whose Legs a screen camera watches. Only they can
         dodge; a team without a camera is hit exactly as before."""
         self._dodge_teams = frozenset(t for t in teams if t in K.TEAMS)
+
+    def set_facing(self, team: int, facing: Vec2, received_ms: int) -> None:
+        """Adapter fact: which way the team's Legs player faces, as its screen
+        camera sees it (zero when nobody is tracked). Only the dodge reads it."""
+        if team in K.TEAMS:
+            self._facing[team] = (G.normalize(facing), received_ms)
 
     def resolve_dodge(self, team: int, ball_id: str, epoch: int, dodged: bool) -> None:
         """The victim's camera screen reports the pending dodge's verdict."""
@@ -490,6 +499,7 @@ class Simulation:
             self._pending.clear()
 
     def _step_active(self, now_ms: int) -> None:
+        self._now_ms = now_ms
         # (1) At tick start, if the round's 3600 active ticks have elapsed, end
         # a timeout draw BEFORE accepting throws. This is what makes a throw
         # arriving at the deadline ineligible while a hit in the last valid
@@ -610,9 +620,10 @@ class Simulation:
     # --- Internal: camera dodge ---------------------------------------------
     def _detect_dodge(self) -> None:
         """Start a dodge for the first flying ball (by ID) that would hit its
-        victim within K.DODGE_LEAD_TICKS, but only while that victim stands
-        still. A moving victim escapes (or not) by movement alone; this runs
-        every tick, so stopping in a ball's path still starts the dodge."""
+        victim within K.DODGE_LEAD_TICKS (judged as if they stopped where they
+        are), moving or not -- unless the ball is coming at their back. With no
+        fresh camera facing the dodge is allowed. This runs every tick, so
+        turning to face a ball still starts the dodge."""
         for ball_id in K.BALL_IDS:
             ball = self._balls[ball_id]
             if ball.mode != "flying" or ball_id in self._dodged_balls:
@@ -620,12 +631,21 @@ class Simulation:
             victim = K.opponent(ball.shooter_team)  # type: ignore[arg-type]
             if victim not in self._dodge_teams:
                 continue
-            move = self._legs_input[victim].move
-            if move.x or move.z:
-                continue  # jogging: no dodge while moving
+            if self._at_back(ball, victim):
+                continue  # thrown at their back: no chance to dodge
             if self._ticks_to_contact(ball, self._characters[victim].pos) is not None:
                 self._dodge = _Dodge(ball_id=ball_id, team=victim)
                 return
+
+    def _at_back(self, ball: _Ball, victim: int) -> bool:
+        """Is the ball travelling the way the victim faces, i.e. into their back?"""
+        seen = self._facing.get(victim)
+        if seen is None or self._now_ms - seen[1] > K.INPUT_TIMEOUT_MS:
+            return False
+        facing = seen[0]
+        if not (facing.x or facing.z):
+            return False
+        return G.dot(G.normalize(ball.velocity), facing) > K.DODGE_BACK_DOT
 
     @staticmethod
     def _ticks_to_contact(ball: _Ball, victim: Vec2) -> int | None:
