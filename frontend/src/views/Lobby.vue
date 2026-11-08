@@ -32,6 +32,7 @@ const seats = computed(() => {
   })
 })
 const screens = computed(() => room.value?.members.filter((m) => m.device === 'screen') ?? [])
+const watching = computed(() => room.value?.members.filter((m) => m.device === 'spectator' && m.connected).length ?? 0)
 const readyCount = computed(() => seats.value.filter((s) => s.member?.connected && s.member.ready).length)
 
 function status(m: Member | null): string {
@@ -94,6 +95,7 @@ function returnToMenu(): void {
         {{ m.name }}<template v-if="m.member_id === room.host_id"> (host)</template>
       </span>
     </p>
+    <p v-if="watching" class="screens">{{ watching }} watching</p>
 
     <p v-if="startingIn !== null" class="starting" role="status">Everyone's ready — starting in {{ startingIn }}…</p>
     <p v-else-if="phase === 'lobby'" class="label count" role="status">

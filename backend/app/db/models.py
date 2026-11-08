@@ -32,16 +32,17 @@ class MemberRecord(Base):
     """Registered device identity, occupied seat and hashed bearer credential."""
     __tablename__ = "members"
     # Screens and phones each have slots 0–3; the creator occupies screen slot 0.
+    # Spectators are watch-only and have no slot (NULL); a separate cap limits them.
     # The unique constraint backs up the service's per-room transaction lock.
     __table_args__ = (
         UniqueConstraint("room_id", "device", "slot", name="uq_member_slot"),
-        CheckConstraint("device IN ('phone', 'screen')", name="ck_member_device"),
+        CheckConstraint("device IN ('phone', 'screen', 'spectator')", name="ck_member_device"),
         CheckConstraint("slot IS NULL OR slot BETWEEN 0 AND 3", name="ck_member_slot"),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     room_id: Mapped[UUID] = mapped_column(ForeignKey("rooms.id"), index=True)
     name: Mapped[str] = mapped_column(String(24))
-    device: Mapped[str] = mapped_column(String(6))
+    device: Mapped[str] = mapped_column(String(9))
     slot: Mapped[int | None] = mapped_column(Integer)
     # Raw tokens are returned once to the client and never stored here.
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)

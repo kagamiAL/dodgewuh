@@ -15,7 +15,7 @@ ID = Annotated[str, Field(min_length=1, max_length=64)]
 Name = Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v), Field(min_length=1, max_length=24)]
 Team = Literal[1, 2]
 Role = Literal['arms', 'legs']
-Device = Literal['screen', 'phone']
+Device = Literal['screen', 'phone', 'spectator']
 Phase = Literal['lobby','countdown','active','round_end','role_switch','match_end']
 Permission = Literal['unknown','granted','denied','unsupported']
 

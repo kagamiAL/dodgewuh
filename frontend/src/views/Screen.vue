@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { createScene, type GameScene } from '@/game/scene'
+import { createScene, type GameScene, type PointOfView } from '@/game/scene'
 import { session } from '@/stores/session'
 import { connect, transport } from '@/stores/connection'
 import type { Team } from '@/contracts/pending'
 import { MAX_ROUNDS, NO_THROW_HALF_DEPTH } from '@/game/constants'
-import { TEAM_HEX } from '@/theme'
+import { TEAM_HEX, TEAM_NAME } from '@/theme'
 import Lobby from './Lobby.vue'
 import CameraLegs from '@/camera/CameraLegs.vue'
 import type { DodgePractice, PracticeTally } from '@/game/dodgePractice'
@@ -17,14 +17,22 @@ const route = useRoute()
 //   /screen?mock=lobby     Richard's reset-lobby fixture
 //   /screen?mock=movement  Richard's active-movement fixture
 //   /screen?mock=held      03 example 11–12 (Team 1 holding b1)
+//   add &spectate          preview the spectator camera switcher on any mock
 // /dodge: camera dodge practice. A local feed throws at you (Team 2 Legs) and this screen's
 // camera judges each dodge; no room or backend.
 const practice = route.name === 'dodge'
 const mock = import.meta.env.DEV && !practice ? (route.query.mock as string | undefined) : undefined
 // View: first person from the team this screen's camera drives (Member.camera_team), else
-// the elevated overview. ?view=fp1|fp2|overview overrides it, live or mock.
-const VIEW_QUERY: Record<string, Team | null> = { fp1: 1, fp2: 2, overview: null }
+// the elevated overview. ?view=fp1|fp2|overview|sideline overrides it, live or mock.
+// Spectators pick a view with the switcher (or keys 1–4) instead; ?view= sets their first one.
+const VIEW_QUERY: Record<string, PointOfView> = { fp1: 1, fp2: 2, overview: 'overview', sideline: 'sideline' }
 const viewOverride = route.query.view as string | undefined
+const SPECTATOR_VIEWS: { view: PointOfView; label: string }[] = [
+  { view: 'overview', label: 'Overview' },
+  { view: 'sideline', label: 'Bleachers' },
+  { view: 1, label: TEAM_NAME[1] }, // + ' POV', dropped on narrow screens
+  { view: 2, label: TEAM_NAME[2] },
+]
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const error = ref<string | null>(null)
@@ -36,15 +44,31 @@ const tally = ref<PracticeTally>({ dodged: 0, hit: 0 })
 const live = !mock && !practice
 
 const state = computed(() => session.data.state)
-const pointOfView = computed<Team | null>(() => {
+const me = computed(() => session.data.room?.members.find((m) => m.member_id === session.data.registration?.member_id))
+// Watch-only member: no camera, no host controls, free choice of view.
+const spectating = computed(
+  () => (live && me.value?.device === 'spectator') || (!!mock && route.query.spectate !== undefined),
+)
+const spectatorView = ref<PointOfView>(
+  viewOverride !== undefined && viewOverride in VIEW_QUERY ? VIEW_QUERY[viewOverride] : 'overview',
+)
+const pointOfView = computed<PointOfView | null>(() => {
+  if (spectating.value) return spectatorView.value
   if (viewOverride !== undefined && viewOverride in VIEW_QUERY) return VIEW_QUERY[viewOverride]
   if (practice) return 2
-  const me = session.data.room?.members.find((m) => m.member_id === session.data.registration?.member_id)
-  return me?.camera_team ?? null
+  return me.value?.camera_team ?? null
 })
+function onKey(e: KeyboardEvent): void {
+  if (!spectating.value || e.metaKey || e.ctrlKey || e.altKey) return
+  const choice = SPECTATOR_VIEWS[Number(e.key) - 1]
+  if (choice) spectatorView.value = choice.view
+}
 const phase = computed(() => state.value?.phase ?? 'lobby')
 // Between rounds (role_switch) the lobby overlay doubles as the ready view.
 const showLobby = computed(() => live && (phase.value === 'lobby' || phase.value === 'role_switch' || phase.value === 'match_end'))
+// Spectators can dismiss the overlay to look around the arena between games.
+const hideLobby = ref(false)
+watch(phase, () => (hideLobby.value = false))
 const PHASE_LABEL: Record<string, string> = {
   countdown: 'Get ready',
   round_end: 'Round over',
@@ -56,7 +80,7 @@ const PHASE_LABEL: Record<string, string> = {
 const inNoThrowZone = computed(() => {
   const team = pointOfView.value
   const st = state.value
-  if (!team || st?.phase !== 'active') return false
+  if (spectating.value || (team !== 1 && team !== 2) || st?.phase !== 'active') return false
   const me = st.characters.find((c) => c.team === team)
   return !!me && me.held_ball_id !== null && Math.abs(me.pos.z) <= NO_THROW_HALF_DEPTH
 })
@@ -110,6 +134,7 @@ function onFacing(value: { team: Team; dir: { x: number; z: number } } | null): 
 }
 
 onMounted(async () => {
+  window.addEventListener('keydown', onKey)
   if (!canvas.value) return
   try {
     scene.value = createScene(canvas.value)
@@ -136,6 +161,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
   stopMock?.()
   practiceFeed?.stop()
   if (live) transport.close()
@@ -163,8 +189,31 @@ onBeforeUnmount(() => {
       <p v-if="banner" class="banner">{{ banner }}</p>
     </template>
     <p v-if="inNoThrowZone" class="zone-warning">No-throw zone: move back to throw</p>
-    <div v-if="showLobby" class="overlay"><Lobby /></div>
-    <CameraLegs v-if="live" @facing="onFacing" />
+    <div v-if="showLobby && !(spectating && hideLobby)" class="overlay">
+      <Lobby />
+      <button v-if="spectating" class="hide-lobby" @click="hideLobby = true">Hide lobby</button>
+    </div>
+    <nav v-if="spectating && !connection" class="views" aria-label="Spectator camera">
+      <span class="watching">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+        Spectating
+      </span>
+      <div class="segments">
+        <button
+          v-for="(v, i) in SPECTATOR_VIEWS"
+          :key="String(v.view)"
+          :class="{ on: spectatorView === v.view }"
+          :aria-pressed="spectatorView === v.view"
+          @click="spectatorView = v.view"
+        >
+          <span v-if="v.view === 1 || v.view === 2" class="swatch" :style="{ background: TEAM_HEX[v.view] }" />
+          <span>{{ v.label }}<span v-if="v.view === 1 || v.view === 2" class="pov"> POV</span></span>
+          <kbd aria-hidden="true">{{ i + 1 }}</kbd>
+        </button>
+      </div>
+      <button v-if="showLobby && hideLobby" class="show-lobby" @click="hideLobby = false">Show lobby</button>
+    </nav>
+    <CameraLegs v-if="live && !spectating" @facing="onFacing" />
     <CameraLegs
       v-else-if="practice"
       :practice-team="2"
@@ -279,6 +328,140 @@ onBeforeUnmount(() => {
   padding: calc(1rem + env(safe-area-inset-top)) env(safe-area-inset-right)
     calc(1rem + env(safe-area-inset-bottom)) env(safe-area-inset-left);
   background: rgba(0, 0, 0, 0.25);
+}
+.hide-lobby {
+  min-height: 2.75rem;
+  margin-top: 0.75rem;
+  padding: 0.5rem 1.25rem;
+  border: 0;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: 600 0.9rem system-ui, sans-serif;
+  cursor: pointer;
+}
+.hide-lobby:hover {
+  filter: brightness(1.15);
+}
+/* Spectator camera switcher: one bar along the bottom, out of the court's way. */
+.views {
+  position: absolute;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: calc(100% - 2rem);
+  padding: 0.375rem;
+  border-radius: 12px;
+  background: rgba(16, 24, 32, 0.82);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  font: 600 0.875rem system-ui, sans-serif;
+}
+.watching {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.5rem 0 0.4rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.watching svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.segments {
+  display: flex;
+  gap: 0.25rem;
+}
+.views button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.8rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 160ms ease-out, color 160ms ease-out;
+  -webkit-tap-highlight-color: transparent;
+}
+.views button:hover {
+  color: var(--text);
+  background: rgba(255, 245, 220, 0.06);
+}
+.views button:focus-visible {
+  outline-offset: 2px;
+}
+.views button.on {
+  background: #1e3046;
+  box-shadow: inset 0 0 0 1px var(--blue);
+  color: var(--text);
+}
+.views .show-lobby {
+  color: var(--blue);
+}
+.swatch {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  flex: none;
+}
+kbd {
+  min-width: 1.1rem;
+  padding: 0 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font: 600 0.7rem / 1.4 system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+/* Touch screens have no number keys to hint at, and narrow windows have no room for them. */
+@media (pointer: coarse), (max-width: 40rem) {
+  kbd {
+    display: none;
+  }
+}
+/* Phones: drop the label and let the four cameras share the full width. */
+@media (max-width: 40rem) {
+  .views {
+    left: 1rem;
+    right: 1rem;
+    transform: none;
+    max-width: none;
+    flex-wrap: wrap;
+  }
+  .watching {
+    display: none;
+  }
+  .segments {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .views button {
+    min-width: 0;
+    padding: 0.4rem 0.25rem;
+    font-size: 0.8rem;
+    gap: 0.3rem;
+  }
+  .views .show-lobby {
+    flex: 1 0 100%;
+  }
+  .pov {
+    display: none;
+  }
 }
 .connection {
   position: absolute;

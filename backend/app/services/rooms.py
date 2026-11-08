@@ -14,6 +14,8 @@ from app.repositories.rooms import RoomRepository
 
 ROOM_LIMIT = 10
 DEVICE_CAPACITY = 4
+# Watch-only members: no seat, any phase. Each costs a 20 Hz snapshot stream on the worker.
+SPECTATOR_CAPACITY = 20
 LOBBY_IDLE_TTL = timedelta(minutes=30)
 ROOM_TTL = timedelta(hours=4)
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -107,11 +109,16 @@ class Rooms:
             else:
                 room = rooms.get_by_code_for_update(code.strip().upper())
                 self._validate_join(room, device, now)
-                occupied = members.occupied_slots(room.id, device)
-                # Lowest vacant slot preserves the initial phone assignment order.
-                slot = next((i for i in range(DEVICE_CAPACITY) if i not in occupied), None)
-                if slot is None:
-                    raise RoomError(409, "ROOM_FULL", "Device slots are full")
+                if device == "spectator":
+                    if members.count_active(room.id, device) >= SPECTATOR_CAPACITY:
+                        raise RoomError(409, "ROOM_FULL", "Spectator seats are full")
+                    slot = None
+                else:
+                    occupied = members.occupied_slots(room.id, device)
+                    # Lowest vacant slot preserves the initial phone assignment order.
+                    slot = next((i for i in range(DEVICE_CAPACITY) if i not in occupied), None)
+                    if slot is None:
+                        raise RoomError(409, "ROOM_FULL", "Device slots are full")
                 member_id = uuid4()
                 rooms.touch(room, at=now)
 

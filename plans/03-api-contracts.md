@@ -31,7 +31,7 @@ These definitions describe the implemented protocol v1 wire shape; the checked-i
 type ID = string;
 type Team = 1 | 2;
 type Role = 'arms' | 'legs';
-type Device = 'screen' | 'phone';
+type Device = 'screen' | 'phone' | 'spectator'; // spectator: watch-only, any phase, no seat
 type Phase = 'lobby' | 'countdown' | 'active' | 'round_end' | 'role_switch' | 'match_end';
 type Permission = 'unknown' | 'granted' | 'denied' | 'unsupported';
 type Vec2 = { x: number; z: number };
@@ -111,7 +111,7 @@ ID = Annotated[str, Field(min_length=1, max_length=64)]
 Name = Annotated[str, Field(min_length=1, max_length=24)]
 Team = Literal[1, 2]
 Role = Literal['arms', 'legs']
-Device = Literal['screen', 'phone']
+Device = Literal['screen', 'phone', 'spectator']
 Phase = Literal['lobby','countdown','active','round_end','role_switch','match_end']
 Permission = Literal['unknown','granted','denied','unsupported']
 class Model(BaseModel):

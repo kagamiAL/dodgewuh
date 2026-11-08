@@ -2,7 +2,7 @@
 export type ID = string;
 export type Team = 1 | 2;
 export type Role = 'arms' | 'legs';
-export type Device = 'screen' | 'phone';
+export type Device = 'screen' | 'phone' | 'spectator';
 export type Phase = 'lobby' | 'countdown' | 'active' | 'round_end' | 'role_switch' | 'match_end';
 export type Permission = 'unknown' | 'granted' | 'denied' | 'unsupported';
 export type Vec2 = { x: number; z: number };

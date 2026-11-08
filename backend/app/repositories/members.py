@@ -32,6 +32,14 @@ class MemberRepository:
             )
         ))
 
+    def count_active(self, room_id: UUID, device: str) -> int:
+        """Count unrevoked members of one device kind while the caller holds the room row lock."""
+        return len(list(self.session.scalars(select(MemberRecord.id).where(
+            MemberRecord.room_id == room_id,
+            MemberRecord.device == device,
+            MemberRecord.revoked_at.is_(None),
+        ))))
+
     def add(self, member: MemberRecord) -> None:
         self.session.add(member)
 

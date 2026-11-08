@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import StadiumBackground from '@/components/StadiumBackground.vue'
 import { useRouter } from 'vue-router'
 import type { Device } from '@/contracts/pending'
-import { createRoom, joinRoom, leave } from '@/stores/connection'
+import { createRoom, joinRoom, leave, RegistrationError } from '@/stores/connection'
 
 const router = useRouter()
 const isTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
@@ -13,10 +13,13 @@ const code = ref('')
 const device = ref<Device>(isTouch ? 'phone' : 'screen')
 const busy = ref(false)
 const error = ref('')
+// A full room or one already playing can still be watched.
+const canSpectate = ref(false)
 
 async function run(action: () => Promise<unknown>, to: string): Promise<void> {
   if (busy.value) return
   error.value = ''
+  canSpectate.value = false
   busy.value = true
   try {
     leave() // one membership per tab
@@ -31,6 +34,11 @@ async function run(action: () => Promise<unknown>, to: string): Promise<void> {
     await router.push(to)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
+    const full = e instanceof RegistrationError && (e.code === 'ROOM_FULL' || e.code === 'INVALID_PHASE')
+    canSpectate.value = full && device.value !== 'spectator'
+    if (full && device.value === 'phone') {
+      error.value = e.code === 'ROOM_FULL' ? 'All four player spots are taken.' : 'This game has already started.'
+    }
   } finally {
     busy.value = false
   }
@@ -50,11 +58,16 @@ function displayName(fallback: string): string {
 }
 
 const create = () => run(() => createRoom(displayName('Main screen')), '/screen')
+const FALLBACK_NAME: Record<Device, string> = { phone: 'Player', screen: 'Screen', spectator: 'Spectator' }
 const join = () =>
   run(
-    () => joinRoom(code.value, displayName(device.value === 'phone' ? 'Player' : 'Screen'), device.value),
+    () => joinRoom(code.value, displayName(FALLBACK_NAME[device.value]), device.value),
     device.value === 'phone' ? '/phone' : '/screen',
   )
+function spectate(): void {
+  device.value = 'spectator'
+  void join()
+}
 </script>
 
 <template>
@@ -110,6 +123,9 @@ const join = () =>
           <label :class="{ on: device === 'screen' }">
             <input v-model="device" type="radio" value="screen" /> Screen
           </label>
+          <label :class="{ on: device === 'spectator' }">
+            <input v-model="device" type="radio" value="spectator" /> Watch
+          </label>
         </div>
         <button type="submit" :disabled="busy || code.trim().length !== 6">{{ busy ? 'Connecting…' : 'Join room' }}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg></button>
       </form>
@@ -121,6 +137,7 @@ const join = () =>
     </section>
 
     <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <button v-if="canSpectate" class="host-button spectate" :disabled="busy" @click="spectate">Watch as a spectator instead <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg></button>
 
     </div>
 
@@ -165,7 +182,9 @@ input::placeholder { color: var(--muted); opacity: 1; }
 input:hover { border-color: #6c778b; }
 input:focus { outline: 2px solid var(--blue); outline-offset: 3px; }
 .code { min-height: 4rem; font-size: clamp(1.1rem, 4vw, 1.45rem); font-weight: 650; letter-spacing: 0.17em; text-indent: 0.17em; text-transform: uppercase; text-align: center; font-variant-numeric: tabular-nums; }
-.devices { display: grid; grid-template-columns: 1.3fr 1fr; gap: 0.5rem; }
+.devices { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 0.5rem; }
+/* Narrow: Phone + Screen side by side, Watch below at full width. */
+@media (max-width: 30rem) { .devices { grid-template-columns: 1fr 1fr; } .devices label:last-child { grid-column: 1 / -1; } }
 .devices label { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 3rem; padding: 0.65rem 0.4rem; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 0.875rem; cursor: pointer; }
 .devices label.on { background: #1e3046; border-color: var(--blue); color: var(--text); }
 .devices label:hover { border-color: var(--blue); }
@@ -180,6 +199,7 @@ button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke
 .host-section h2 { font: inherit; font-size: 0.875rem; color: var(--muted); font-weight: 500; text-transform: none; }
 .host-button { background: #213c56; color: #b8d8ff; border: 1px solid #4c7fb1; }
 .host-button:hover:not(:disabled) { background: #263247; }
+.spectate { margin-top: 0.75rem; }
 .error { margin: 1rem 0 0; color: var(--danger); line-height: 1.5; overflow-wrap: anywhere; }
 .dev { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 1.5rem; font-size: 0.8rem; }
 .dev a { color: var(--muted); padding-block: 0.75rem; text-underline-offset: 4px; }

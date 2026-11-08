@@ -1,5 +1,5 @@
 import * as pc from 'playcanvas'
-import { COURT_HALF_DEPTH, TEAM_COLORS } from './constants'
+import { COURT_HALF_DEPTH, COURT_HALF_WIDTH, TEAM_COLORS } from './constants'
 import { toScene } from './coords'
 import { loadCharacterModel, MODEL_URL } from './characterModel'
 import { ragdollConfig } from './ragdoll'
@@ -13,12 +13,15 @@ import type { State, Team } from './state'
 
 export { toScene } from './coords'
 
+/** A camera: ride along with a team (first person), or a fixed broadcast camera. */
+export type PointOfView = Team | 'overview' | 'sideline'
+
 export interface GameScene {
   readonly app: pc.Application
   /** Draw one authoritative server State. The only way game data reaches the scene. */
   renderState(state: State): void
-  /** Ride along with this team's character (first person), or null for the elevated overview. */
-  setPointOfView(team: Team | null): void
+  /** Ride along with this team's character (first person), or a fixed camera (null = overview). */
+  setPointOfView(view: PointOfView | null): void
   /**
    * Where a team's player is facing (world x/z, unit), measured locally (e.g. this screen's
    * camera). The first-person view follows it instead of movement; null clears it.
@@ -31,6 +34,14 @@ export interface GameScene {
 const EYE_HEIGHT = 1.6
 const FIRST_PERSON_FOV = 75
 const OVERVIEW_FOV = 45
+/**
+ * Sideline ("bleachers"): halfway up the side stand at the halfway line, above the fans'
+ * heads, looking across the court. Team 1 plays on the left, Team 2 on the right.
+ * Metres from the centre line (world x) and height; see stadium.ts for the stand layout.
+ */
+const SIDELINE_FOV = 50
+const SIDELINE_X = COURT_HALF_WIDTH + 7.5
+const SIDELINE_HEIGHT = 5.5
 /** Higher = camera catches up to the 20 Hz snapshots faster (1/s). */
 const FIRST_PERSON_FOLLOW = 12
 /**
@@ -136,6 +147,11 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
     camera.setPosition(toScene(0, -COURT_HALF_DEPTH - 7, 16))
     camera.lookAt(toScene(0, -1.5))
   }
+  const useSideline = () => {
+    camera.camera!.fov = SIDELINE_FOV
+    camera.setPosition(toScene(SIDELINE_X, 0, SIDELINE_HEIGHT))
+    camera.lookAt(toScene(0, 0, 0.5))
+  }
   useOverview()
   app.root.addChild(camera)
 
@@ -190,6 +206,7 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
 
   // First person: follow the character smoothly so 20 Hz snapshots don't judder.
   let povTeam: Team | null = null
+  let fixedView: 'overview' | 'sideline' | null = 'overview'
   const eye = new pc.Vec3()
   let yaw = 0 // radians; forward = (sin, 0, cos) in scene space
   const facing = new Map<Team, pc.Vec3>()
@@ -274,12 +291,16 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
       if (dir) facing.set(team, toScene(dir.x, dir.z))
       else facing.delete(team)
     },
-    setPointOfView(team) {
-      if (team === povTeam) return
+    setPointOfView(view) {
+      const fixed = view === null || view === 'overview' || view === 'sideline' ? (view ?? 'overview') : null
+      const team = fixed ? null : (view as Team)
+      if (team === povTeam && fixed === fixedView) return
       povTeam = team
+      fixedView = fixed
       haveEye = false // snap to the new viewpoint instead of gliding across the court
       stateRenderer.setHiddenTeam(team)
       if (team) camera.camera!.fov = FIRST_PERSON_FOV
+      else if (fixed === 'sideline') useSideline()
       else useOverview()
     },
     destroy() {

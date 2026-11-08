@@ -845,7 +845,8 @@
           "device": {
             "enum": [
               "screen",
-              "phone"
+              "phone",
+              "spectator"
             ],
             "title": "Device",
             "type": "string"
