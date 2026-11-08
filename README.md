@@ -1,7 +1,5 @@
 # dodgewuh
 
-![dodgewuh system architecture: four phone controllers and a shared screen connect over HTTPS/WSS to a Caddy-fronted FastAPI coordinator on EC2, which relays commands and snapshots over a private WebSocket to a game worker running the pure-Python 60 Hz simulation, with PostgreSQL on an encrypted EBS volume holding rooms, matches and results.](docs/images/architecture.png)
-
 **Dodgeball where your body is the controller.** Four friends, two teams, one big screen and
 the phones already in their pockets. One teammate runs, the other throws, and when a ball is
 about to hit you, the game drops into slow motion and you have to physically dodge it in front of
@@ -84,26 +82,7 @@ their whole body.
                    (pure Python, deterministic)
 ```
 
-- **Frontend:** Vue 3, Vite and TypeScript, with a **PlayCanvas** 3D stadium (crowd, ragdoll
-  characters, first-person and spectator cameras) and strict **Zod** validation of every server
-  message.
-- **Phone controllers:** browser `DeviceMotion`/`DeviceOrientation` sensors, with our own jog
-  detector (pocket frame and step cadence) and throw-gesture recogniser. Voice prompts guide you
-  through calibration without looking at the screen.
-- **Camera Legs and the dodge:** **MediaPipe Pose** runs in the screen's browser. It works out
-  which way the Legs player faces from their shoulder line, and judges the dodge by testing the
-  overlay ball against the player's skeleton (torso, head and limbs).
-- **Backend:** a **FastAPI** coordinator handles rooms, registration, authentication and
-  **PostgreSQL** match history through SQLAlchemy and Alembic. It hands each live room to a
-  **game worker** that runs the authoritative simulation at 60 Hz and streams 30 Hz snapshots.
-  The server alone decides pickups, throws, hits and the dodge, so phones can't cheat.
-- **Simulation:** pure, socket-free Python. Ballistic ball arcs, swept-circle collision so fast
-  balls can't pass through players, slow motion, and the full lobby → countdown → round →
-  role swap → match flow.
-- **Shared contract:** one protocol, kept in sync across Pydantic models, generated TypeScript
-  types, Zod validators and a JSON Schema.
-- **Infrastructure:** Docker Compose locally, and Terraform for two AWS EC2 VMs in production.
-  Caddy provides HTTPS and serves the frontend; the worker sits on a private network.
+See [Tech stack](#tech-stack) below for the full breakdown.
 
 ## Challenges we ran into
 
@@ -198,6 +177,31 @@ If port 8000 is taken, set `COORDINATOR_PORT` (e.g. `8010`) and run the frontend
 A single `terraform apply` creates the coordinator and worker VMs on AWS, builds the chosen
 commit and starts everything behind Caddy. That's how [dodgewuh.fit](https://dodgewuh.fit/) is
 deployed. See [infra/README.md](infra/README.md).
+
+## Tech stack
+
+![dodgewuh system architecture: four phone controllers and a shared screen connect over HTTPS/WSS to a Caddy-fronted FastAPI coordinator on EC2, which relays commands and snapshots over a private WebSocket to a game worker running the pure-Python 60 Hz simulation, with PostgreSQL on an encrypted EBS volume holding rooms, matches and results.](docs/images/architecture.svg)
+
+- **Frontend:** Vue 3, Vite and TypeScript, with a **PlayCanvas** 3D stadium (crowd, ragdoll
+  characters, first-person and spectator cameras) and strict **Zod** validation of every server
+  message.
+- **Phone controllers:** browser `DeviceMotion`/`DeviceOrientation` sensors, with our own jog
+  detector (pocket frame and step cadence) and throw-gesture recogniser. Voice prompts guide you
+  through calibration without looking at the screen.
+- **Camera Legs and the dodge:** **MediaPipe Pose** runs in the screen's browser. It works out
+  which way the Legs player faces from their shoulder line, and judges the dodge by testing the
+  overlay ball against the player's skeleton (torso, head and limbs).
+- **Backend:** a **FastAPI** coordinator handles rooms, registration, authentication and
+  **PostgreSQL** match history through SQLAlchemy and Alembic. It hands each live room to a
+  **game worker** that runs the authoritative simulation at 60 Hz and streams 30 Hz snapshots.
+  The server alone decides pickups, throws, hits and the dodge, so phones can't cheat.
+- **Simulation:** pure, socket-free Python. Ballistic ball arcs, swept-circle collision so fast
+  balls can't pass through players, slow motion, and the full lobby → countdown → round →
+  role swap → match flow.
+- **Shared contract:** one protocol, kept in sync across Pydantic models, generated TypeScript
+  types, Zod validators and a JSON Schema.
+- **Infrastructure:** Docker Compose locally, and Terraform for two AWS EC2 VMs in production.
+  Caddy provides HTTPS and serves the frontend; the worker sits on a private network.
 
 ## Repository map
 
