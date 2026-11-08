@@ -4,7 +4,7 @@
 
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 
-The MVP is a 2v2 cooperative motion dodgeball game: four humans control two characters. Richard's pure Python simulation is authoritative. A FastAPI coordinator owns registration and PostgreSQL records; separate Docker game workers run one in-memory simulation per active room. Vue 3 + TypeScript + Vite wraps a code-first PlayCanvas renderer. No screen host physics, peer-to-peer network, host migration, Redis, load balancer, or external game engine.
+Target design: a 2v2 cooperative motion dodgeball game in which four humans control two characters. In current local Compose, Richard's pure Python simulation runs in the FastAPI coordinator; the separate worker container is not yet used for room allocation or routing. PostgreSQL owns registration records. Vue 3 + TypeScript + Vite wraps a code-first PlayCanvas renderer. Production worker orchestration and deployment remain future work.
 
 ```mermaid
 flowchart LR
@@ -33,7 +33,7 @@ All screens have identical status and receive the same full snapshots. Render th
 
 ## Device and security lifecycle
 
-Creator is a screen and immutable host. Join page collects code, then screen/phone selection; REST registration assigns a room-scoped member and bearer token. Four phone slots fill T1 Arms, T1 Legs, T2 Arms, T2 Legs; up to four screens total. A fifth phone is rejected. Tokens live in sessionStorage, never URL/query/logs. First WebSocket message authenticates. Origin must match PUBLIC_ORIGIN; local development adds explicit localhost origins only. Rooms are private by unlisted code, not a durable account/security product. Use random codes and tokens, payload/rate limits, no personal data, no sensor telemetry storage.
+Creator is a screen and immutable host. Join page collects code, then screen/phone selection; REST registration assigns a room-scoped member and bearer token. Four phone slots fill T1 Arms, T1 Legs, T2 Arms, T2 Legs; up to four screens total. The first WebSocket message authenticates. Local Compose currently sets `DEV_ORIGINS=*` for changing tunnel origins; this is a hackathon development setting, and production must use an explicit allowed origin. Screen cameras may claim one team's Legs movement; `Member.camera_team` reports that claim. Rooms are private by unlisted code, not a durable account/security product. No raw sensor telemetry is stored.
 
 Phone readiness requires permissions, fresh sensor data and calibration for the current role. Disconnect handling and host authority are fixed in [03](03-api-contracts.md). A backend restart retains SQL records but ends runtime sessions; display “room ended” and create another. Host is a UI permission, not a simulation authority.
 

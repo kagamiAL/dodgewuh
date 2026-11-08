@@ -1,4 +1,6 @@
-# Pre-implementation audit — 2026-11-07
+# Pre-implementation audit — historical (2026-11-07)
+
+> This records a pre-implementation document audit. Its scaffold, validation and handoff claims describe that date only; code and integration have since landed. See [current project status](README.md) and the repository handoffs.
 
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 

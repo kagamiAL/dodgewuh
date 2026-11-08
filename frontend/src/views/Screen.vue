@@ -4,8 +4,10 @@ import { useRoute } from 'vue-router'
 import { createScene, type GameScene } from '@/game/scene'
 import { session } from '@/stores/session'
 import { connect, transport } from '@/stores/connection'
+import type { Team } from '@/contracts/pending'
 import { TEAM_HEX } from '@/theme'
 import Lobby from './Lobby.vue'
+import CameraLegs from '@/camera/CameraLegs.vue'
 
 const route = useRoute()
 // Dev-only mock routes (plans/04), compiled out of production builds:
@@ -14,6 +16,10 @@ const route = useRoute()
 //   /screen?mock=movement  Richard's active-movement fixture
 //   /screen?mock=held      03 example 11–12 (Team 1 holding b1)
 const mock = import.meta.env.DEV ? (route.query.mock as string | undefined) : undefined
+// View: first person from the team this screen's camera drives (Member.camera_team), else
+// the elevated overview. ?view=fp1|fp2|overview overrides it, live or mock.
+const VIEW_QUERY: Record<string, Team | null> = { fp1: 1, fp2: 2, overview: null }
+const viewOverride = route.query.view as string | undefined
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const error = ref<string | null>(null)
@@ -23,6 +29,11 @@ let stopMock: (() => void) | null = null
 const live = !mock
 
 const state = computed(() => session.data.state)
+const pointOfView = computed<Team | null>(() => {
+  if (viewOverride !== undefined && viewOverride in VIEW_QUERY) return VIEW_QUERY[viewOverride]
+  const me = session.data.room?.members.find((m) => m.member_id === session.data.registration?.member_id)
+  return me?.camera_team ?? null
+})
 const phase = computed(() => state.value?.phase ?? 'lobby')
 const showLobby = computed(() => live && (phase.value === 'lobby' || phase.value === 'match_end'))
 const PHASE_LABEL: Record<string, string> = {
@@ -61,6 +72,15 @@ watch(
     if (state) scene.value?.renderState(state)
   },
 )
+watch([pointOfView, scene], ([team]) => scene.value?.setPointOfView(team))
+
+// The camera-controlled team's facing comes straight from this screen's pose tracker.
+let facingTeam: Team | null = null
+function onFacing(value: { team: Team; dir: { x: number; z: number } } | null): void {
+  if (facingTeam !== null && facingTeam !== value?.team) scene.value?.setFacing(facingTeam, null)
+  facingTeam = value?.team ?? null
+  if (value) scene.value?.setFacing(value.team, value.dir)
+}
 
 onMounted(async () => {
   if (!canvas.value) return
@@ -107,6 +127,7 @@ onBeforeUnmount(() => {
       <p v-if="banner" class="banner">{{ banner }}</p>
     </template>
     <div v-if="showLobby" class="overlay"><Lobby /></div>
+    <CameraLegs v-if="live" @facing="onFacing" />
     <p v-if="connection" class="connection">
       {{ connection }} <RouterLink v-if="session.data.status === 'closed'" to="/">Home</RouterLink>
     </p>
@@ -120,8 +141,12 @@ onBeforeUnmount(() => {
 <style scoped>
 .screen {
   position: relative;
-  width: 100vw;
+  /* 100vw includes the scrollbar gutter and overflows; 100% matches #app. */
+  width: 100%;
   height: 100vh;
+  /* Mobile browsers size 100vh to the *expanded* toolbar, so the bottom is
+     cut off until the user scrolls. dvh tracks the visible viewport. */
+  height: 100dvh;
   overflow: hidden;
 }
 .game-canvas {
@@ -139,22 +164,24 @@ onBeforeUnmount(() => {
 }
 .hud {
   position: absolute;
-  top: 12px;
+  top: calc(12px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 1.5rem;
+  gap: clamp(0.75rem, 4vw, 1.5rem);
   align-items: baseline;
-  padding: 0.4rem 1.2rem;
+  max-width: calc(100% - 1.5rem);
+  padding: 0.4rem clamp(0.6rem, 3vw, 1.2rem);
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.55);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .score {
-  font: 700 2rem system-ui, sans-serif;
+  font: 700 clamp(1.4rem, 7vw, 2rem) system-ui, sans-serif;
 }
 .clock {
-  font-size: 1.4rem;
+  font-size: clamp(1rem, 5vw, 1.4rem);
 }
 .clock small {
   color: #aaa;
@@ -175,18 +202,28 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   display: grid;
-  place-items: center;
+  /* start, not center: on a phone the lobby is taller than the viewport, and
+     .screen clips it. Scroll instead of hiding the host buttons. */
+  align-content: center;
+  align-content: safe center;
+  justify-items: center;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: calc(1rem + env(safe-area-inset-top)) env(safe-area-inset-right)
+    calc(1rem + env(safe-area-inset-bottom)) env(safe-area-inset-left);
   background: rgba(0, 0, 0, 0.25);
 }
 .connection {
   position: absolute;
-  bottom: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
+  max-width: calc(100% - 1.5rem);
   margin: 0;
   padding: 0.5rem 1rem;
   border-radius: 8px;
   background: #522;
+  text-align: center;
 }
 .connection a {
   color: #8cf;
@@ -196,6 +233,8 @@ onBeforeUnmount(() => {
   inset: 0;
   margin: auto;
   height: fit-content;
+  padding: 0 1rem;
   text-align: center;
+  overflow-wrap: break-word;
 }
 </style>

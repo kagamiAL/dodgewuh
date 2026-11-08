@@ -10,8 +10,8 @@ services:
       # Local integration: live simulations run in the coordinator until worker routing exists.
       IN_PROCESS_SIMULATION: "true"
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:5173}
-      # Comma-separated extra origins, e.g. a phone-facing HTTPS tunnel URL.
-      DEV_ORIGINS: ${DEV_ORIGINS:-}
+      # Comma-separated extra origins, e.g. a phone-facing HTTPS tunnel URL; '*' allows any.
+      DEV_ORIGINS: ${DEV_ORIGINS:-*}
       PGHOST: postgres
       PGPORT: "5432"
       PGDATABASE: dodgewuh

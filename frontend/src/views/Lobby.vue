@@ -70,7 +70,9 @@ function command(type: 'match.start' | 'match.reset' | 'match.rematch'): void {
 
 <style scoped>
 .lobby {
-  width: min(30rem, calc(100vw - 2rem));
+  /* 100% so the overlay's own safe-area padding is respected; 100vw would
+     ignore it and sit under a notch in landscape. */
+  width: min(30rem, 100%);
   padding: 1.25rem;
   border-radius: 14px;
   background: rgba(10, 12, 16, 0.88);
@@ -86,8 +88,10 @@ header {
 }
 .code {
   margin: 0.25rem 0 1rem;
-  font: 700 3rem ui-monospace, monospace;
+  font: 700 clamp(2rem, 13vw, 3rem) / 1.1 ui-monospace, monospace;
   letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  overflow-wrap: anywhere;
 }
 .seats {
   list-style: none;
@@ -98,7 +102,7 @@ header {
 }
 .seats li {
   display: grid;
-  grid-template-columns: 5.5rem 1fr auto;
+  grid-template-columns: minmax(0, 5.5rem) minmax(0, 1fr) minmax(0, auto);
   gap: 0.5rem;
   align-items: center;
   padding: 0.55rem 0.75rem;
@@ -106,8 +110,18 @@ header {
   border-radius: 6px;
   background: #1a1d22;
 }
+/* Below ~380px the three columns stop fitting side by side. */
+@media (max-width: 24rem) {
+  .seats li {
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  }
+  .state {
+    grid-column: 1 / -1;
+  }
+}
 .slot {
   font-weight: 700;
+  white-space: nowrap;
 }
 .who {
   overflow: hidden;
@@ -115,6 +129,7 @@ header {
   white-space: nowrap;
 }
 .state {
+  min-width: 0;
   font-size: 0.85rem;
   color: #aaa;
 }
@@ -140,12 +155,15 @@ header {
 }
 button {
   min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
   font: inherit;
   font-weight: 700;
   border: 0;
   border-radius: 10px;
   background: #8cf;
   color: #000;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 button:disabled {
   opacity: 0.4;

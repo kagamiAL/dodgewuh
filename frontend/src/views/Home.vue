@@ -91,13 +91,18 @@ const join = () =>
 
 <style scoped>
 .home {
+  width: 100%;
   max-width: 28rem;
   margin: 0 auto;
-  padding: 2rem 1rem;
+  /* Respect notches/rounded corners in landscape (index.html sets viewport-fit=cover). */
+  padding: 2rem max(1rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-left));
   box-sizing: border-box;
+  overflow-wrap: break-word;
 }
 h1 {
   margin: 0 0 0.25rem;
+  font-size: clamp(1.75rem, 9vw, 2.5rem);
 }
 .lede {
   color: #aaa;
@@ -122,8 +127,21 @@ form {
   display: grid;
   gap: 0.75rem;
 }
+/* Grid/flex children default to min-width:auto, so an input's intrinsic size
+   (default size=20, plus the code field's tracking) would push past the card. */
+.field,
+form,
+.devices,
+.card {
+  min-width: 0;
+}
 input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   font: inherit;
+  /* <16px makes iOS Safari zoom the page on focus. */
+  font-size: max(1rem, 16px);
   padding: 0.7rem;
   border-radius: 8px;
   border: 1px solid #444;
@@ -131,21 +149,26 @@ input {
   color: inherit;
 }
 .code {
-  font-size: 1.5rem;
-  letter-spacing: 0.3em;
+  font-size: clamp(1.1rem, 6vw, 1.5rem);
+  letter-spacing: clamp(0.12em, 1.5vw, 0.3em);
+  /* The trailing letter-space would otherwise push the text off-centre. */
+  text-indent: clamp(0.12em, 1.5vw, 0.3em);
   text-transform: uppercase;
   text-align: center;
 }
 .devices {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
   gap: 0.5rem;
 }
 .devices label {
+  min-width: 0;
   padding: 0.7rem;
   border: 1px solid #444;
   border-radius: 8px;
   text-align: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 .devices label.on {
   border-color: #8cf;
@@ -154,9 +177,17 @@ input {
 .devices input {
   position: absolute;
   opacity: 0;
+  width: 0;
+  pointer-events: none;
+}
+/* Keyboard focus is invisible once the radio itself is hidden. */
+.devices label:focus-within {
+  outline: 2px solid #8cf;
+  outline-offset: 2px;
 }
 button {
   width: 100%;
+  min-width: 0;
   min-height: 3rem;
   font: inherit;
   font-weight: 700;
@@ -164,20 +195,34 @@ button {
   border-radius: 10px;
   background: #8cf;
   color: #000;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 button:disabled {
   opacity: 0.4;
+  cursor: default;
 }
 .error {
   color: #f77;
 }
 .dev {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   margin-top: 2rem;
   font-size: 0.85rem;
 }
 .dev a {
   color: #8cf;
+  /* Comfortable tap target without changing the layout much. */
+  padding: 0.35rem 0;
+}
+@media (max-width: 22rem) {
+  .home {
+    padding-top: 1.25rem;
+  }
+  .card {
+    padding: 0.75rem;
+  }
 }
 </style>

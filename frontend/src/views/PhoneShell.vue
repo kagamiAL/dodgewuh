@@ -148,14 +148,22 @@ onBeforeUnmount(() => {
   min-height: 100%;
   box-sizing: border-box;
   border-top: 6px solid var(--team);
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow-x: hidden;
 }
 header {
   display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
+  gap: 0.25rem 1rem;
+  padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
   font-size: 0.9rem;
   background: #181818;
+}
+header > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 header span:first-child {
   font-family: ui-monospace, monospace;

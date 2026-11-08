@@ -5,7 +5,7 @@ export type Permission = 'unknown' | 'granted' | 'denied' | 'unsupported'
 
 /**
  * Local-only sample. accel is gravity-excluded m/s² in the W3C device frame (+x screen right,
- * +y screen top, +z out of the screen); rotation rates are deg/s. orientation_ms / motion_ms are the
+ * +y screen top, +z out of the screen); rotation rates are deg/s about z (alpha), x (beta), y (gamma). orientation_ms / motion_ms are the
  * last receipt times of each stream on performance.now(); a cached stream never gets a fresh
  * timestamp from the other one. Null fields are unavailable, never zero-filled.
  */
@@ -28,10 +28,13 @@ export interface SensorService {
 /** A stream is stale once its last event is this old (03). */
 export const SENSOR_STALE_MS = 250
 
-// WebKit on iOS reports DeviceMotion acceleration with the opposite sign to the W3C spec
-// (measured on iOS 18.7: upright phone reads accelerationIncludingGravity.y ≈ −9.8, spec says +9.8).
-// Normalize here so every consumer sees spec-convention values.
-const ACCEL_SIGN = isAppleTouchDevice() ? -1 : 1
+// WebKit on iOS deviates from the W3C spec in two ways; normalize here so every consumer sees
+// spec-convention values (both measured on iOS 18.7 recordings):
+// - acceleration has the opposite sign (upright phone reads accelerationIncludingGravity.y ≈ −9.8);
+// - rotationRate.alpha/beta/gamma are rates about the device x/y/z axes, whereas the spec puts
+//   alpha about z, beta about x, gamma about y (this mapping predicts orientation change, r = 0.95).
+const APPLE = isAppleTouchDevice()
+const ACCEL_SIGN = APPLE ? -1 : 1
 
 function isAppleTouchDevice(): boolean {
   if (typeof navigator === 'undefined') return false
@@ -74,7 +77,9 @@ export function createSensorService(): SensorService {
     accel = ax !== null && ay !== null && az !== null ? { x: ax * ACCEL_SIGN, y: ay * ACCEL_SIGN, z: az * ACCEL_SIGN } : null
     const r = e.rotationRate
     const ra = fin(r?.alpha), rb = fin(r?.beta), rg = fin(r?.gamma)
-    rotation_rate = ra !== null && rb !== null && rg !== null ? { alpha: ra, beta: rb, gamma: rg } : null
+    rotation_rate = ra === null || rb === null || rg === null
+      ? null
+      : APPLE ? { alpha: rg, beta: ra, gamma: rb } : { alpha: ra, beta: rb, gamma: rg }
     emit()
   }
 

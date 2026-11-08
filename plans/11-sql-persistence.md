@@ -1,5 +1,7 @@
 # dodgewuh — PostgreSQL persistence and deployment amendment
 
+> Planning amendment, not a current implementation report. Room/member registration, migrations, database health readiness, password-file support and local Compose are implemented. Local live simulations still run in the coordinator; worker allocation/routing and production deployment remain pending. Use [backend operations](../backend/README.md) and [infrastructure status](../infra/README.md) for current details.
+
 This user-approved plan supersedes earlier no-database, single-process and
 systemd-backend assumptions. It does not change the REST/WebSocket payloads in
 03 or Richard's pure simulation interfaces. Do not create automated tests or
@@ -43,9 +45,7 @@ SQLAlchemy 2, psycopg 3 and Alembic are installed and locked with uv. Configure
 them when building persistence-backed room registration. Use PGHOST, PGPORT, PGDATABASE and PGUSER; local dev uses PGPASSWORD,
 production reads DB_PASSWORD_FILE. DB_PASSWORD_FILE is application configuration,
 not an automatically understood PostgreSQL driver variable: explicitly read it.
-Connection code, models, migrations and SQL-backed endpoints are not implemented
-by the infrastructure scaffold. The health route currently proves HTTP liveness,
-not application database readiness. Add DB readiness before relying on that gate.
+Connection code, models, migrations and SQL-backed registration are implemented. Coordinator health checks the database and reports active room count; SQL failures return 503. Live simulations remain in memory and are lost on coordinator restart.
 
 Use tables for rooms, members, assignments, worker allocations, matches and
 results, with UUID keys, foreign keys and uniqueness for room codes, occupied
@@ -101,6 +101,4 @@ No RDS, extra database VM, NAT gateway or automatic scaling is added here.
    verify records/results remain while previous runtime matches are safely ended.
 6. Document migration command, backup/restore procedure and any unverified paths.
 
-Current scope completed by this amendment: infrastructure, configuration and
-plans. SQL-backed registration/migrations and runtime recovery handling remain
-application work for the next milestone slice.
+The proposed production worker allocation and completed-match persistence remain future work. See the current status note above before using this topology as an operational runbook.

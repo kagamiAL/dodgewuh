@@ -1,5 +1,10 @@
 # Integration and acceptance
 
+> This is the original acceptance plan, not a test report. Some listed features
+> have since been implemented, but no acceptance item should be treated as passed
+> from this document. Current limitations are summarized in the repository and
+> contract READMEs; the Arms phone UI and production worker routing remain pending.
+
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 
 Test behavior that can break the playable loop. Use manual gameplay checks and real-device observation; do not create automated tests. Code compiling is necessary but does not prove a usable game. Ryan coordinates each integration gate; each owner fixes their files.
