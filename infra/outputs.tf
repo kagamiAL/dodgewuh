@@ -3,11 +3,11 @@ output "coordinator_public_ip" {
 }
 
 output "worker_private_ip" {
-  value = aws_instance.server["worker"].private_ip
+  value = aws_instance.worker.private_ip
 }
 
 output "game_worker_url" {
-  value = "http://${aws_instance.server["worker"].private_ip}:8000"
+  value = "http://${aws_instance.worker.private_ip}:8000"
 }
 
 output "public_origin" {
@@ -15,11 +15,11 @@ output "public_origin" {
 }
 
 output "instance_ids" {
-  value = { for role, instance in aws_instance.server : role => instance.id }
+  value = { coordinator = aws_instance.coordinator.id, worker = aws_instance.worker.id }
 }
 
 output "session_commands" {
-  value = { for role, instance in aws_instance.server : role => "aws ssm start-session --region ${var.region} --target ${instance.id}" }
+  value = { for role, instance in { coordinator = aws_instance.coordinator, worker = aws_instance.worker } : role => "aws ssm start-session --region ${var.region} --target ${instance.id}" }
 }
 
 output "postgres_volume_id" {

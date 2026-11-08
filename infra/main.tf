@@ -108,20 +108,43 @@ resource "aws_iam_instance_profile" "ssm" {
   role        = aws_iam_role.ssm.name
 }
 
-resource "aws_instance" "server" {
-  for_each                    = { coordinator = aws_security_group.coordinator.id, worker = aws_security_group.worker.id }
+resource "random_password" "worker_secret" {
+  length  = 48
+  special = false
+}
+
+locals {
+  bootstrap = file("${path.module}/../deploy/bootstrap.sh")
+  # Values are interpolated into single-quoted shell exports; keep them quote-free.
+  common_env = {
+    DODGEWUH_REPO      = var.repo_url
+    DODGEWUH_REF       = var.git_ref
+    GAME_WORKER_SECRET = random_password.worker_secret.result
+  }
+  worker_env = merge(local.common_env, { DODGEWUH_ROLE = "worker" })
+  coordinator_env = merge(local.common_env, {
+    DODGEWUH_ROLE           = "coordinator"
+    DODGEWUH_DATA_VOLUME_ID = aws_ebs_volume.postgres.id
+    DOMAIN                  = var.domain
+    GAME_WORKER_URL         = "http://${aws_instance.worker.private_ip}:8000"
+  })
+}
+
+# Worker and coordinator are separate resources so the coordinator can be given the
+# worker's private IP. Changing git_ref (or bootstrap.sh) replaces the instance.
+resource "aws_instance" "worker" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.game.id
-  vpc_security_group_ids      = [each.value]
+  vpc_security_group_ids      = [aws_security_group.worker.id]
   associate_public_ip_address = true
   iam_instance_profile        = aws_iam_instance_profile.ssm.name
-  user_data = join("\n", [
-    "#!/usr/bin/env bash",
-    "export DODGEWUH_DATA_VOLUME_ID='${each.key == "coordinator" ? aws_ebs_volume.postgres.id : ""}'",
-    file("${path.module}/../deploy/bootstrap.sh")
-  ])
+  user_data                   = join("\n", concat(["#!/usr/bin/env bash"], [for k, v in local.worker_env : "export ${k}='${v}'"], [local.bootstrap]))
   user_data_replace_on_change = true
+  # A newly published Ubuntu AMI must not replace a running VM; only git_ref/bootstrap changes do.
+  lifecycle {
+    ignore_changes = [ami]
+  }
   metadata_options {
     http_tokens                 = "required"
     http_put_response_hop_limit = 2
@@ -133,9 +156,39 @@ resource "aws_instance" "server" {
     delete_on_termination = true
   }
   credit_specification {
-    cpu_credits = "standard"
+    cpu_credits = var.cpu_credits
   }
-  tags       = { Name = "dodgewuh-${each.key}", Role = each.key }
+  tags       = { Name = "dodgewuh-worker", Role = "worker" }
+  depends_on = [aws_route_table_association.game, aws_iam_role_policy_attachment.ssm, aws_vpc_security_group_egress_rule.outbound]
+}
+
+resource "aws_instance" "coordinator" {
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.instance_type
+  subnet_id                   = aws_subnet.game.id
+  vpc_security_group_ids      = [aws_security_group.coordinator.id]
+  associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.ssm.name
+  user_data                   = join("\n", concat(["#!/usr/bin/env bash"], [for k, v in local.coordinator_env : "export ${k}='${v}'"], [local.bootstrap]))
+  user_data_replace_on_change = true
+  # A newly published Ubuntu AMI must not replace a running VM; only git_ref/bootstrap changes do.
+  lifecycle {
+    ignore_changes = [ami]
+  }
+  metadata_options {
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = 16
+    encrypted             = true
+    delete_on_termination = true
+  }
+  credit_specification {
+    cpu_credits = var.cpu_credits
+  }
+  tags       = { Name = "dodgewuh-coordinator", Role = "coordinator" }
   depends_on = [aws_route_table_association.game, aws_iam_role_policy_attachment.ssm, aws_vpc_security_group_egress_rule.outbound]
 }
 
@@ -145,7 +198,7 @@ resource "aws_eip" "coordinator" {
 }
 
 resource "aws_eip_association" "coordinator" {
-  instance_id   = aws_instance.server["coordinator"].id
+  instance_id   = aws_instance.coordinator.id
   allocation_id = aws_eip.coordinator.id
 }
 
@@ -159,7 +212,10 @@ resource "aws_ebs_volume" "postgres" {
 }
 
 resource "aws_volume_attachment" "postgres" {
-  device_name = "/dev/sdf"
-  volume_id   = aws_ebs_volume.postgres.id
-  instance_id = aws_instance.server["coordinator"].id
+  # On redeploy, shut the old coordinator down cleanly (Postgres flushes and stops) before the
+  # data volume is detached and moved to the new VM.
+  stop_instance_before_detaching = true
+  device_name                    = "/dev/sdf"
+  volume_id                      = aws_ebs_volume.postgres.id
+  instance_id                    = aws_instance.coordinator.id
 }

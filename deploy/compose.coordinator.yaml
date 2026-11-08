@@ -1,12 +1,16 @@
 name: dodgewuh-coordinator
 services:
   coordinator:
-    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to an immutable backend image tag}
+    build: ../backend
+    image: dodgewuh-backend:${BUILD_SHA:?Set BUILD_SHA}
     restart: unless-stopped
     environment:
       BUILD_SHA: ${BUILD_SHA:?Set BUILD_SHA}
       GAME_WORKER_SECRET: ${GAME_WORKER_SECRET:?Set shared worker authentication secret}
       PUBLIC_ORIGIN: https://${DOMAIN:?Set DOMAIN}
+      # Only Caddy can reach this container (no published port), so trust its X-Forwarded-For.
+      # Without this every request appears to come from Caddy and rate limits become site-wide.
+      FORWARDED_ALLOW_IPS: "*"
       GAME_WORKER_URL: ${GAME_WORKER_URL:?Set worker private URL}
       PGHOST: postgres
       PGPORT: "5432"
@@ -46,7 +50,8 @@ services:
       retries: 10
       start_period: 10s
   caddy:
-    image: caddy:2
+    build: ../frontend
+    image: dodgewuh-frontend:${BUILD_SHA:?Set BUILD_SHA}
     restart: unless-stopped
     ports:
       - "80:80"
@@ -55,13 +60,18 @@ services:
       DOMAIN: ${DOMAIN:?Set DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
+      # TLS certificates live on the data volume so a replaced VM reuses them instead of
+      # requesting new ones (Let's Encrypt allows only 5 identical certificates per week).
+      - type: bind
+        source: /opt/dodgewuh/data/caddy
+        target: /data
+        bind:
+          create_host_path: false
       - caddy_config:/config
     depends_on:
       coordinator:
         condition: service_healthy
 volumes:
-  caddy_data:
   caddy_config:
 secrets:
   postgres_password:
