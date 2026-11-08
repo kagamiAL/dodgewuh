@@ -14,7 +14,9 @@ router = APIRouter()
 async def websocket(socket: WebSocket, room_code: str):
     origins = {os.getenv('PUBLIC_ORIGIN', 'http://localhost:5173')}
     origins.update(filter(None, os.getenv('DEV_ORIGINS', '').split(',')))
-    if socket.headers.get('origin') not in origins or socket.query_params:
+    # DEV_ORIGINS='*' accepts any origin, so a fresh tunnel URL needs no coordinator restart.
+    origin_ok = '*' in origins or socket.headers.get('origin') in origins
+    if not origin_ok or socket.query_params:
         await socket.close(code=4400)
         return
     # Simulations currently run inside the coordinator; production must not enable this

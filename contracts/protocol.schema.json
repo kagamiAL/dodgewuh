@@ -51,6 +51,32 @@
         "title": "Arms",
         "type": "object"
       },
+      "CameraClaim": {
+        "additionalProperties": false,
+        "description": "A screen's camera drives this team's Legs (null releases it).",
+        "properties": {
+          "team": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team"
+          }
+        },
+        "required": [
+          "team"
+        ],
+        "title": "CameraClaim",
+        "type": "object"
+      },
       "Empty": {
         "additionalProperties": false,
         "properties": {},
@@ -175,6 +201,31 @@
           "z"
         ],
         "title": "Vec2",
+        "type": "object"
+      },
+      "camera_claim": {
+        "additionalProperties": false,
+        "properties": {
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "type": {
+            "const": "camera.claim",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/CameraClaim"
+          }
+        },
+        "required": [
+          "v",
+          "type",
+          "payload"
+        ],
+        "title": "camera_claim",
         "type": "object"
       },
       "controller_ready": {
@@ -380,6 +431,7 @@
     },
     "discriminator": {
       "mapping": {
+        "camera.claim": "#/$defs/camera_claim",
         "controller.ready": "#/$defs/controller_ready",
         "input.arms": "#/$defs/input_arms",
         "input.legs": "#/$defs/input_legs",
@@ -415,6 +467,9 @@
       },
       {
         "$ref": "#/$defs/input_arms"
+      },
+      {
+        "$ref": "#/$defs/camera_claim"
       }
     ]
   },
@@ -664,6 +719,21 @@
           "calibrated": {
             "title": "Calibrated",
             "type": "boolean"
+          },
+          "camera_team": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camera Team"
           }
         },
         "required": [
@@ -673,7 +743,8 @@
           "connected",
           "ready",
           "permission",
-          "calibrated"
+          "calibrated",
+          "camera_team"
         ],
         "title": "Member",
         "type": "object"

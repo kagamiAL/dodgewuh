@@ -38,10 +38,10 @@ const ROOM: Room = {
   host_id: 's1',
   revision: 1,
   members: [
-    { member_id: 's1', name: 'Mock screen', device: 'screen', connected: true, ready: false, permission: 'unknown', calibrated: false },
+    { member_id: 's1', name: 'Mock screen', device: 'screen', connected: true, ready: false, permission: 'unknown', calibrated: false, camera_team: null },
     ...ASSIGNMENTS.map((a) => ({
       member_id: a.member_id, name: a.member_id.toUpperCase(), device: 'phone' as const,
-      connected: true, ready: true, permission: 'granted' as const, calibrated: true,
+      connected: true, ready: true, permission: 'granted' as const, calibrated: true, camera_team: null,
     })),
   ],
   assignments: ASSIGNMENTS,

@@ -35,19 +35,28 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .arms {
-  padding: 1rem;
+  padding: 1rem max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-left));
+  overflow-wrap: break-word;
+}
+h1 {
+  font-size: clamp(1.5rem, 8vw, 2rem);
 }
 p {
   color: #aaa;
 }
 button {
   width: 100%;
+  min-width: 0;
   min-height: 3rem;
+  padding: 0.5rem 0.75rem;
   font: inherit;
   border: 1px dashed #fb4;
   border-radius: 10px;
   background: transparent;
   color: #fb4;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 button.on {
   background: #fb4;

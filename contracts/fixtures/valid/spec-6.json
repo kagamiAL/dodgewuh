@@ -16,7 +16,8 @@
           "connected": true,
           "ready": false,
           "permission": "unknown",
-          "calibrated": false
+          "calibrated": false,
+          "camera_team": null
         },
         {
           "member_id": "p1",
@@ -25,7 +26,8 @@
           "connected": false,
           "ready": false,
           "permission": "granted",
-          "calibrated": false
+          "calibrated": false,
+          "camera_team": null
         },
         {
           "member_id": "p2",
@@ -34,7 +36,8 @@
           "connected": true,
           "ready": false,
           "permission": "granted",
-          "calibrated": false
+          "calibrated": false,
+          "camera_team": null
         },
         {
           "member_id": "p3",
@@ -43,7 +46,8 @@
           "connected": true,
           "ready": false,
           "permission": "granted",
-          "calibrated": false
+          "calibrated": false,
+          "camera_team": null
         },
         {
           "member_id": "p4",
@@ -52,7 +56,8 @@
           "connected": true,
           "ready": false,
           "permission": "granted",
-          "calibrated": false
+          "calibrated": false,
+          "camera_team": null
         }
       ],
       "assignments": [

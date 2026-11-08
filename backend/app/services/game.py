@@ -115,6 +115,7 @@ class GameRoom:
         self.sim = Simulation()
         self.peers = {}
         self.status = {}
+        self.cameras = {}  # connected screen member_id -> team whose Legs its camera drives
         self.revision = 0
         self.ordinal = 0
         self.steps = 0
@@ -133,6 +134,11 @@ class GameRoom:
 
     def _assigned(self, member_id):
         return any(a.member_id == member_id for a in self.sim.snapshot().assignments)
+
+    def _camera_drives(self, member_id):
+        """True when this phone is a Legs player whose team's movement comes from a screen camera."""
+        return any(a.member_id == member_id and a.role == 'legs' and a.team in self.cameras.values()
+                   for a in self.sim.snapshot().assignments)
 
     def _required(self, member_id):
         """Losing an assigned phone or the original host aborts an underway match."""
@@ -183,7 +189,8 @@ class GameRoom:
             st = self.status.get(m['member_id'], {})
             members.append(dict(member_id=m['member_id'], name=m['name'], device=m['device'],
                 connected=m['member_id'] in self.peers, ready=st.get('ready', False),
-                permission=st.get('permission', 'unknown'), calibrated=st.get('calibrated', False)))
+                permission=st.get('permission', 'unknown'), calibrated=st.get('calibrated', False),
+                camera_team=self.cameras.get(m['member_id'])))
         return dict(room_id=self.facts['room_id'], room_code=self.code, host_id=self.facts['host_id'],
             revision=self.revision, members=members, assignments=plain(state.assignments),
             assignment_version=state.assignment_version, phase=state.phase)
@@ -258,6 +265,7 @@ class GameRoom:
         if self.peers.get(peer.member_id) is not peer:
             return  # superseded: the replacement owns this seat now
         del self.peers[peer.member_id]
+        self.cameras.pop(peer.member_id, None)
         peer.close()
         self.status[peer.member_id].update(ready=False, calibrated=False)
         self._push_facts()
@@ -280,6 +288,20 @@ class GameRoom:
             self._flush()
         elif kind in ('input.legs', 'input.arms'):
             self._input(peer, kind, payload)
+        elif kind == 'camera.claim':
+            self._camera(peer, payload)
+
+    def _camera(self, peer, p):
+        if self._device(peer.member_id) != 'screen':
+            return self._error(peer, 'FORBIDDEN', 'Only screens have a camera')
+        if p.team is None:
+            self.cameras.pop(peer.member_id, None)
+        else:
+            # One camera per team: the latest claim wins.
+            for mid in [mid for mid, team in self.cameras.items() if team == p.team]:
+                del self.cameras[mid]
+            self.cameras[peer.member_id] = p.team
+        self._flush(room_changed=True)
 
     def _ready(self, peer, p):
         if self._device(peer.member_id) != 'phone':
@@ -303,11 +325,24 @@ class GameRoom:
         self._flush(room_changed=True)
 
     def _input(self, peer, kind, p):
-        if self._device(peer.member_id) != 'phone':
+        device = self._device(peer.member_id)
+        camera_team = self.cameras.get(peer.member_id)
+        if device == 'screen' and (kind != 'input.legs' or camera_team is None):
+            return self._error(peer, 'FORBIDDEN', 'Only a screen whose camera claimed a team sends movement', p.seq)
+        if device not in ('phone', 'screen'):
             return self._error(peer, 'FORBIDDEN', 'Only phones send gameplay input', p.seq)
         if p.seq <= peer.last_seq:
             return self._error(peer, 'OLD_SEQ', 'Input sequence must increase', p.seq)
         peer.last_seq = p.seq
+        actor = peer.member_id
+        if device == 'screen':
+            # The camera moves whoever is this team's Legs right now; players swap spots each round.
+            actor = next((a.member_id for a in self.sim.snapshot().assignments
+                          if a.team == camera_team and a.role == 'legs'), None)
+            if actor is None:
+                return
+        elif kind == 'input.legs' and self._camera_drives(actor):
+            return  # this team's movement comes from the screen camera
         if kind == 'input.legs':
             command = LegsCommand(seq=p.seq, epoch=p.epoch, move=Vec2(p.move.x, p.move.z))
         else:
@@ -315,7 +350,7 @@ class GameRoom:
                 action=p.action, strength=p.strength)
         self.ordinal += 1
         try:
-            self.sim.apply_input(peer.member_id, command, received_ms=now_ms(), ordinal=self.ordinal)
+            self.sim.apply_input(actor, command, received_ms=now_ms(), ordinal=self.ordinal)
         except SimulationError as exc:
             self._error(peer, exc.code, exc.message, p.seq)
 
