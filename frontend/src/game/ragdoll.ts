@@ -91,6 +91,11 @@ export function ragdollConfig(extras: Record<string, Record<string, number>>): R
 const spring = (s: SpringSpec, limitScale = 1) => new Spring(s.frequency, s.damping, s.limit * limitScale)
 
 const ARM_HANG_DEG = 68
+// Running without a ball: arms trail behind the direction of travel (degrees at full speed)
+// and flail with the stride, left and right out of step.
+const ARM_TRAIL_DEG = 55
+const ARM_FLAIL_DEG = 18
+const RUN_SPEED = 3.5 // m/s, the server's move speed
 const HANG_L = new pc.Quat().setFromEulerAngles(0, 0, -ARM_HANG_DEG)
 const HANG_R = new pc.Quat().setFromEulerAngles(0, 0, ARM_HANG_DEG)
 const HOLD_R = new pc.Quat().setFromEulerAngles(0, 90, -10)
@@ -220,6 +225,7 @@ export class Ragdoll {
     const aFwd = ax * fwdX + az * fwdZ
     const aLeft = ax * leftX + az * leftZ
     const vFwd = nvx * fwdX + nvz * fwdZ
+    const vLeft = nvx * leftX + nvz * leftZ
     const speed = Math.hypot(nvx, nvz)
 
     // Lower body turns toward travel (backpedals instead of turning fully around).
@@ -247,6 +253,14 @@ export class Ragdoll {
     this.headPitch.step(0, dt)
     this.headRoll.step(0, dt)
 
+    // Empty-handed arms trail behind the run and flail with the stride; a held ball keeps the
+    // carry pose. Pitch + swings an arm back, so trailing is + when moving toward the aim.
+    const free = 1 - Math.max(0, Math.min(1, this.hold.x))
+    const clampRun = (v: number) => Math.max(-1, Math.min(1, v / RUN_SPEED))
+    const trailPitch = free * ARM_TRAIL_DEG * clampRun(vFwd)
+    const trailRoll = -free * ARM_TRAIL_DEG * 0.6 * clampRun(vLeft)
+    const flail = free * ARM_FLAIL_DEG * this.walkAmount * Math.sin(this.walkPhase * 2)
+
     // Arms swing opposite the acceleration and get flung by the chest.
     const chestP = this.chestPitch.v * dt * 60
     const chestR = (this.chestRoll.v + this.chestYaw.v * 0.5) * dt * 60
@@ -254,11 +268,11 @@ export class Ragdoll {
     this.armLRoll.v -= c.armL.whip * chestR
     this.armRPitch.v += c.armR.whip * chestP
     this.armRRoll.v -= c.armR.whip * chestR
-    this.armLPitch.step(c.armL.gain * aFwd, dt)
-    this.armLRoll.step(-c.armL.gain * 0.7 * aLeft, dt)
+    this.armLPitch.step(c.armL.gain * aFwd + trailPitch + flail, dt)
+    this.armLRoll.step(-c.armL.gain * 0.7 * aLeft + trailRoll, dt)
     const holdDamp = input.holding ? 0.3 : 1 // a held ball steadies the throwing arm
-    this.armRPitch.step(c.armR.gain * aFwd * holdDamp, dt)
-    this.armRRoll.step(-c.armR.gain * 0.7 * aLeft * holdDamp, dt)
+    this.armRPitch.step(c.armR.gain * aFwd * holdDamp + trailPitch - flail, dt)
+    this.armRRoll.step(-c.armR.gain * 0.7 * aLeft * holdDamp + trailRoll, dt)
 
     this.hold.step(input.holding ? 1 : 0, dt)
     const armPitch = input.armPitch
