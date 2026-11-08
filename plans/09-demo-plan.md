@@ -21,7 +21,7 @@ Alan presents and watches connection status. Richard and Ryan operate Team 1; Mo
 | 1:55–2:25 | Play another short exchange; show second screen agrees. Alan: Python on AWS decides the game; screens render the same state. |
 | 2:25–2:50 | Show a previously completed match/winner if live game is not yet finished, label it recorded. Explain active play and communication using devices people already own. |
 
-A first-to-three match need not finish inside the spoken slot. Do not change gameplay rules secretly for demo speed. Full-match evidence comes from rehearsal/recording; live segment demonstrates actual mechanics and mandatory swap.
+A best-of-3 match need not finish inside the spoken slot. Do not change gameplay rules secretly for demo speed. Full-match evidence comes from rehearsal/recording; live segment demonstrates actual mechanics and mandatory swap.
 
 ## Rehearsal and failure response
 

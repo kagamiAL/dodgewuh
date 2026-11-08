@@ -3,7 +3,8 @@
 > This is the original acceptance plan, not a test report. Some listed features
 > have since been implemented, but no acceptance item should be treated as passed
 > from this document. Current limitations are summarized in the repository and
-> contract READMEs; the Arms phone UI and production worker routing remain pending.
+> contract READMEs. Arms phone UI and authenticated worker routing are implemented;
+> this historical checklist is not a current verification record.
 
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 
@@ -25,7 +26,7 @@ Before the first multiplayer merge, manually check the amended seams: ready=fals
 
 ## Manual verification scenarios
 
-Richard: deterministic movement bounds and stale stop; all four ball spawns; nearest/tied pickup; release outside/inside zone boundary; cancellation; swept collision at maximum speed; simultaneous hit draw; exact 3600-tick timeout; score increments once; reset and first-to-three; every-round role swap; old input epoch rejected.
+Richard: deterministic movement bounds and stale stop; all four ball spawns; nearest/tied pickup; release outside/inside zone boundary; cancellation; swept collision at maximum speed; simultaneous hit draw; exact 3600-tick timeout; score increments once; reset and best-of-3; every-round role swap; old input epoch rejected.
 
 Alan: REST creation/code uniqueness, four phone/four screen caps, no phone join mid-match, token/Origin checks, welcome and full snapshots, synthetic Legs routed only to its member, no client score authority, ready/start gates, bounded send queue, disconnect→lobby reset and dead-member reservation expiry, in-memory restart behavior. Observe TTL expiry manually and record the configured durations.
 
@@ -54,14 +55,14 @@ Rows cover all 24 master acceptance requirements; combined rows exercise related
 | 17 role switch | Richard + Ryan + both motion owners | After hit AND draw, each phone changes role and requires new calibration/Ready |
 | 18 next round reset | Richard | New countdown has reset positions, four balls, full time; prior commands rejected |
 | 19 multiple screens | Ryan + Alan | Same room on two screens agrees tick-matched state for 5 minutes; no local outcomes |
-| 20 match winner | Richard + Ryan | Play to 3 points; winner/score agree; rematch returns lobby |
+| 20 match winner | Richard + Ryan | Play to two points or the end of round three; winner/score agree; rematch returns lobby |
 | 21–22 cloud HTTPS/WSS | Alan | Public domain valid cert, WSS 101 and full State flow for 10 minutes from phone cellular network |
 | 23 four real phones | All, Ryan records | Complete full match with four devices, no synthetic participants |
 | 24 no native install | Ryan + Tysen | Clean mobile browser joins using only URL/code and sensor prompts |
 
 ## Full end-to-end script
 
-Deploy known SHA, create room, join second screen and four phones, grant/calibrate/ready, start. Move both teams, hold-pickup, retreat outside zone, aim and swing/release. Observe hit, score, swap, recalibrate and next round. Exercise one timeout draw. Complete first-to-three and rematch. Disconnect a phone while holding: ball must not fly, match resets to lobby and readiness clears. Reconnect with same token within reservation window, ready and restart. Open a late screen and compare baseline. Repeat on actual demo network. Save results in docs/demo with SHA, device list, timestamp and failures, never credentials.
+Deploy known SHA, create room, join second screen and four phones, grant/calibrate/ready, start. Move both teams, hold-pickup, retreat outside zone, aim and swing/release. Observe hit, score, swap, recalibrate and next round. Exercise one timeout draw. Complete best-of-3 and rematch. Disconnect a phone while holding: ball must not fly, match resets to lobby and readiness clears. Reconnect with same token within reservation window, ready and restart. Open a late screen and compare baseline. Repeat on actual demo network. Save results in docs/demo with SHA, device list, timestamp and failures, never credentials.
 
 ## Troubleshooting and readiness
 

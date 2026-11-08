@@ -1,5 +1,11 @@
 # Backend / Networking / Infrastructure — Alan
 
+> **Current status (2026-11-07):** This is a historical implementation brief.
+> Registration, authenticated worker routing, membership leave/reservations,
+> disconnect/reconnect, host rematch and SQL history are implemented. Use
+> [Alan's current handoff](../agents/alan-progress.md) for remaining release checks and deployment work.
+
+
 > **Architecture amendment:** dodgewuh uses Docker, a coordinator VM plus game worker VM(s), and PostgreSQL for durable records. [Persistence plan](../11-sql-persistence.md) supersedes earlier single-process, no-database and systemd-backend instructions. Public message schemas remain unchanged; live simulations stay in worker memory.
 
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.

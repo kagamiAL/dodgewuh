@@ -5,7 +5,7 @@ registration and PostgreSQL records; Richard's pure Python simulation decides th
 game. The coordinator allocates each live room to a game worker and relays authenticated
 commands, snapshots and events over a private channel. Worker loss closes affected rooms. The screen has
 stadium and crowd visuals, an optional team first-person view, and a camera-based
-Legs controller. Arms remains a placeholder. See [Local play](#local-play).
+Legs controller. The phone Arms controller supports physical aim, Hold/pickup and gesture-gated release. See [Local play](#local-play).
 
 ## Start local development
 
@@ -78,7 +78,7 @@ create/join endpoints are implemented. Production explicitly reads
 for directory boundaries, migration and backup commands.
 
 Live simulation state stays in worker memory. SQL stores room/member metadata,
-allocation records and completed match results as those features are implemented.
+allocation records and completed match results from authenticated worker history reports. Drawn final results are supported.
 Persisted records do not imply that interrupted games can resume.
 
 ## AWS and implementation handoff
@@ -114,7 +114,7 @@ screens receive snapshots at 20 Hz in `backend/app/services/game.py`.
    Local Compose allows any Origin for hackathon testing; do not copy that setting
    into production.
 4. On a laptop open `http://localhost:5173`, **Create room**; the screen shows the code.
-5. Fill three phone seats with synthetic ready controllers (they send no input):
+5. For a movement-only diagnostic, optionally fill three phone seats with synthetic ready controllers (they send no input). Skip this when using four real phones:
    ```sh
    docker compose exec coordinator /app/.venv/bin/python -m app.devtools.synthetic_phones CODE --count 3
    ```
@@ -123,9 +123,8 @@ screens receive snapshots at 20 Hz in `backend/app/services/game.py`.
    the spoken instruction to face the screen and jog in place. The pocketed phone
    is needed even when a screen camera steers that team's Legs.
 7. If using four real phones, fill the remaining three seats instead of running
-   the synthetic-phone command above. Arms is currently a placeholder and cannot
-   aim or throw; the development-only stand-in can report ready for movement
-   demonstrations. When all four seats are ready, the host can start. Legs
+   the synthetic-phone command above. Arms players use the mounted Arms controller to calibrate, hold/pick up, aim
+   and release with a deliberate throw gesture. When all four seats are ready, the host can start. Legs
    movement drives its team's character.
 
 ### Camera-driven Legs and screen view
@@ -141,6 +140,18 @@ drives; use `?view=fp1`, `?view=fp2`, or `?view=overview` to override the defaul
 These options affect local rendering only. Camera/MediaPipe access requires HTTPS
 on phones and the browser downloads MediaPipe assets from jsDelivr and Google.
 
-The simulation includes ball pickup/throws, scoring and role switching. The phone
-Arms interface is not implemented yet, so those mechanics do not currently have a
-complete physical phone control path.
+The simulation and phone controllers implement pickup/throws, scoring, role switching,
+recalibration/readiness, best-of-3 results and rematch. Matches end at two points or
+after round three; equal final scores are a draw. Run Alembic through
+`0003_draw_results` to store drawn results.
+
+Disconnecting a required phone or the last screen resets gameplay to lobby. A
+valid existing token can restore identity during the 30-second lobby reservation
+window; recalibration/readiness and a new start are required. Host reservation
+expiry closes the room. Host-only rematch at match_end retains assignments and
+resets scores/arena/readiness. Worker loss or coordinator restart ends rooms;
+interrupted matches do not resume.
+
+Implementation is separate from acceptance: local backend checks are recorded in
+[docs/demo](docs/demo). Deployment, a full routed best-of-3 with SQL result/rematch
+verification, and public four-device acceptance still need a recorded release check.

@@ -1,45 +1,51 @@
-# Project integration status
+# Alan — current backend integration handoff
 
-Updated 2026-11-07 at `9464caa` (`first person view`). This replaces the old
-"first independent milestone" handoff; that text described an earlier lobby-only
-slice. See [the root README](../../README.md), [backend operations](../../backend/README.md),
-[protocol handoff](../../contracts/README.md), and [infrastructure notes](../../infra/README.md)
-for current usage and limitations.
+Updated 2026-11-07 against `8d7df53` and `f8184e7` (Milestone 2).
+This is a source-status update, not a new runtime or deployment verification.
 
-## Implemented in the current tree
+## Implemented
 
-- SQL-backed room/member registration, hashed tokens, ordered initial seats,
-  migrations, expiry cleanup and database readiness.
-- Strict protocol v1 models, generated TypeScript types/validators, JSON Schema
-  and valid/invalid fixture examples. `camera.claim` and `Member.camera_team` are
-  part of the current wire shape.
-- Authenticated WebSocket hello/welcome, room updates, heartbeat, input routing,
-  host controls, readiness, gameplay errors and disconnect handling.
-- In local Compose, one Richard `Simulation` runs per room inside the coordinator
-  with a 60 Hz runner, bounded senders and 20 Hz snapshots. The separate worker
-  container is not used for live room routing.
-- Phone Legs can jog in place while the phone is pocketed. A screen can claim a
-  team's Legs input and use its camera with browser-local MediaPipe pose tracking.
-- The screen renders stadium/crowd/floor visuals and supports overview or a
-  team-specific first-person view. Mobile layouts and sensor playground are in
-  the frontend.
+- SQL-backed registration, hashed tokens, ordered seats, expiry and database health.
+- Strict protocol v1, generated frontend validators, JSON Schema and fixtures.
+- Public authenticated WebSockets, heartbeat, readiness, host controls and input routing.
+- One authenticated private coordinator-to-worker channel per room. Workers run
+  Richard's simulation at 60 Hz and publish 20 Hz snapshots; SQL stays with the coordinator.
+- Worker-loss closure/revocation, coordinator-restart invalidation and retained history.
+- Membership DELETE, 30-second lobby reservations, host-expiry closure, five-minute
+  empty-room cleanup, 30-minute idle-lobby and four-hour hard expiry.
+- Disconnect safely resets gameplay to lobby; valid-token reconnect restores
+  identity with fresh calibration/readiness. Superseded sockets cannot detach replacements.
+- Host-only rematch at match_end resets score/arena/readiness and retains assignments.
+- Allocation, assignment, match/abort and authoritative final-result persistence.
+- Mounted physical Arms controller, pocket-jog Legs, screen-camera Legs,
+  role-switch readiness UI, stadium rendering and team first-person views.
+- Best-of-3: first to two points, maximum three rounds, equal final score is a draw.
+  Migration `0003_draw_results` permits a null winner in stored results.
 
-## Known incomplete work
+## Verification and remaining work
 
-- `ArmsPending.vue` is still the phone Arms UI. It cannot aim or throw; a dev-only
-  stand-in only reports readiness. Although the simulation/protocol include Arms
-  commands and ball gameplay, the complete physical control path is unfinished.
-- Production coordinator-to-worker allocation, WebSocket forwarding, worker API
-  authentication, worker-loss handling, frontend hosting and deployed gameplay
-  are not wired. Terraform and deployment Compose files are infrastructure plans,
-  not proof of an applied deployment.
-- Do not infer real-phone/browser compatibility, successful full-match acceptance,
-  or production hosting from this repository's implementation alone.
+Local backend routing, lifecycle, physics and persistence checks are recorded in
+[docs/demo](../../docs/demo). Those records retain their original SHAs and scope;
+they do not establish acceptance of the latest release. The team reports the
+integration slice practically complete; no new device check was run for this update.
 
-## Local operation
+Alan's remaining non-deployment work is to record a full routed best-of-3 final
+SQL result (including a draw), separate rematch identity, and recovery checks on
+the chosen release. Existing lifecycle checks already cover backend reconnect and
+worker-loss behavior; repeat only as needed for the final release or a defect.
+Coordinate public four-device/two-screen rehearsal and hand off the pinned SHA,
+known limitations and observed results. No outstanding simulation implementation
+is assumed from the historical milestone checklist.
 
-Use the root [README](../../README.md) for Compose and frontend startup. Local
-Compose sets `IN_PROCESS_SIMULATION=true` and permits any Origin for hackathon
-access; production must use a deliberate origin policy. `backend/README.md`
-contains migration, registration and database details. The early M1 simulation
-notes in [HANDOFF.md](../../backend/simulation/HANDOFF.md) are historical.
+Production frontend hosting, AWS/DNS/TLS deployment, secrets, migration execution,
+backup/restore and rollback rehearsal remain deployment work. Caddy currently
+serves a placeholder at the root. Never treat infrastructure files as deployment evidence.
+
+## Operation
+
+Use the [root README](../../README.md), [backend operations](../../backend/README.md),
+[contracts](../../contracts/README.md) and [infrastructure notes](../../infra/README.md).
+Local Compose uses a separate worker and allows wildcard development Origins;
+production requires a deliberate Origin policy and matching worker secrets.
+Run Alembic upgrade head before coordinator startup. No mid-match resume or
+multi-coordinator support is implemented. Do not add automated tests.

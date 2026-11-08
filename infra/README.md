@@ -36,7 +36,7 @@ before an actual VM boot.
 
 Build/publish the backend image with an immutable release tag, then place the
 appropriate deployment Compose file in /opt/dodgewuh on each host. Put Caddyfile
-beside the coordinator Compose file. Supply BACKEND_IMAGE and BUILD_SHA on both;
+beside the coordinator Compose file. Supply BACKEND_IMAGE, BUILD_SHA and the same strong GAME_WORKER_SECRET on both;
 DOMAIN=dodgewuh.fit and GAME_WORKER_URL from Terraform on the coordinator;
 WORKER_PRIVATE_IP from Terraform on the worker. Registry authentication/image
 publishing is still to be configured. For example, once those values are set:
@@ -50,14 +50,16 @@ In Porkbun, review/replace only the dodgewuh.fit apex A records with the
 coordinator EIP; preserve unrelated records. DNS is manual and unchanged by
 Terraform. Caddy obtains TLS after the domain reaches this host. Current Caddy
 configuration exposes backend paths and a placeholder root response, not the
-frontend. Public health is only an initial infrastructure checkpoint; gameplay
-worker allocation/routing and frontend delivery are still absent.
+frontend. Public health is only an initial infrastructure checkpoint; frontend delivery
+and deployed end-to-end gameplay still require verification.
 
-Room allocation, coordinator WebSocket forwarding, worker API authentication,
-worker-loss handling and frontend deployment remain unimplemented. Local game
-rooms currently run in the coordinator and do not use this worker deployment. Security-group
-isolation is present; application authentication between services must be added
-before exposing internal control endpoints. Neither Compose file uses reload or
+Room allocation, coordinator WebSocket forwarding, shared-secret worker
+authentication and worker-loss handling are implemented, including in local
+Compose. Keep worker access private and configure the same GAME_WORKER_SECRET
+on both services. Frontend hosting is still absent from this deployment
+configuration; replace the Caddy placeholder with the matching frontend build
+and SPA fallback. Apply migrations through `0003_draw_results` before coordinator
+startup. Configuration in Git does not establish deployed acceptance. Neither Compose file uses reload or
 source mounts. Deploy/restart between matches; in-memory state will be lost.
 
 ## Cleanup

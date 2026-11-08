@@ -36,7 +36,7 @@ All wire message definitions come only from 03. Gameplay constants come only fro
 4. Pair with Alan to route one real Legs command through apply_input/step/snapshot. Pair with Ryan to show movement. This is the H4 priority.
 5. Implement Hold acquisition, tie-breaking, single ownership, safe drop/cancel and zone release rejection. Manually check exact boundaries.
 6. Implement constant-speed flight, relative-motion swept circles, wall/expiry respawn and deterministic earliest hit resolution. No bounce or height physics.
-7. Implement countdown/active/round_end/role_switch/match_end; score once, timeout draws, winning-round swap and first-to-three. Gate next round on all readiness.
+7. Implement countdown/active/round_end/role_switch/match_end; score once, timeout draws, winning-round swap and best-of-3. Gate next round on all readiness.
 8. Implement reset/rematch and disconnect abort-to-lobby with epoch invalidation. Clear controls and scores as specified; no reconnect resume.
 9. Export immutable transition events and full snapshots; verify adapter conversion and fixtures. Run full synthetic match, then help test four actual phones.
 

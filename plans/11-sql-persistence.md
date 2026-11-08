@@ -1,6 +1,6 @@
 # dodgewuh — PostgreSQL persistence and deployment amendment
 
-> Planning amendment, not a current implementation report. Room/member registration, migrations, database health readiness, password-file support and local Compose are implemented. Local live simulations still run in the coordinator; worker allocation/routing and production deployment remain pending. Use [backend operations](../backend/README.md) and [infrastructure status](../infra/README.md) for current details.
+> Planning amendment, not a current implementation report. Room/member registration, migrations, database health readiness, password-file support and local Compose are implemented. Live simulations run on separate authenticated workers; allocation, assignment and match/result history are implemented. Migration `0003_draw_results` supports drawn best-of-3 results. Deployment and full routed final-result acceptance remain to be recorded. Use [backend operations](../backend/README.md) and [infrastructure status](../infra/README.md) for current details.
 
 This user-approved plan supersedes earlier no-database, single-process and
 systemd-backend assumptions. It does not change the REST/WebSocket payloads in

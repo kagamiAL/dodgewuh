@@ -19,7 +19,7 @@ Use [02](../02-game-specification.md) as the sole rules/constants authority and 
 3. Pair with Alan at H2 on input/snapshot conversion. At H4, prove a real phone changes the authoritative position shown by Ryan's renderer.
 4. Add Hold acquisition, deterministic ownership, safe cancellation, zone validation and flight. Pair with Morteza for the two-phone pickup/throw gate.
 5. Add swept collision, exactly-once scoring, timeout draws and round transitions. Test exact boundaries and simultaneous hits.
-6. Add every-round role swapping, calibration/readiness gating, first-to-three, rematch and disconnect abort-to-lobby.
+6. Add every-round role swapping, calibration/readiness gating, best-of-3, rematch and disconnect abort-to-lobby.
 7. Complete a synthetic full match, then participate in the four-phone cloud match. Fix gameplay blockers before adding anything optional.
 
 ## Mocks and handoffs

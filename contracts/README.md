@@ -9,8 +9,9 @@ are in [plan 02](../plans/02-game-specification.md).
 
 - Room create/join, registration tokens, authenticated WebSocket welcome, room
   updates, ping/pong and disconnect cleanup are implemented.
-- Locally, `IN_PROCESS_SIMULATION=true` runs Richard's simulation in the
-  coordinator. It advances at 60 Hz and publishes snapshots at 20 Hz.
+- Local Compose and production configuration route rooms from the coordinator to
+  a separate authenticated game worker. Simulation advances at 60 Hz and publishes
+  snapshots at 20 Hz; the coordinator relays public messages.
 - Readiness, host start/reset/rematch, Legs/Arms input routing, state snapshots,
   role changes and gameplay errors are wired through the simulation.
 - Screens can claim a team's Legs steering with `camera.claim` and send
@@ -25,13 +26,19 @@ are in [plan 02](../plans/02-game-specification.md).
 - The frontend camera uses MediaPipe pose landmarks, locally in the browser, to
   detect the player in the right half of the preview and their facing. Raw video
   and pose samples are not sent to the backend.
-- Arms input is part of the protocol and simulation, but the phone Arms UI is
-  still a placeholder. A dev-only control can mark it ready; it does not aim or
-  throw.
+- The phone Arms controller is mounted and implements aim, Hold/pickup and
+  gesture-gated release/cancel. PhoneShell handles role changes and fresh readiness.
+- Authenticated membership DELETE, disconnect/reset, 30-second lobby reservations,
+  token reconnect and host-only rematch are implemented. Reconnect restores
+  identity, requires fresh calibration/readiness and does not resume gameplay.
+- Matches are best of three: two points ends early; otherwise round three ends
+  the match, with a null winner for equal scores.
 
-Production worker allocation and coordinator-to-worker routing are not connected.
-The production worker API is not the live room authority yet. Do not treat the
-local Compose simulation path as proof of deployed gameplay.
+Worker allocation, private shared-secret authentication, coordinator forwarding,
+worker-loss closure and SQL allocation/assignment/result history are implemented.
+Local backend verification is recorded under [docs/demo](../docs/demo). Full routed
+best-of-3 result/rematch persistence and public physical-device acceptance need
+a recorded release check. Production frontend delivery and deployment remain work.
 
 ## Run locally
 
