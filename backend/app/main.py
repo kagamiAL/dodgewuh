@@ -30,10 +30,10 @@ async def lifespan(app):
         async def cleanup():
             """Expire rooms even when nobody calls the API or health endpoint."""
             while True:
-                await asyncio.sleep(30)
+                await asyncio.sleep(1)
                 try:
-                    await asyncio.to_thread(rooms.count)
-                except SQLAlchemyError:
+                    await app.state.game_hub.cleanup()
+                except (SQLAlchemyError, RoomError):
                     # Health returns 503 while SQL is unavailable; retry cleanup next interval.
                     pass
         task = asyncio.create_task(cleanup())

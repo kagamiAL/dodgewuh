@@ -146,20 +146,23 @@ class GameRoom:
     def _sync_assignments(self):
         """Seat newly registered phones in free slots, in registration slot order.
 
-        Only in lobby, and only additions: after the simulation swaps roles, its
-        mapping is authoritative and is never overwritten from SQL slot order.
+        Only in lobby: preserve live occupied roles after simulation swaps, remove
+        released members and fill missing team/role pairs from registration order.
         """
         state = self.sim.snapshot()
         if state.phase != 'lobby':
             return
-        taken = {(a.team, a.role) for a in state.assignments}
-        seated = {a.member_id for a in state.assignments}
+        active = {m['member_id'] for m in self.facts['members']}
+        retained = tuple(a for a in state.assignments if a.member_id in active)
+        taken = {(a.team, a.role) for a in retained}
+        seated = {a.member_id for a in retained}
         free = [slot for slot in SLOTS if slot not in taken]
         phones = sorted((m for m in self.facts['members'] if m['device'] == 'phone'), key=lambda m: m['slot'])
         added = [Assignment(member_id=m['member_id'], team=team, role=role)
                  for m, (team, role) in zip((m for m in phones if m['member_id'] not in seated), free)]
-        if added:
-            self.sim.set_assignments(state.assignments + tuple(added))
+        if added or retained != state.assignments:
+            self.sim.set_assignments(retained + tuple(added))
+            self._clear_readiness()
 
     def _push_facts(self):
         ready = frozenset(mid for mid, st in self.status.items() if st['ready'] and mid in self.peers)
@@ -259,6 +262,18 @@ class GameRoom:
         peer.send(encode('session.welcome', dict(member_id=member_id, room=self._room(), state=plain(state))))
         peer.welcomed = True
         return peer
+
+    def membership(self, facts):
+        active = {m['member_id'] for m in facts['members']}
+        for mid, peer in list(self.peers.items()):
+            if mid not in active:
+                self.detach(peer)
+                peer.close(4401)
+        self.facts = facts
+        self.status = {mid: st for mid, st in self.status.items() if mid in active}
+        self._sync_assignments()
+        self._push_facts()
+        self._flush(room_changed=True)
 
     def detach(self, peer):
         if self.peers.get(peer.member_id) is not peer:

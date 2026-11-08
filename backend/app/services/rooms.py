@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
 from uuid import uuid4
+from time import monotonic
+from sqlalchemy import select
 
 from app.db.models import MemberRecord, RoomRecord
 from app.protocol import Registration
@@ -33,6 +35,8 @@ class Rooms:
     def __init__(self, sessions):
         self.sessions = sessions
         self.runtime_id = uuid4()
+        self.reservations = {}
+        self.empty_since = {}
 
     def start(self):
         """End former runtime sessions while preserving their durable records.
@@ -45,21 +49,16 @@ class Rooms:
             RoomRepository(db).close_open(at=now, reason="server_restart")
             MemberRepository(db).revoke_active(at=now)
 
-    def _expire(self, rooms: RoomRepository, now: datetime):
-        rooms.close_expired(at=now, idle_before=now - LOBBY_IDLE_TTL)
-
     def count(self):
-        """Check SQL readiness, expire stale rooms and count this runtime's open rooms."""
+        """Check SQL readiness and count this runtime's open rooms."""
         with self.sessions.begin() as db:
             rooms = RoomRepository(db)
-            self._expire(rooms, datetime.now(timezone.utc))
             return rooms.count_open(self.runtime_id)
 
     def _create_room(self, rooms: RoomRepository, now: datetime) -> RoomRecord:
         # Hold the creation lock through commit so capacity checks and code selection
         # remain valid even when multiple HTTP requests create rooms simultaneously.
         rooms.lock_creation()
-        self._expire(rooms, now)
         if rooms.count_open() >= ROOM_LIMIT:
             raise RoomError(429, "SERVER_BUSY", "Room capacity reached")
 
@@ -124,6 +123,8 @@ class Rooms:
                 token_hash=hashlib.sha256(token.encode()).hexdigest(),
                 created_at=now,
             ))
+            self.reservations[str(member_id)] = monotonic()
+            self.empty_since.setdefault(room.code, monotonic())
             return Registration(
                 room_id=str(room.id),
                 room_code=room.code,
@@ -160,3 +161,56 @@ class Rooms:
                 room.closed_at, room.closed_reason = now, 'worker_lost'
                 for member in MemberRepository(db).active(room.id):
                     member.revoked_at = now
+
+    def lifecycle(self, code, *, phase='lobby', connected=frozenset(), remove=None, token=None):
+        """Apply one serialized coordinator lifecycle decision and return live facts."""
+        now, clock = datetime.now(timezone.utc), monotonic()
+        with self.sessions.begin() as db:
+            room = RoomRepository(db).get_by_code_for_update(code)
+            if token is not None:
+                self._validate_join(room, 'screen', now)
+            if room is None or room.closed_at or room.runtime_id != self.runtime_id:
+                return None
+            members = MemberRepository(db).active(room.id)
+            if token is not None:
+                digest = hashlib.sha256(token.encode()).hexdigest()
+                member = next((m for m in members if secrets.compare_digest(m.token_hash, digest)), None)
+                if member is None:
+                    raise RoomError(401, 'UNAUTHORIZED', 'Invalid membership')
+                remove = str(member.id)
+            room.phase = phase
+            if connected:
+                self.empty_since.pop(code, None)
+            else:
+                self.empty_since.setdefault(code, clock)
+            expired = room.expires_at <= now or (phase == 'lobby' and room.last_activity_at <= now - LOBBY_IDLE_TTL)
+            expired |= clock - self.empty_since.get(code, clock) >= 300
+            removed = []
+            for member in members:
+                mid = str(member.id)
+                if mid in connected:
+                    self.reservations.pop(mid, None)
+                else:
+                    self.reservations.setdefault(mid, clock)
+                stale = phase == 'lobby' and clock - self.reservations.get(mid, clock) >= 30
+                if mid == remove or stale:
+                    member.revoked_at, member.slot = now, None
+                    removed.append(mid)
+            reason = 'host_left' if str(room.host_id) == remove else 'expired'
+            if expired or str(room.host_id) in removed:
+                room.closed_at, room.closed_reason = now, reason
+                for member in members:
+                    member.revoked_at, member.slot = now, None
+                    self.reservations.pop(str(member.id), None)
+                self.empty_since.pop(code, None)
+                return dict(closed=reason)
+            for mid in removed:
+                self.reservations.pop(mid, None)
+            return dict(room_id=str(room.id), room_code=code, host_id=str(room.host_id),
+                        members=[dict(member_id=str(m.id), name=m.name, device=m.device, slot=m.slot)
+                                 for m in members if m.revoked_at is None])
+
+    def open_codes(self):
+        with self.sessions() as db:
+            return list(db.scalars(select(RoomRecord.code).where(
+                RoomRecord.runtime_id == self.runtime_id, RoomRecord.closed_at.is_(None))))

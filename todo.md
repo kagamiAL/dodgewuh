@@ -22,16 +22,18 @@ Current status: **section 1 complete for local backend verification**, routing s
 
 ## 2. Close backend contract and room-lifecycle gaps
 
-Use [plan 03](plans/03-api-contracts.md) for exact behavior. Several of these policies are not implemented completely in the current tree; existing disconnect-to-lobby handling alone does not satisfy them.
+Implementation and local verification limits: [lifecycle record](docs/demo/section2-room-lifecycle.md).
 
-- [ ] Implement authenticated DELETE /api/rooms/{room_code}/members/me. Revoke membership, release its slot and notify live worker peers. Host leave closes the room; phone leave during play safely aborts to lobby.
-- [ ] Implement the 30-second unconnected-registration/disconnected-lobby reservation expiry and host-expiry closure. Coordinate SQL slot release with worker assignment/status removal; preserve occupied assignments and fill vacant team/role pairs in canonical order.
-- [ ] Implement five-minute empty-room cleanup alongside the existing 30-minute idle-lobby and four-hour hard expiry. Close live sockets/channels and cancel worker runners/sender tasks when a room expires. The current worker relay retains empty channels until shutdown, so SQL expiry alone is insufficient.
-- [ ] Synchronize the live phase into coordinator registration policy so a new phone cannot join an active match; screens may join in any phase. Keep blocking SQL outside the 60 Hz tick and serialize phase changes with registration decisions.
-- [ ] Manually verify four-phone/four-screen caps, host-only controls, wrong-role rejection, malformed/oversized/rate-limited input, stale epoch/assignment/sequence handling and reconnect with a fresh input sequence.
+Use [plan 03](plans/03-api-contracts.md) for exact behavior. Lifecycle implementation is complete; the record distinguishes routed checks, isolated deadline checks and remaining device/transition acceptance.
+
+- [x] Implement authenticated DELETE /api/rooms/{room_code}/members/me. Revoke membership, release its slot and notify live worker peers. Host leave closes the room; phone leave during play safely aborts to lobby.
+- [x] Implement the 30-second unconnected-registration/disconnected-lobby reservation expiry and host-expiry closure. Coordinate SQL slot release with worker assignment/status removal; preserve occupied assignments and fill vacant team/role pairs in canonical order.
+- [x] Implement five-minute empty-room cleanup alongside the existing 30-minute idle-lobby and four-hour hard expiry. Close live sockets/channels and cancel worker runners/sender tasks when a room expires. The current worker relay retains empty channels until shutdown, so SQL expiry alone is insufficient.
+- [x] Synchronize the live phase into coordinator registration policy so a new phone cannot join an active match; screens may join in any phase. Keep blocking SQL outside the 60 Hz tick and serialize phase changes with registration decisions.
+- [x] Manually verify four-phone/four-screen caps, host-only controls, wrong-role rejection, malformed/oversized/rate-limited input, stale epoch/assignment/sequence handling and reconnect with a fresh input sequence.
 - [ ] Verify ready=false or required-device loss during play aborts safely, stops movement/Hold and clears readiness. A replacement socket must not be controlled or detached by the superseded socket. Reconnection restores identity but requires fresh calibration/readiness/start.
 - [ ] Verify late-screen welcome and phase/role bundles are consistent and never regress epoch/assignment version. Retain camera.claim authorization and current camera-driven Legs behavior.
-- [ ] Confirm protocol models, generated TypeScript types/validators, JSON Schema and shared fixtures agree. If a wire change is necessary, coordinate it and update all representations together.
+- [x] Confirm protocol models, generated TypeScript types/validators, JSON Schema and shared fixtures agree. If a wire change is necessary, coordinate it and update all representations together.
 
 ## 3. Verify Richard's physics through the real routing path
 

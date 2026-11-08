@@ -49,7 +49,6 @@ async def room_channel(socket: WebSocket):
     queue = asyncio.Queue(maxsize=128)
     peers = {}
     room = None
-
     async def send():
         while True:
             await socket.send_json(await queue.get())
@@ -60,6 +59,14 @@ async def room_channel(socket: WebSocket):
     try:
         while True:
             item = json.loads(await socket.receive_text())
+            if item['op'] == 'inspect':
+                await queue.put(dict(op='inspected', request=item['request'],
+                                     phase=room.sim.snapshot().phase if room else 'lobby'))
+                continue
+            if item['op'] == 'membership':
+                if room:
+                    room.membership(item['facts'])
+                continue
             connection_id = item['id']
             if item['op'] == 'attach':
                 facts = item['facts']

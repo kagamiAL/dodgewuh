@@ -32,7 +32,10 @@ async def websocket(socket: WebSocket, room_code: str):
             hello = decode_client(raw)
             if hello.type != 'session.hello':
                 raise ValueError('Hello required')
-            facts = await asyncio.to_thread(rooms.authenticate, room_code, hello.payload.token)
+            async with hub.lock:
+                await hub.refresh(room_code.strip().upper())
+                facts = await asyncio.to_thread(rooms.authenticate, room_code, hello.payload.token)
+                room, peer = hub.attach(socket, facts)
         except RoomError as exc:
             await socket.close(code=4404 if exc.status == 404 else 4401)
             return
@@ -40,7 +43,6 @@ async def websocket(socket: WebSocket, room_code: str):
             await socket.close(code=4401)
             return
         code = facts['room_code']
-        room, peer = hub.attach(socket, facts)
         allowance = 60.0
         last_message = monotonic()
         while True:
@@ -69,7 +71,8 @@ async def websocket(socket: WebSocket, room_code: str):
                 await asyncio.to_thread(rooms.authenticate, code, hello.payload.token)
                 peer.send(encode('session.pong', message.payload.model_dump()))
             else:
-                room.handle(peer, message)
+                async with hub.lock:
+                    room.handle(peer, message)
     except TimeoutError:
         await socket.close(code=4401 if peer is None else 4400)
     except RoomError as exc:
@@ -78,4 +81,5 @@ async def websocket(socket: WebSocket, room_code: str):
         pass
     finally:
         if peer:
-            hub.detach(room, peer)
+            async with hub.lock:
+                hub.detach(room, peer)

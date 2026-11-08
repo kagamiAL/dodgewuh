@@ -4,6 +4,7 @@ import json
 import os
 import logging
 from uuid import uuid4
+from time import monotonic
 
 from websockets.asyncio.client import connect
 from app.services.game import Peer, encode
@@ -16,6 +17,8 @@ class WorkerRoom:
         self.peers = {}
         self.queue = asyncio.Queue(maxsize=128)
         self.failed = False
+        self.pending = {}
+        self.ended = False
         self.task = asyncio.create_task(self.run())
 
     def enqueue(self, message):
@@ -54,6 +57,11 @@ class WorkerRoom:
                 try:
                     async for raw in socket:
                         item = json.loads(raw)
+                        if item['op'] == 'inspected':
+                            future = self.pending.pop(item['request'], None)
+                            if future and not future.done():
+                                future.set_result(item['phase'])
+                            continue
                         peer = self.peers.get(item['id'])
                         if peer is None:
                             continue
@@ -74,6 +82,10 @@ class WorkerRoom:
             logging.getLogger(__name__).warning("Worker channel lost room=%s", self.code)
         finally:
             self.failed = True
+            for future in self.pending.values():
+                if not future.done():
+                    future.set_exception(RoomError(503, 'SERVER_BUSY', 'Room worker unavailable'))
+            self.pending.clear()
             # Keep the failed allocation as a tombstone even if SQL is unavailable.
             # Never restart an interrupted match under the same room identity.
             for peer in list(self.peers.values()):
@@ -83,7 +95,8 @@ class WorkerRoom:
                 except Exception:
                     pass
                 peer.close(1012)
-            if not self.hub.stopping:
+            self.peers.clear()
+            if not self.hub.stopping and not self.ended:
                 try:
                     await asyncio.to_thread(self.hub.rooms_service.close_worker_room, self.code)
                 except Exception:
@@ -95,6 +108,7 @@ class WorkerHub:
         self.rooms_service = rooms_service
         self.rooms = {}
         self.stopping = False
+        self.lock = asyncio.Lock()
         self.secret = os.environ['GAME_WORKER_SECRET']
         if not self.secret:
             raise ValueError('GAME_WORKER_SECRET must be nonempty')
@@ -111,16 +125,68 @@ class WorkerHub:
         if room is None:
             room = self.rooms[code] = WorkerRoom(self, code, self.urls[self.next_worker % len(self.urls)])
             self.next_worker += 1
-        return room, room.attach(socket, facts)
+        peer = room.attach(socket, facts)
+        self.rooms_service.reservations.pop(peer.member_id, None)
+        self.rooms_service.empty_since.pop(code, None)
+        return room, peer
 
     def detach(self, room, peer):
         room.peers.pop(peer.connection_id, None)
         peer.close()
+        connected = {p.member_id for p in room.peers.values() if not p.task.done()}
+        if peer.member_id not in connected:
+            self.rooms_service.reservations.setdefault(peer.member_id, monotonic())
+        if not connected:
+            self.rooms_service.empty_since.setdefault(room.code, monotonic())
         if not room.failed:
             try:
                 room.enqueue(dict(op='detach', id=peer.connection_id))
             except RoomError:
                 pass
+
+    async def refresh(self, code, token=None):
+        """Called under lock: barrier all prior inputs before a SQL policy decision."""
+        room = self.rooms.get(code)
+        phase = 'lobby'
+        connected = frozenset()
+        if room and not room.failed:
+            request = uuid4().hex
+            future = asyncio.get_running_loop().create_future()
+            room.pending[request] = future
+            room.enqueue(dict(op='inspect', request=request))
+            try:
+                phase = await asyncio.wait_for(future, 5)
+            except TimeoutError:
+                room.task.cancel()
+                raise RoomError(503, 'SERVER_BUSY', 'Worker unavailable')
+            finally:
+                room.pending.pop(request, None)
+            connected = frozenset(p.member_id for p in room.peers.values() if not p.task.done())
+        facts = await asyncio.to_thread(self.rooms_service.lifecycle, code,
+                                         phase=phase, connected=connected, token=token)
+        if room and not room.failed:
+            if facts is None or 'closed' in facts:
+                room.ended = True
+                reason = facts['closed'] if facts else 'expired'
+                for peer in list(room.peers.values()):
+                    peer.close()
+                    try:
+                        await asyncio.wait_for(peer.socket.send_text(encode('room.closed', dict(reason=reason))), 1)
+                    except Exception:
+                        pass
+                    peer.close(4404)
+                room.task.cancel()
+                await asyncio.gather(room.task, return_exceptions=True)
+                if self.rooms.get(code) is room:
+                    del self.rooms[code]
+            else:
+                room.enqueue(dict(op='membership', facts=facts))
+        return facts
+
+    async def cleanup(self):
+        async with self.lock:
+            for code in await asyncio.to_thread(self.rooms_service.open_codes):
+                await self.refresh(code)
 
     async def close(self):
         self.stopping = True
