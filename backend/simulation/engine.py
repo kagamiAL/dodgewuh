@@ -7,23 +7,19 @@ PlayCanvas import appears anywhere in this package.
 All eight seam methods carry their final production signatures so Alan
 integrates once and never rebases on a signature change. Live now: lobby/reset
 state, full snapshot projection, apply_input validation with room-wide ordinal
-defense, fixed-step movement with half-court clamps and stale-input stop,
-countdown -> active, reset/abort to lobby, Hold acquisition and ownership, safe
-cancel and the no-throw zone, and constant-speed flight with relative-motion
-swept collision, wall/expiry respawn and earliest-hit resolution.
+defense, fixed-step movement with half-court clamps and stale-input stop, Hold
+acquisition and ownership, safe cancel and the no-throw zone, constant-speed
+flight with relative-motion swept collision, wall/expiry respawn and
+earliest-hit resolution, and the complete lifecycle: exactly-once scoring, the
+3600-tick timeout draw, lobby -> countdown -> active -> round_end ->
+role_switch -> countdown ... -> match_end, every-round role swapping, readiness
+gating of the next round, first-to-three, and reset/abort/rematch to lobby.
 
 Not yet implemented, and listed in HANDOFF.md so no consumer assumes otherwise:
-hit SCORING, the 3600-tick timeout draw, round_end/role_switch/match_end, role
-swapping, rematch (task 7-8) and the readiness abort guard.
-
-Task 6 resolves a hit into state.result and freezes the round there, because
-02 says a hit ends the round immediately but the round_end transition and the
-score itself belong to task 7. So a decided round currently shows phase=active
-with a non-null result and no further gameplay, and the score stays 0. Task 7
-replaces that freeze with the real round_end transition in the same tick, at
-which point result-during-active stops being observable. Nothing here is
-silently wrong: the outcome is decided and published, it is just not yet
-counted.
+the readiness/required-device abort guard inside step() (task 8). control()
+already implements abort as a full reset to lobby; what is missing is step()
+deciding on its own that a required phone has gone unready or disconnected
+mid-match and invoking it.
 
 Frozen at contract commit 0a49de1.
 """
@@ -126,12 +122,6 @@ class Simulation:
         self._assignment_version: int = 1 if validated else 0
         self._result: ResultDTO | None = None
         self._winner: int | None = None
-        # Set the tick a hit or draw is resolved. 02: "A hit ends the round
-        # immediately." Task 7 turns this into the round_end transition and the
-        # score; until then it freezes gameplay so no input changes a decided
-        # round, which is what "no commands affect results after phase leaves
-        # active" protects.
-        self._round_decided: bool = False
 
         self._characters: dict[int, _Character] = {}
         self._balls: dict[str, _Ball] = {}
@@ -257,10 +247,12 @@ class Simulation:
             if a.member_id not in self._ready_ids:
                 raise SimulationError("NOT_READY", f"{a.member_id} is not ready")
 
+        # 02: reset scores on start. _enter_countdown increments the round, so
+        # the first round of a match comes out as round 1.
         self._score = {1: 0, 2: 0}
         self._result = None
         self._winner = None
-        self._round = 1
+        self._round = 0
         self._enter_countdown()
 
     # --- Seam: input --------------------------------------------------------
@@ -368,28 +360,45 @@ class Simulation:
         self._tick += 1
 
         if phase == "active":
-            # The deciding tick itself did elapse, so it still counts; every
-            # tick after it does not. 03: remaining_ms retains the ended
-            # round's value rather than draining on past a finished round.
-            was_decided = self._round_decided
             self._step_active(now_ms)
-            if not was_decided:
-                self._active_ticks += 1
         elif phase == "countdown":
+            # Countdown ignores all gameplay input.
+            self._pending.clear()
             if self._phase_ticks_left is not None:
                 self._phase_ticks_left -= 1
                 if self._phase_ticks_left <= 0:
                     self._enter_active()
+        elif phase == "round_end":
+            # Hold the result visible for 2 seconds, then swap roles.
+            self._pending.clear()
+            if self._phase_ticks_left is not None:
+                self._phase_ticks_left -= 1
+                if self._phase_ticks_left <= 0:
+                    self._enter_role_switch()
+        elif phase == "role_switch":
+            # Wait here indefinitely. 02: never force-start an unready
+            # controller. 03: this decision is taken on the step after
+            # set_readiness, which is the engine's single decision point.
+            self._pending.clear()
+            if self._ready_to_begin():
+                self._enter_countdown()
         else:
-            # lobby holds. round_end / role_switch / match_end are added in M5;
-            # the tick still advances, which is what 03 requires.
+            # lobby and match_end hold. The tick still advances, which is what
+            # 03 requires of every phase.
             self._pending.clear()
 
     def _step_active(self, now_ms: int) -> None:
-        if self._round_decided:
-            # The round is over; only task 7's transition is still owed. Discard
-            # input rather than letting it mutate a decided outcome.
+        # (1) At tick start, if the round's 3600 active ticks have elapsed, end
+        # a timeout draw BEFORE accepting throws. This is what makes a throw
+        # arriving at the deadline ineligible while a hit in the last valid
+        # step still counts.
+        if self._active_ticks >= K.ROUND_TICKS:
             self._pending.clear()
+            self._finish_round(
+                ResultDTO(
+                    reason="timeout", winner=None, hit_ball_id=None, victim_team=None
+                )
+            )
             return
 
         pending = sorted(self._pending, key=lambda p: p.ordinal)
@@ -471,7 +480,13 @@ class Simulation:
         self._sync_held_balls()
 
         # (5) Advance flight, resolve the earliest valid hit, then respawns.
-        self._step_flight(prev_pos)
+        decided = self._step_flight(prev_pos)
+
+        # (6) The tick ran, so it counts, including the tick a hit lands in.
+        self._active_ticks += 1
+        if decided is not None:
+            # A hit ends the round immediately.
+            self._finish_round(decided)
 
     # --- Internal: acquisition and release ----------------------------------
     def _try_acquire(self, team: int) -> None:
@@ -555,8 +570,12 @@ class Simulation:
                 self._balls[held].pos = self._characters[team].pos
 
     # --- Internal: flight, collision and respawn ----------------------------
-    def _step_flight(self, prev_pos: dict[int, Vec2]) -> None:
+    def _step_flight(self, prev_pos: dict[int, Vec2]) -> ResultDTO | None:
         """02 step 5: advance flight, resolve the earliest valid hit, respawns.
+
+        Returns the round's outcome if one connected this tick, else None. The
+        caller owns the consequences (scoring and the round_end transition), so
+        this stays a pure physics step.
 
         Flight is constant-speed and flat: velocity never changes, there is no
         bounce, and y height never enters a collision decision. Each ball is
@@ -610,12 +629,10 @@ class Simulation:
         # of each other are a draw awarding no point.
         decided = self._resolve_hit(plans)
         if decided is not None:
-            self._result = decided
-            self._round_decided = True
             # The round ended inside this tick, so no respawn starts or runs:
-            # the next round resets the arena anyway. The hit ball stays flying
+            # role_switch resets the arena anyway. The hit ball stays flying
             # where the advance left it, matching the round_end example in 03.
-            return
+            return decided
 
         # --- Endpoint consequences: wall exit or lifetime expiry respawns.
         for ball_id, _, left_court, _ in plans:
@@ -632,6 +649,8 @@ class Simulation:
                 ball.mode = "ground"
                 spawn_x, spawn_z = K.BALL_SPAWNS[ball_id]
                 ball.pos = Vec2(spawn_x, spawn_z)
+
+        return None
 
     def _resolve_hit(
         self, plans: list[tuple[str, Vec2, bool, float | None]]
@@ -741,15 +760,107 @@ class Simulation:
 
     # --- Internal: phases ---------------------------------------------------
     def _enter_countdown(self) -> None:
+        """Begin a round: reset arena and timer, bump the round number.
+
+        02: the next countdown begins with reset balls/characters/timer and an
+        incremented round number, and the previous result clears here. 03:
+        result persists through round_end and role_switch, clears at the next
+        countdown.
+        """
         self._active_ticks = 0
         self._result = None
-        self._round_decided = False
+        self._round += 1
         self._reset_arena()
         self._transition("countdown", K.COUNTDOWN_TICKS)
 
     def _enter_active(self) -> None:
         # Fresh movement is allowed on active entry, but Hold starts false.
         self._transition("active", None)
+
+    def _finish_round(self, result: ResultDTO) -> None:
+        """Score the round exactly once, then show the result.
+
+        This is the ONLY place a point is awarded. It is reached once per round
+        because it immediately moves the phase out of active, and _step_active
+        only runs while active — so a round cannot be scored twice.
+
+        02: a hit awards one point; timeout or simultaneous hit awards none.
+        """
+        self._result = result
+        if result.reason == "hit" and result.winner is not None:
+            self._score[result.winner] += 1
+        # 02: enter round_end and keep the result visible for 2 seconds. The
+        # arena is deliberately NOT reset here — that happens on entering
+        # role_switch, so the deciding ball stays where players can see it.
+        self._transition("round_end", K.RESULT_TICKS)
+
+    def _enter_role_switch(self) -> None:
+        """Reset the arena, swap roles, then either end the match or wait.
+
+        02: reset arena on entering role_switch; swap the two phone IDs within
+        each team after EVERY round, including draws and the winning round;
+        increment assignment version and clear all readiness. If the score
+        reached 3, enter match_end after the swap.
+        """
+        self._reset_arena()
+        self._swap_roles()
+        self._transition("role_switch", None)
+        # 03: on a phase/role transition, phase.changed then roles.changed.
+        self._events.append(
+            RolesChanged(
+                assignments=self._assignments,
+                assignment_version=self._assignment_version,
+                epoch=self._epoch,
+            )
+        )
+        if max(self._score.values()) >= K.MATCH_POINTS:
+            self._enter_match_end()
+
+    def _enter_match_end(self) -> None:
+        """First to three. The winner and the final result are retained here.
+
+        02: match_end displays winner and final score, and calibration is not
+        required again until rematch. 03: winner is non-null only at match_end,
+        and match_end retains the final result.
+        """
+        self._winner = 1 if self._score[1] >= K.MATCH_POINTS else 2
+        self._ready_ids = frozenset()
+        self._transition("match_end", None)
+
+    def _swap_roles(self) -> None:
+        """Swap Arms and Legs within each team, keeping teams intact.
+
+        Teammates trade roles; nobody changes team. assignment_version
+        increments and all readiness clears, so every phone must recalibrate
+        and explicitly ready again before the next round.
+        """
+        by_slot = {(a.team, a.role): a.member_id for a in self._assignments}
+        swapped: list[Assignment] = []
+        for team, role in CANONICAL_SLOTS:
+            partner = "legs" if role == "arms" else "arms"
+            member_id = by_slot.get((team, partner))
+            if member_id is None:
+                continue
+            swapped.append(
+                Assignment(member_id=member_id, team=team, role=role)  # type: ignore[arg-type]
+            )
+        self._assignments = tuple(swapped)
+        self._assignment_version += 1
+        self._ready_ids = frozenset()
+
+    def _ready_to_begin(self) -> bool:
+        """Gate for starting a round: four connected ready phones and a screen.
+
+        02: role_switch waits for all four phones to recalibrate and explicitly
+        become ready, with at least one screen, and never force-starts an
+        unready controller.
+        """
+        if len(self._assignments) != 4 or self._screen_count < 1:
+            return False
+        return all(
+            a.member_id in self._connected_ids and a.member_id in self._ready_ids
+            for a in self._assignments
+        )
 
     def _reset_to_lobby(self) -> None:
         """Complete reset to lobby. Also the implementation of abort.
@@ -763,7 +874,6 @@ class Simulation:
         self._round = 0
         self._active_ticks = 0
         self._result = None
-        self._round_decided = False
         self._winner = None
         self._ready_ids = frozenset()
         self._reset_arena()
