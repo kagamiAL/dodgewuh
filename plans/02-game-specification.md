@@ -21,7 +21,7 @@ authority. Actual phone/browser compatibility still requires device checks.
 | Character centre limits | x ∈ [-5.55,5.55]; T1 z ∈ [-8.55,-0.45]; T2 z ∈ [0.45,8.55] |
 | Spawn | T1 (0,-6); T2 (0,6) |
 | Movement | 3.5 m/s × normalized input vector; diagonal magnitude capped at 1 |
-| Balls | Exactly four; radius 0.15 m; stable IDs b1–b4 |
+| Balls | Exactly four; radius 0.30 m; stable IDs b1–b4 |
 | Ball spawn | b1 (-2,-0.6), b2 (2,-0.6), b3 (-2,0.6), b4 (2,0.6) |
 | Pickup | Centre distance ≤ 1.2 m; one held ball per character |
 | No-throw zone | Character centre abs(z) ≤ 2.0 m, inclusive |
@@ -30,7 +30,7 @@ authority. Actual phone/browser compatibility still requires device checks.
 | Respawn delay | 1 second at that ball's original spawn; no damage while respawning |
 | Round | 60 seconds = 3600 active ticks |
 | Countdown / result display | 3 seconds / 2 seconds |
-| Match victory | First to 3 points; draws award no point; no round cap |
+| Match victory | Best of 3: first to 2 points ends the match; otherwise it ends after round 3 with the higher score winning and an equal score a drawn match (winner null). Draws award no point |
 | Input timeout | 250 ms since server received last valid role input |
 
 Input and aim use world x,z. T1 forward is +z; T2 forward is -z. Team-relative right maps +x for T1, -x for T2. Rendering maps (x,z) to PlayCanvas (x,0,z). The overview camera looks from negative z; the current renderer also supports independent Team 1 and Team 2 first-person views, selected from the screen's camera claim or with the `view` query override. A screen view changes presentation only.
@@ -43,7 +43,7 @@ Aim must be finite, length in [0.99,1.01] before normalization and point into th
 
 Release inside the no-throw zone is a safe cancellation: drop the held ball grounded at the character centre, clear Hold, and emit an input rejection notice NO_THROW_ZONE. Release without a valid phone gesture sends cancel instead of release. Cancel, stale input, focus loss, role change or disconnect drops the held ball without velocity or damage. Releasing without a ball clears Hold and has no gameplay effect. The player must press again to reacquire after cancellation. Grounded balls cannot damage anyone.
 
-A valid throw launches the ball at character centre plus aim × 0.65 m. Its shooter team is remembered; only the opposing character can be hit. A visual arc or spin may be added, but flight height never alters collision. Sweep the ball segment against the opponent's movement segment (relative-motion swept circles, combined radius 0.60 m), preventing tunnelling. Compute earliest time of impact in the tick. Clip flight to wall/lifetime endpoint before testing; a hit at or before that endpoint counts. Ties use ball ID. If two opposing hits have equal time within 1e-9, award a draw, with no points.
+A valid throw launches the ball at character centre plus aim × 0.65 m. Its shooter team is remembered; only the opposing character can be hit. A visual arc or spin may be added, but flight height never alters collision. Sweep the ball segment against the opponent's movement segment (relative-motion swept circles, combined radius 0.75 m), preventing tunnelling. Compute earliest time of impact in the tick. Clip flight to wall/lifetime endpoint before testing; a hit at or before that endpoint counts. Ties use ball ID. If two opposing hits have equal time within 1e-9, award a draw, with no points.
 
 ## Deterministic step order
 
@@ -64,7 +64,7 @@ Host start is allowed only with exactly four connected ready calibrated phones a
 
 A hit awards one point; timeout or simultaneous hit awards none. Enter round_end, keep result visible for 2 seconds, and reset arena on entering role_switch. Swap the two phone IDs within each team after **every** round, including draws and the winning round. Increment assignment version and clear all readiness. If score reached 3, enter match_end after the swap; do not require calibration until rematch. Otherwise role_switch waits for all four phones to recalibrate and explicitly become ready, with at least one screen. Display “waiting for …”; never force-start an unready controller. Next countdown then active begins with reset balls/characters/timer and incremented round number.
 
-Match_end displays winner and final score. Host rematch resets scores and arena, retains the final assignments, and returns to lobby for readiness. All-draw play can continue indefinitely: this is an explicit tradeoff, not a guaranteed bounded match. Demo players deliberately make valid throws; no arbitrary timeout winner.
+Match_end displays winner and final score. Host rematch resets scores and arena, retains the final assignments, and returns to lobby for readiness. A match lasts at most 3 rounds, so all-draw play ends as a drawn match after round 3. Demo players deliberately make valid throws; no arbitrary timeout winner.
 
 ## Interruptions — deliberately minimal MVP recovery
 
