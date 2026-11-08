@@ -18,12 +18,14 @@ Covered so far: the deterministic movement surface (four directions, diagonal
 speed cap, both half-court clamps, all four ball spawns, stale-input stop,
 replay determinism, epoch/ordinal/role rejection); Hold acquisition, ownership,
 safe cancel and the no-throw zone; constant-speed flight, wall/expiry respawn,
-swept-circle collision and earliest-hit resolution; and the full lifecycle --
+swept-circle collision and earliest-hit resolution; the full lifecycle --
 exactly-once scoring, the 3600-tick timeout draw, round_end/role_switch/
 match_end, every-round role swapping, readiness gating, first-to-three and a
-complete four-round match with rematch.
+complete four-round match with rematch; and the device guard -- abort to lobby
+on phone/host/screen loss or revoked readiness, reset from every phase, and
+rematch restricted to match_end.
 
-The readiness/required-device abort guard inside step() arrives in task 8.
+Every ordered task in plans/agents/richard.md through task 8 is covered here.
 """
 
 from __future__ import annotations
@@ -1656,37 +1658,23 @@ def scenario_readiness_gate(d: Diagnostics) -> None:
               sim.snapshot().phase == "role_switch", sim.snapshot().phase)
 
     # Three of four ready is not enough: never force-start an unready phone.
-    sim.set_readiness(
-        ready_member_ids=frozenset({P1, P2, P3}),
-        connected_member_ids=frozenset({P1, P2, P3, P4}),
-        screen_count=1,
-        host_connected=True,
-    )
-    sim.step(0)
-    d.observe("three of four ready does not start the round",
-              sim.snapshot().phase == "role_switch", sim.snapshot().phase)
-
-    # All four ready but no screen is not enough either.
-    sim.set_readiness(
-        ready_member_ids=frozenset({P1, P2, P3, P4}),
-        connected_member_ids=frozenset({P1, P2, P3, P4}),
-        screen_count=0,
-        host_connected=True,
-    )
-    sim.step(0)
-    d.observe("four ready with no screen does not start the round",
-              sim.snapshot().phase == "role_switch", sim.snapshot().phase)
-
-    # A ready phone that is not connected is not enough.
-    sim.set_readiness(
-        ready_member_ids=frozenset({P1, P2, P3, P4}),
-        connected_member_ids=frozenset({P1, P2, P3}),
-        screen_count=1,
-        host_connected=True,
-    )
-    sim.step(0)
-    d.observe("a ready but disconnected phone does not start the round",
-              sim.snapshot().phase == "role_switch", sim.snapshot().phase)
+    # Everyone is still connected with a screen present, so this is a pure
+    # readiness wait and NOT a device loss — role_switch holds rather than
+    # aborting. The device-loss cases live in scenario_device_guard, because in
+    # a non-lobby phase 02 makes them resets, not waits.
+    for ready_subset in (frozenset({P1, P2, P3}), frozenset({P1}), frozenset()):
+        sim.set_readiness(
+            ready_member_ids=ready_subset,
+            connected_member_ids=frozenset({P1, P2, P3, P4}),
+            screen_count=1,
+            host_connected=True,
+        )
+        sim.step(0)
+        d.observe(
+            f"{len(ready_subset)} of four ready keeps role_switch waiting",
+            sim.snapshot().phase == "role_switch",
+            sim.snapshot().phase,
+        )
 
     # All four ready, connected, with a screen: the NEXT step begins the round.
     ready_all(sim)
@@ -1879,6 +1867,383 @@ def scenario_full_match(d: Diagnostics) -> None:
     )
 
 
+# --- Task 8: abort to lobby, device guard, reset and rematch ----------------
+def lobby_reset_observations(d: Diagnostics, sim: Simulation, label: str,
+                            epoch_before: int, assignments_before,
+                            version_before: int) -> None:
+    """Check every clause 02 requires of a reset/abort to lobby."""
+    s = sim.snapshot()
+    d.observe(f"{label}: phase is lobby", s.phase == "lobby", s.phase)
+    d.observe(f"{label}: score cleared", (s.score.t1, s.score.t2) == (0, 0),
+              f"{s.score.t1}-{s.score.t2}")
+    d.observe(f"{label}: round cleared", s.round == 0, str(s.round))
+    d.observe(f"{label}: timer restored", s.remaining_ms == K.ROUND_MS,
+              str(s.remaining_ms))
+    d.observe(f"{label}: result and winner cleared",
+              s.result is None and s.winner is None, f"{s.result} {s.winner}")
+    d.observe(f"{label}: epoch incremented", s.epoch > epoch_before,
+              f"{epoch_before} -> {s.epoch}")
+    d.observe(f"{label}: no held balls", all(c.held_ball_id is None
+                                             for c in s.characters))
+    d.observe(f"{label}: arena reset to spawns",
+              all(b.mode == "ground" for b in s.balls)
+              and all((b.pos.x, b.pos.z) == K.BALL_SPAWNS[b.ball_id] for b in s.balls)
+              and [(c.pos.x, c.pos.z) for c in s.characters] == [K.T1_SPAWN, K.T2_SPAWN])
+    d.observe(f"{label}: assignments kept", s.assignments == assignments_before,
+              str(s.assignments))
+    d.observe(f"{label}: no role swap, so assignment_version is unchanged",
+              s.assignment_version == version_before,
+              f"{version_before} -> {s.assignment_version}")
+    d.observe(f"{label}: phase_remaining_ms null", s.phase_remaining_ms is None,
+              str(s.phase_remaining_ms))
+
+
+def scenario_device_guard(d: Diagnostics) -> None:
+    print("\n[device guard: required-device loss aborts to lobby]")
+
+    cases = (
+        ("a phone disconnects", dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+                                     connected_member_ids=frozenset({P1, P2, P3}),
+                                     screen_count=1, host_connected=True)),
+        ("the original host disconnects",
+         dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+              connected_member_ids=frozenset({P1, P2, P3, P4}),
+              screen_count=1, host_connected=False)),
+        ("every screen is lost", dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+                                      connected_member_ids=frozenset({P1, P2, P3, P4}),
+                                      screen_count=0, host_connected=True)),
+        ("a phone revokes readiness",
+         dict(ready_member_ids=frozenset({P1, P2, P3}),
+              connected_member_ids=frozenset({P1, P2, P3, P4}),
+              screen_count=1, host_connected=True)),
+    )
+
+    for label, facts in cases:
+        sim = boot_to_active()
+        epoch_before = sim.snapshot().epoch
+        assignments_before = sim.snapshot().assignments
+        version_before = sim.snapshot().assignment_version
+        sim.set_readiness(**facts)  # type: ignore[arg-type]
+        d.observe(f"{label}: set_readiness alone does not abort",
+                  sim.snapshot().phase == "active", sim.snapshot().phase)
+        sim.step(0)
+        lobby_reset_observations(d, sim, label, epoch_before, assignments_before,
+                                 version_before)
+
+    # Losing one screen while another remains is a membership change only.
+    sim = boot_to_active()
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3, P4}),
+        screen_count=1,  # down from 2, but one remains
+        host_connected=True,
+    )
+    for _ in range(10):
+        sim.step(0)
+    d.observe("losing one screen while another remains does not abort",
+              sim.snapshot().phase == "active", sim.snapshot().phase)
+
+    # An aborted round awards no point and triggers no role swap, even when a
+    # hit had already been scored in it.
+    sim = boot_to_active()
+    version_before = sim.snapshot().assignment_version
+    win_round(sim, team=1)
+    d.observe("a point was scored before the interruption",
+              sim.snapshot().score.t1 == 1, str(sim.snapshot().score.t1))
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("an aborted round keeps no point", (s.score.t1, s.score.t2) == (0, 0),
+              f"{s.score.t1}-{s.score.t2}")
+    d.observe("an aborted round triggers no role swap",
+              s.assignment_version == version_before,
+              f"{version_before} -> {s.assignment_version}")
+
+    # The guard fires in every non-lobby phase.
+    def reach(phase: str) -> Simulation:
+        sim = boot_to_active()
+        if phase == "countdown":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+            ready_all(sim)
+            sim.step(0)
+        elif phase == "round_end":
+            win_round(sim, 1)
+        elif phase == "role_switch":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+        elif phase == "match_end":
+            for _ in range(2):
+                win_round(sim, 1)
+                advance_to_next_active(sim)
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+        return sim
+
+    for phase in ("countdown", "active", "round_end", "role_switch", "match_end"):
+        sim = reach(phase)
+        d.observe(f"reached {phase} for the guard check",
+                  sim.snapshot().phase == phase, sim.snapshot().phase)
+        sim.set_readiness(
+            ready_member_ids=frozenset({P1, P2, P3, P4}),
+            connected_member_ids=frozenset({P1, P2, P3}),
+            screen_count=1,
+            host_connected=True,
+        )
+        sim.step(0)
+        d.observe(f"a disconnect during {phase} aborts to lobby",
+                  sim.snapshot().phase == "lobby", sim.snapshot().phase)
+
+    # Readiness revocation aborts ONLY in countdown and active. Elsewhere it
+    # just clears that member's readiness.
+    for phase, expected in (("countdown", "lobby"), ("active", "lobby"),
+                            ("round_end", "round_end"),
+                            ("role_switch", "role_switch"),
+                            ("match_end", "match_end")):
+        sim = reach(phase)
+        sim.set_readiness(
+            ready_member_ids=frozenset({P1, P2, P3}),
+            connected_member_ids=frozenset({P1, P2, P3, P4}),
+            screen_count=1,
+            host_connected=True,
+        )
+        sim.step(0)
+        d.observe(
+            f"ready=false during {phase} -> {expected}",
+            sim.snapshot().phase == expected,
+            sim.snapshot().phase,
+        )
+
+    # No duplicate abort: once in lobby the guard stops, and the adapter's own
+    # abort call afterwards is a plain lobby reset rather than a second abort.
+    sim = boot_to_active()
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    sim.drain_events()
+    for _ in range(20):
+        sim.step(0)
+    events = sim.drain_events()
+    d.observe("the guard does not fire again once in lobby", not events,
+              f"{len(events)} further events")
+    epoch_before = sim.snapshot().epoch
+    sim.control("abort")
+    d.observe("a redundant adapter abort is a safe lobby reset",
+              sim.snapshot().phase == "lobby"
+              and sim.snapshot().epoch == epoch_before + 1,
+              f"epoch {epoch_before} -> {sim.snapshot().epoch}")
+
+    # Old-epoch input cannot leak through an abort.
+    sim = boot_to_active()
+    stale_epoch = sim.snapshot().epoch
+    member = legs_member(sim, 1)
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    try:
+        sim.apply_input(
+            member,
+            LegsCommand(seq=1, epoch=stale_epoch, move=Vec2(0.0, 1.0)),
+            received_ms=0,
+            ordinal=5000,
+        )
+        refused = "accepted"
+    except SimulationError as exc:
+        refused = exc.code
+    d.observe("input from before the abort is refused",
+              refused in ("STALE_EPOCH", "INVALID_PHASE"), refused)
+
+    # 06's end-to-end script: disconnect a phone while it is holding a ball.
+    # The ball must not fly, and the match must reset with readiness cleared.
+    sim = boot_to_active()
+    clear_ground_balls(sim, ("b1",))
+    place(sim, 1, 0.0, -4.0)
+    put_ball(sim, "b1", 0.0, -4.0)
+    Hands(sim, 1).send("press").step()
+    d.observe("a ball is held before the disconnect",
+              character(sim, 1).held_ball_id == "b1",
+              str(character(sim, 1).held_ball_id))
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P2, P3, P4}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    d.observe("disconnecting while holding does not launch the ball",
+              ball(sim, "b1").mode == "ground", ball(sim, "b1").mode)
+    d.observe("the held ball returns to its spawn with the arena reset",
+              (ball(sim, "b1").pos.x, ball(sim, "b1").pos.z) == K.BALL_SPAWNS["b1"],
+              str(ball(sim, "b1").pos))
+
+    # A disconnect on the same tick a hit would land: the guard is evaluated
+    # first, so the aborted round awards nothing.
+    sim = boot_to_active()
+    place(sim, 1, 0.0, -3.0)
+    place(sim, 2, 0.0, 3.0)
+    launch_ball(sim, "b1", 0.0, 2.3, 0.0, 14.0, shooter_team=1)  # would hit next step
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    s = sim.snapshot()
+    d.observe("a disconnect beats a hit landing on the same tick",
+              s.phase == "lobby" and s.result is None
+              and (s.score.t1, s.score.t2) == (0, 0),
+              f"{s.phase} {s.result} {s.score.t1}-{s.score.t2}")
+
+    # There is no resume: play restarts from round 1 after re-readying.
+    ready_all(sim)
+    sim.control("start")
+    run_out_phase(sim, "countdown")
+    s = sim.snapshot()
+    d.observe("after an abort the match restarts at round 1",
+              s.round == 1 and s.phase == "active", f"round {s.round} {s.phase}")
+    d.observe("and from a zero score", (s.score.t1, s.score.t2) == (0, 0),
+              f"{s.score.t1}-{s.score.t2}")
+
+    # Reconnection on its own resumes nothing: a fresh host start is required.
+    sim = boot_to_active()
+    sim.set_readiness(
+        ready_member_ids=frozenset({P1, P2, P3, P4}),
+        connected_member_ids=frozenset({P1, P2, P3}),
+        screen_count=1,
+        host_connected=True,
+    )
+    sim.step(0)
+    ready_all(sim)  # everyone is back and ready again
+    for _ in range(120):
+        sim.step(0)
+    d.observe("reconnecting and re-readying does not resume the match",
+              sim.snapshot().phase == "lobby" and sim.snapshot().round == 0,
+              f"{sim.snapshot().phase} round {sim.snapshot().round}")
+
+    # Start is refused while a required device is missing.
+    for label, facts in (
+        ("no screen", dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+                           connected_member_ids=frozenset({P1, P2, P3, P4}),
+                           screen_count=0, host_connected=True)),
+        ("no host", dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+                         connected_member_ids=frozenset({P1, P2, P3, P4}),
+                         screen_count=1, host_connected=False)),
+        ("a phone absent", dict(ready_member_ids=frozenset({P1, P2, P3, P4}),
+                                connected_member_ids=frozenset({P1, P2, P3}),
+                                screen_count=1, host_connected=True)),
+        ("a phone unready", dict(ready_member_ids=frozenset({P1, P2, P3}),
+                                 connected_member_ids=frozenset({P1, P2, P3, P4}),
+                                 screen_count=1, host_connected=True)),
+    ):
+        fresh = Simulation(FOUR)
+        fresh.set_readiness(**facts)  # type: ignore[arg-type]
+        try:
+            fresh.control("start")
+            code = "accepted"
+        except SimulationError as exc:
+            code = exc.code
+        d.observe(f"start refused with {label}", code == "NOT_READY", code)
+
+
+def scenario_reset_and_rematch(d: Diagnostics) -> None:
+    print("\n[reset and rematch]")
+
+    # Host reset performs the same lobby reset from every phase.
+    for phase in ("countdown", "active", "round_end", "role_switch", "match_end"):
+        sim = boot_to_active()
+        if phase == "countdown":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+            ready_all(sim)
+            sim.step(0)
+        elif phase == "round_end":
+            win_round(sim, 1)
+        elif phase == "role_switch":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+        elif phase == "match_end":
+            for _ in range(2):
+                win_round(sim, 1)
+                advance_to_next_active(sim)
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+        epoch_before = sim.snapshot().epoch
+        assignments_before = sim.snapshot().assignments
+        version_before = sim.snapshot().assignment_version
+        d.observe(f"reset: reached {phase}", sim.snapshot().phase == phase,
+                  sim.snapshot().phase)
+        sim.control("reset")
+        lobby_reset_observations(d, sim, f"reset from {phase}", epoch_before,
+                                 assignments_before, version_before)
+
+    # A reset while already in lobby still invalidates the old epoch.
+    sim = Simulation(FOUR)
+    epoch_before = sim.snapshot().epoch
+    sim.control("reset")
+    events = sim.drain_events()
+    d.observe("a reset in lobby still increments epoch",
+              sim.snapshot().epoch == epoch_before + 1,
+              f"{epoch_before} -> {sim.snapshot().epoch}")
+    d.observe("a reset in lobby still publishes PhaseChanged(lobby)",
+              [n for n, _ in event_epochs(events)] == ["phase:lobby"],
+              str(event_epochs(events)))
+
+    # Rematch is valid only at match_end.
+    for phase in ("lobby", "countdown", "active", "round_end", "role_switch"):
+        sim = boot_to_active()
+        if phase == "lobby":
+            sim.control("reset")
+        elif phase == "countdown":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+            ready_all(sim)
+            sim.step(0)
+        elif phase == "round_end":
+            win_round(sim, 1)
+        elif phase == "role_switch":
+            win_round(sim, 1)
+            run_out_phase(sim, "round_end")
+        try:
+            sim.control("rematch")
+            code = "accepted"
+        except SimulationError as exc:
+            code = exc.code
+        d.observe(f"rematch refused in {phase}", code == "INVALID_PHASE", code)
+
+    # Abort and reset are the same reset, as 03 specifies.
+    sim_a, sim_b = boot_to_active(), boot_to_active()
+    sim_a.control("abort", reason="transport failure")
+    sim_b.control("reset")
+    d.observe("abort and reset produce the same lobby state",
+              sim_a.snapshot() == sim_b.snapshot(),
+              "snapshots differ")
+    d.observe("abort accepts a reason without needing it in state",
+              sim_a.snapshot().phase == "lobby")
+
+    # An unknown control action is refused.
+    sim = boot_to_active()
+    try:
+        sim.control("pause")  # type: ignore[arg-type]
+        code = "accepted"
+    except SimulationError as exc:
+        code = exc.code
+    d.observe("an unknown control action is refused", code == "INVALID_INPUT", code)
+
+
 # --- Fixture emission -------------------------------------------------------
 def _plain(value: Any) -> Any:
     if is_dataclass(value) and not isinstance(value, type):
@@ -1982,9 +2347,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     print("Authoritative gameplay simulation - synthetic runner")
-    print("Tasks 1-7: DTOs, reset state, movement, input defense, acquisition,")
+    print("Tasks 1-8: DTOs, reset state, movement, input defense, acquisition,")
     print("ownership, no-throw zone, flight, respawn, swept collision, scoring,")
-    print("timeout draw, round/match lifecycle, role swapping and readiness")
+    print("timeout draw, round/match lifecycle, role swapping, readiness, and")
+    print("abort-to-lobby with the simulation-owned device guard")
 
     diagnostics = Diagnostics()
     scenario_reset_snapshot(diagnostics)
@@ -2015,6 +2381,8 @@ def main(argv: list[str] | None = None) -> int:
     scenario_readiness_gate(diagnostics)
     scenario_first_to_three(diagnostics)
     scenario_full_match(diagnostics)
+    scenario_device_guard(diagnostics)
+    scenario_reset_and_rematch(diagnostics)
 
     total = diagnostics.matched + len(diagnostics.deviations)
     print(f"\n{diagnostics.matched}/{total} observations match the specified rules")
@@ -2023,11 +2391,13 @@ def main(argv: list[str] | None = None) -> int:
         for rule in diagnostics.deviations:
             print(f"  - {rule}")
         return 1
-    print("\nNot yet implemented (task 8): the readiness/required-device abort")
-    print("guard inside step(). reset, abort and rematch already work through")
-    print("control(); what is missing is step() noticing on its own that a")
-    print("required phone went unready or disconnected mid-match and aborting")
-    print("to lobby for it.")
+    print("\nEvery ordered task through task 8 is implemented. Task 9 is the")
+    print("remaining item: run this runner as a full-match diagnostic, then")
+    print("the real four-phone integration. Neither adds engine mechanics.")
+    print("\nADAPTER NOTE: the device guard reads only set_readiness facts.")
+    print("03 clears readiness at swap/reset/abort/rematch, NOT at countdown")
+    print("or active entry. Clearing it there aborts every match instantly,")
+    print("because ready=true is only legal in lobby/role_switch.")
     return 0
 
 

@@ -13,13 +13,22 @@ flight with relative-motion swept collision, wall/expiry respawn and
 earliest-hit resolution, and the complete lifecycle: exactly-once scoring, the
 3600-tick timeout draw, lobby -> countdown -> active -> round_end ->
 role_switch -> countdown ... -> match_end, every-round role swapping, readiness
-gating of the next round, first-to-three, and reset/abort/rematch to lobby.
+gating of the next round, first-to-three, reset/abort/rematch to lobby, and the
+simulation-owned device guard that aborts a non-lobby phase when a required
+device is lost.
 
-Not yet implemented, and listed in HANDOFF.md so no consumer assumes otherwise:
-the readiness/required-device abort guard inside step() (task 8). control()
-already implements abort as a full reset to lobby; what is missing is step()
-deciding on its own that a required phone has gone unready or disconnected
-mid-match and invoking it.
+Every ordered task in plans/agents/richard.md through task 8 is implemented.
+Remaining work is task 9: running the full synthetic match as a diagnostic and
+then the real four-phone integration, neither of which adds engine mechanics.
+
+INTEGRATION NOTE for the adapter. The device guard decides only from the facts
+passed to set_readiness, and it is evaluated once per step() before any phase
+work. 03 fixes the boundaries at which readiness is cleared: swap, reset, abort
+and rematch -- NOT the countdown or active transition. If readiness facts are
+cleared when entering countdown or active, this guard will abort every match on
+its next step, because a phone cannot legally send ready=true outside
+lobby/role_switch and so can never recover. Keep the facts across countdown and
+active.
 
 Frozen at contract commit 0a49de1.
 """
@@ -241,6 +250,11 @@ class Simulation:
             raise SimulationError("NOT_READY", "four assigned phones are required")
         if self._screen_count < 1:
             raise SimulationError("NOT_READY", "at least one screen must be connected")
+        if not self._host_connected:
+            # Without this the device guard would abort the match on its first
+            # step, since 02 makes an original-host disconnect an immediate
+            # reset. Refusing here is the same rule, applied earlier.
+            raise SimulationError("NOT_READY", "the original host must be connected")
         for a in self._assignments:
             if a.member_id not in self._connected_ids:
                 raise SimulationError("NOT_READY", f"{a.member_id} is not connected")
@@ -356,8 +370,21 @@ class Simulation:
         if isinstance(now_ms, bool) or not isinstance(now_ms, int):
             raise SimulationError("INVALID_INPUT", "now_ms must be an int")
 
-        phase = self._phase
         self._tick += 1
+
+        # (0) Simulation-owned device guard, evaluated once per step before any
+        # phase work. 03 reserves this single decision point for step() so a
+        # required-device loss cannot produce a duplicate abort from socket
+        # cleanup, and 02 requires the reset to happen immediately.
+        if self._abort_trigger() is not None:
+            # 03: the simulation implements abort as a complete reset to lobby.
+            # It deliberately does NOT score or swap roles: 02 says the old
+            # round awards no point and triggers no swap, because it was
+            # aborted rather than completed.
+            self._reset_to_lobby()
+            return
+
+        phase = self._phase
 
         if phase == "active":
             self._step_active(now_ms)
@@ -853,14 +880,56 @@ class Simulation:
 
         02: role_switch waits for all four phones to recalibrate and explicitly
         become ready, with at least one screen, and never force-starts an
-        unready controller.
+        unready controller. The host must be connected too, otherwise the
+        device guard below would abort the round on its very first step.
         """
         if len(self._assignments) != 4 or self._screen_count < 1:
+            return False
+        if not self._host_connected:
             return False
         return all(
             a.member_id in self._connected_ids and a.member_id in self._ready_ids
             for a in self._assignments
         )
+
+    def _abort_trigger(self) -> str | None:
+        """Why the current phase must abort to lobby, or None to carry on.
+
+        This is the simulation-owned device guard. It decides only from the
+        facts the adapter supplied through set_readiness; it never inspects a
+        socket. 02 interruptions:
+
+        - a phone disconnect, the original host disconnecting, or the loss of
+          ALL screens, in any non-lobby phase, resets the match immediately;
+        - a current-epoch phone going ready=false during countdown or active
+          does the same;
+        - in any other phase a ready=false only clears that member's
+          readiness, which needs no action here because readiness is just a
+          fact set and role_switch simply keeps waiting;
+        - losing one screen while another remains is a membership change only,
+          so the test is "no screens left", not "fewer screens".
+
+        Returns a short machine-readable trigger for diagnostics. It is NOT
+        published: StateDTO has no abort-reason field and inventing one would
+        be contract drift, so the adapter owns the user-facing message. It
+        already knows which device vanished.
+        """
+        if self._phase == "lobby":
+            return None
+
+        for a in self._assignments:
+            if a.member_id not in self._connected_ids:
+                return "phone_disconnected"
+        if not self._host_connected:
+            return "host_disconnected"
+        if self._screen_count < 1:
+            return "all_screens_lost"
+
+        if self._phase in ("countdown", "active"):
+            for a in self._assignments:
+                if a.member_id not in self._ready_ids:
+                    return "readiness_revoked"
+        return None
 
     def _reset_to_lobby(self) -> None:
         """Complete reset to lobby. Also the implementation of abort.

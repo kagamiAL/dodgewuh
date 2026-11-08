@@ -1,16 +1,17 @@
 # Simulation handoff — Richard
 
-**Branch:** `feature/richard-physics` (the path named in
-[04:82](../../plans/04-repository-structure.md) is `feat/richard-sim`; the working branch was renamed when the
-physics work started — same owned paths).
+**Branch:** `feature/richard-abort-guard` (the path named in
+[04:82](../../plans/04-repository-structure.md) is `feat/richard-sim`; the working branches were renamed as
+the work progressed — same owned paths throughout).
 **Implementation commit:** see `git log -1 --format=%H`. Content so far is M1 (`44b43fe`) plus
 `31cfc6a` (project-instruction alignment) on top of the merge of `main` at `ebccfe4`, then ordered task 5
 (acquisition, ownership, safe cancel, no-throw zone), task 6 (flight, respawn, swept collision, earliest-hit
-resolution) and task 7 (scoring, timeout draw, round/match lifecycle, role swapping, readiness gating).
-**Manual checks performed:** build check (`compileall`, all modules), runtime diagnostics (262/262 observations
-matching, including a complete four-round match with a draw, a winner and a rematch), constants audit against
-the 02 table, seam-signature and DTO field-set introspection against 03, and fixture field-set validation.
-All listed under "Manual verification steps" below.
+resolution), task 7 (scoring, timeout draw, round/match lifecycle, role swapping, readiness gating) and
+task 8 (reset/rematch, abort-to-lobby and the simulation-owned device guard).
+**Manual checks performed:** build check (`compileall`, all modules), runtime diagnostics (413/413 observations
+matching, including a complete four-round match with a draw, a winner and a rematch, and the device guard in
+every phase), constants audit against the 02 table, seam-signature and DTO field-set introspection against 03,
+and fixture field-set validation. All listed under "Manual verification steps" below.
 
 **Contract commits:** frozen at `0a49de1` ("Init plans."); amended by `ebccfe4` ("Amend MD to not make
 tests."), which is merged into this branch. I re-diffed 02 and 03 across that amendment: **no normative rule
@@ -25,14 +26,17 @@ no test file and no test directory, and no milestone or handoff is gated on an a
 is a build check plus the synthetic runner, which 06 designates a manual diagnostic tool and the instruction
 explicitly retains as a runtime validator.
 
-**Progress:** ordered tasks 1–7 of [the brief](../../plans/agents/richard.md) are implemented: DTOs and seam
-signatures, reset state, deterministic movement, input defense, Hold acquisition and ownership, safe
-cancel/no-throw zone, and constant-speed flight with wall/expiry respawn, swept-circle collision and
-earliest-hit resolution, and the complete lifecycle — exactly-once scoring, the 3600-tick timeout draw,
+**Progress:** ordered tasks **1–8** of [the brief](../../plans/agents/richard.md) are implemented: DTOs and
+seam signatures, reset state, deterministic movement, input defense, Hold acquisition and ownership, safe
+cancel/no-throw zone, constant-speed flight with wall/expiry respawn, swept-circle collision and earliest-hit
+resolution, the complete lifecycle — exactly-once scoring, the 3600-tick timeout draw,
 `lobby → countdown → active → round_end → role_switch → countdown … → match_end`, every-round role swapping,
-readiness gating of the next round, and first-to-three. A synthetic match plays to a winner and rematches.
-Task 8's remaining piece — the abort guard inside `step()` — is **not** implemented; read the bottom section
-before assuming a behaviour exists.
+readiness gating of the next round, first-to-three — and reset/rematch plus abort-to-lobby with the
+simulation-owned device guard. A synthetic match plays to a winner and rematches.
+
+Task 9 is what remains: running the full match as a diagnostic (done synthetically) and then the real
+four-phone integration. **No engine mechanic is outstanding.** Read "Not implemented yet" and the adapter
+note below before integrating.
 
 **Owned paths:** `backend/simulation/**` only. I have created no file outside it.
 
@@ -51,7 +55,7 @@ PYTHONPATH=backend python -m simulation.synthetic
 PYTHONPATH=backend python -m simulation.synthetic --fixtures backend/simulation/fixtures
 ```
 
-Step 2 currently reports **262/262 observations match the specified rules**, printing each rule it observed so
+Step 2 currently reports **413/413 observations match the specified rules**, printing each rule it observed so
 the output can be read and judged by a person. A deviation prints `DEVIATION` with observed-vs-expected values
 and exits non-zero.
 
@@ -191,12 +195,58 @@ is therefore accepted, which the runner checks explicitly.
 ### Readiness and timing semantics
 
 `set_readiness` **records facts and decides nothing.** Every readiness, abort and `role_switch → countdown`
-decision is taken on the next `step()`. That single decision point is deliberate: it is what prevents the
-duplicate-abort failure recorded at [10-planning-audit.md:16](../../plans/10-planning-audit.md).
+decision is taken on the next `step()`. That single decision point is deliberate: it is what keeps a
+required-device loss from producing a duplicate abort, the integration hazard recorded in
+[10-planning-audit.md](../../plans/10-planning-audit.md).
 
 `step(now_ms)` uses `now_ms` **only** for the 250 ms stale-input check. The active clock is tick-based.
 `tick` advances once per step in every phase and never resets. Timed phase milliseconds use
 `ceil(remaining_ticks * 1000 / 60)`.
+
+### The simulation-owned device guard — read this before wiring readiness
+
+Evaluated once per `step()`, **before any phase work**, from the facts you passed to `set_readiness` and
+nothing else. It never inspects a socket. In any non-lobby phase:
+
+| Fact | Effect |
+|---|---|
+| any assigned phone absent from `connected_member_ids` | abort to lobby |
+| `host_connected=False` | abort to lobby |
+| `screen_count < 1` | abort to lobby |
+| any assigned phone absent from `ready_member_ids`, **in countdown or active only** | abort to lobby |
+| any assigned phone absent from `ready_member_ids`, in round_end / role_switch / match_end | no abort — it only clears that member's readiness, and `role_switch` keeps waiting |
+| `screen_count` merely decreased but ≥ 1 | no abort — membership change only |
+
+> ### ⚠ Do not clear readiness facts at the countdown or active transition
+>
+> 03 fixes the clearing boundaries at **swap, reset, abort and rematch**. If you also clear readiness when
+> entering countdown or active, this guard aborts every match on its next step — and the match can never
+> recover, because `ready=true` is only legal in `lobby`/`role_switch`, so no phone can re-ready. I verified
+> this failure mode directly: clearing readiness at countdown entry put the room straight back in lobby.
+> Carry the facts across countdown and active unchanged.
+
+An abort is a **complete reset to lobby** — the same code path as `control("reset")` and `control("abort")`,
+so all three are indistinguishable in the resulting state. Per 02 an aborted round **awards no point and
+triggers no role swap**, because it was aborted rather than completed; `assignment_version` is therefore
+unchanged by an abort.
+
+Two consequences worth knowing:
+
+- **The guard beats a hit landing on the same tick.** It runs before the active step, so a disconnect in the
+  tick a ball would have connected ends in lobby with no point. That is what 02's "resets the match to lobby
+  immediately" and 06's "disconnect a phone while holding: ball must not fly" require.
+- **No abort reason is published.** `StateDTO` has no field for one and inventing it would be contract drift,
+  so the simulation aborts as a plain `PhaseChanged(lobby)`. You own the user-facing message — you know which
+  device vanished, and 02 specifies the wording ("Connection lost; ready again to restart."). `control()`
+  still accepts its `reason` argument for your logging.
+
+Your own `control("abort")` after the guard has already fired is **safe but redundant**: it is a lobby reset,
+which 03 defines as still incrementing epoch and emitting `PhaseChanged(lobby)`. The guard itself will not
+fire twice — once in lobby it stops, verified over 20 further steps producing zero events.
+
+`control("start")` now also requires `host_connected=True`, for the same reason: without it the guard would
+abort the match on its first step, so refusing earlier is the same rule applied sooner. It raises
+`NOT_READY`.
 
 ---
 
@@ -257,7 +307,17 @@ role-switch and winner. Please commit them under `contracts/fixtures/valid/` —
    after *every* round "including the winning round" and to enter match_end "after the swap". So a won match
    emits `PhaseChanged(role_switch)`, `RolesChanged`, then `PhaseChanged(match_end)` from one `step()`, and
    the final assignments a rematch retains are the post-swap ones.
-10. **Gameplay edge worth a team decision: a throw launched from the sideline can be lost instantly.** 02 says
+10. **The device guard treats `match_end` as abortable**, because 02 says "any non-lobby phase" and 03 says
+   "a required-device disconnect aborts any non-lobby phase". A disconnect at `match_end` therefore clears the
+   winner and score and returns to lobby. That is the literal rule and is harmless — `rematch` does the same
+   reset — but if the team wants the final score to survive a post-match disconnect, that is a rules change
+   and goes through the coordinated process in 04.
+11. **`control("start")` additionally requires `host_connected=True`.** 02's start gate names four ready
+   phones and a screen but not the host; however 02 also makes an original-host disconnect an immediate
+   reset, so starting without a host would abort on the first step. Refusing at `start` is the same rule
+   applied earlier, and it raises `NOT_READY` like the other start gates. Flagging because it is the one
+   place I tightened a gate 02 states loosely.
+12. **Gameplay edge worth a team decision: a throw launched from the sideline can be lost instantly.** 02 says
    a throw launches at `centre + aim × 0.65`, and the character `x` limit is 5.55 while the court wall is 6.0.
    A character hugging the sideline and aiming diagonally (`aim.x` up to ~0.98, since only `|aim.z| ≥ 0.2` is
    required) launches at `x ≈ 6.19`, already outside the court — so "court exit triggers respawn" fires in the
@@ -270,15 +330,20 @@ role-switch and winner. Please commit them under `contracts/fixtures/valid/` —
 
 ## Not implemented yet — do not assume these work
 
-The following is specified, planned and **absent**:
+**No engine mechanic is outstanding.** Every ordered task through task 8 is implemented. What remains is not
+code I own:
 
-- **Task 8 — the abort guard inside `step()`.** `control("abort")` and `control("reset")` already perform the
-  full reset to lobby, and `control("rematch")` works from `match_end`. What is missing is `step()` deciding
-  *on its own* from the facts in `set_readiness` that a required phone has gone unready or disconnected, or
-  that every screen is gone, during a non-lobby phase — and aborting for it. **Until that lands, the adapter
-  must call `control("abort")` itself** when it observes a required-device loss or a current-epoch
-  `ready=false` during countdown/active. The simulation will not infer it. 03 reserves that single decision
-  point for `step()` precisely so there is no duplicate abort, so this is the last gap, not a design change.
+- **Task 9 — the real integration.** A full match runs synthetically through the real seam; it has never run
+  through Alan's adapter, Ryan's renderer, or four physical phones. That is the H4/H6/H8/H12 gate work.
+
+Deliberately absent, by specification rather than omission:
+
+- **No resume of any kind.** There is no resume method, no interrupted-phase storage, no host migration and
+  no reconnect recovery. After an abort a room is in lobby at round 0 with a zero score, and the only way
+  forward is fresh readiness plus a host `start`. Reconnecting and re-readying does **not** restart play on
+  its own — verified. 11's worker-loss policy ("do not reconstruct or resume a mid-flight simulation from
+  SQL") is satisfied for free, since no such operation exists to call.
+- **No abort reason in state**, as described in the device-guard section above.
 
 Working now: lobby/reset state, full snapshot projection, `apply_input` validation and ordinal defense,
 fixed-step movement with half-court clamps and stale stop, Hold acquisition with
@@ -286,7 +351,8 @@ nearest/tie-break/single-ownership, safe cancel and `NO_THROW_ZONE`, release and
 flight, wall and lifetime respawn, swept-circle collision against the opponent only, earliest-hit resolution
 including the simultaneous draw, exactly-once scoring, the 3600-tick timeout draw, the full phase machine
 through `match_end`, every-round role swapping with `RolesChanged`, readiness gating of the next round,
-first-to-three, and `reset`/`abort`/`rematch` to lobby.
+first-to-three, `reset`/`abort`/`rematch` to lobby, and the device guard aborting any non-lobby phase on
+phone, host or total-screen loss, plus revoked readiness during countdown/active.
 
 **Not claimed:** no device check, no deployment, no integration through a real adapter or renderer. The
 H4/H6/H8/H12 integration gates have not been attempted, let alone met.
