@@ -2,11 +2,22 @@
 
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 
-Build a cooperative motion dodgeball game with four phone players, two shared characters and one or more browser screens. **Success is a working playable match, not polish or infrastructure breadth.** Use basic shapes, simple lean controls, motion-gated fixed-strength throws and full server snapshots. The 19 core deliverables and audit report are plans; no application or infrastructure has been implemented.
+Build a cooperative motion dodgeball game with four phone players, two shared characters and one or more browser screens. These documents began as implementation plans; repository code has since landed, so schedules, ownership scaffolds and acceptance checklists below are historical targets unless they match the current code described here.
 
-This directory already is `plans/`; documents are intentionally not nested under another plans directory. `plan-creation-prompts.md` overrides the original master prompt. Later user instructions prioritize a minimal working MVP and separate Richard’s simulation plan from Ryan’s frontend plan, superseding the original combined-plan filename requirement.
+The current local implementation has room creation/join, authenticated WebSockets,
+readiness and host controls, the Python simulation in the coordinator, 60 Hz
+simulation steps, 20 Hz snapshots, phone pocket-jog Legs, screen-camera Legs,
+stadium/crowd rendering and a team-specific first-person screen view. The screen
+camera uses browser-local MediaPipe pose processing. Arms phone UI is still a
+placeholder. Production coordinator-to-worker allocation/routing and deployed
+end-to-end gameplay are not established. See the [repository README](../README.md),
+[contracts handoff](../contracts/README.md), and [backend operations](../backend/README.md)
+for operational status and limitations.
 
-Audit completed; see [findings and corrections](10-planning-audit.md). Owner-separated directories with `.gitkeep` now exist in the parent repository. No implementation agents have started. Freeze these amended contracts before implementation.
+The specifications remain useful for intended game rules and wire contracts.
+The milestone timelines and workstream briefs are historical; do not assume a
+checklist item or ownership assignment proves the feature exists. Confirm current
+behavior in source and the implementation status in the linked handoffs.
 
 ## Reading/distribution order
 
@@ -35,15 +46,15 @@ Distribute the shared documents to all five coding agents first, in this exact o
 
 ## Locked architecture and team
 
-Richard exclusively owns the authoritative pure Python simulation, integrated by Alan into one FastAPI process on EC2. Alan owns rooms, identities, validation, sockets and Terraform/Caddy deployment. Ryan owns Vue 3/TypeScript/Vite + PlayCanvas rendering, lobby/HUD and PhoneShell, and coordinates integration. Morteza owns Arms UI/aim/Hold/gesture/cancel. Tysen owns Legs physical controls, shared permissions/sensor service and device validation. Richard and Ryan have separate workstream plans and coordinate through the shared snapshot contract. Screens never determine game outcomes. GoDaddy DNS points to an Elastic IP; Caddy serves static frontend and HTTPS/WSS on the same origin.
+The plan documents describe proposed workstream ownership. In current code, the authoritative simulation is called from the coordinator for local integration; although a separate worker service exists, room allocation/routing to it is pending. Current screen code includes PlayCanvas rendering, camera control and first-person view. Production AWS hosting and DNS are not evidenced by this repository status.
 
 ## MVP boundary
 
-Mandatory: private room/code, four real phones, Arms+Legs cooperation, physical aiming/movement and Hold/release, four balls, half-court boundaries/no-throw zones, hit scoring/60-second timeout, role swaps, first-to-three match/rematch, synchronized screens and public AWS HTTPS/WSS. Simple primitives, fixed throw strength and latest-snapshot rendering are acceptable ways to achieve these.
+The planned full game includes private rooms, four phones, Arms+Legs cooperation, movement and throwing, scoring, role swaps and rematch. Current Arms phone UI and production deployment are incomplete; physical-device and full-match acceptance must be confirmed separately. Current screen camera can drive a team's Legs role, and screen view can be selected as team 1, team 2 or overview.
 
-Excluded: sophisticated physics/animations, variable-strength polish, QR generation, accounts, matchmaking, persistence, prediction, reconnect resume, host migration and extra cloud services. A disconnect safely resets to lobby; players ready and restart. Preserve seats briefly, not interrupted gameplay. Emergency local/single-screen demo is a contingency, not a claim that hosted multi-screen acceptance passed.
+Excluded from the original game scope: sophisticated physics/animations, variable-strength polish, QR generation, accounts, matchmaking, durable gameplay state/resume, prediction, host migration and extra cloud services. Room/member registration metadata is persisted. A disconnect resets an underway match to lobby; players ready and restart.
 
-## Start now
+## Original milestone schedule (historical)
 
 First 30 minutes: read/freeze 01–04 and ownership; Alan/Ryan bootstrap their respective roots, Richard interface skeleton, motion team actual iPhone permission test. First hour tasks for each person are listed precisely in [05](05-development-roadmap.md). Critical dependency chain: secure phone sensors → normalized command → FastAPI adapter → Python simulation → snapshot → visible character → cooperative throw → four phones → scoring/role swap/full match.
 
@@ -51,8 +62,8 @@ First integration milestone **H4**: real phone movement changes authoritative ch
 
 ## Planning audit and limits
 
-Audit checks: all 19 deliverables, ownership exclusions, server-only outcomes, event/schema parity, full-state mocks, role calibration/epoch semantics, reset on disconnect, single-worker deployment, schedule gates and all 24 MVP requirements mapped in 06. No application tests/deployment have occurred; all test outcomes in these plans are acceptance targets.
+The original audit reviewed the plan set before implementation. Its checklist and validation record are historical; they are not evidence of current application behavior or deployment.
 
 Official technical references are linked in 01 and 08. Unverified external dependencies: actual domain/account access, regional EC2 quota/AMI, DNS/certificate issuance, real phone/OS sensor behavior, gesture thresholds and venue network latency. All are assigned early experiments. No browser support or health/sustainability benefits are asserted beyond available evidence. If essentials are late, remove optional work first and pair on the failing vertical slice.
 
-Documentation checks and their limits are recorded in [10 Planning audit](10-planning-audit.md). Structural schema parity alone does not establish compatible lifecycle behavior; the audit corrected those seams before handoff. No application tests, device trials or deployment have run.
+The original documentation audit and its limitations are recorded in [10 Planning audit](10-planning-audit.md). That report predates application implementation and must not be used as the current verification record.

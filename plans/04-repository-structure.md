@@ -2,7 +2,7 @@
 
 > **Current project instruction — dodgewuh:** Do not create automated tests, test files, test suites, test harnesses or test-only dependencies. Do not add pytest, Vitest or Playwright, or require automated test commands for milestones, handoffs or deployment. Verify work through builds, type checks, runtime validation and manual API, browser, device and multiplayer checks. Keep useful protocol examples and runtime validators. Any remaining historical references to tests or test directories are not instructions to implement them. This instruction supersedes earlier testing requirements in this document.
 
-All paths below are relative to the future monorepo root (parent of this plans directory). The repository now includes owner-separated directories with .gitkeep placeholders; application implementation has not started. Do not create another nested plans directory. One owner per path; other developers send proposed edits to its owner.
+This document records the original ownership and bootstrap plan. The repository is now implemented beyond that scaffold: see the actual tree and current status in the root README and backend/contracts handoffs. The file tree, branches, ownership allocations and bootstrapping instructions below are historical planning material, not a description of current files or active contributor assignments.
 
 | Owner | Exclusive paths | Responsibilities |
 |---|---|---|
@@ -45,7 +45,7 @@ Use Python 3.12, FastAPI, Uvicorn standard extras, Pydantic v2; httpx for servic
 
 Alan creates root/backend scaffolds and canonical protocol fixtures first; Ryan creates the frontend scaffold and PhoneShell placeholders inside his owned files. Morteza/Tysen create their own controller/sensor exports; Alan creates net/generated exports. Ryan never creates placeholder files in their directories. Richard supplies types/Simulation signatures immediately. Controller owners work in assigned directories against the frozen signatures. Shared interfaces in [03](03-api-contracts.md) precede implementation; placeholders must compile and have final method signatures.
 
-## Local commands (implementation target)
+## Original local command target (historical)
 
 From monorepo root, Alan must make these work:
 

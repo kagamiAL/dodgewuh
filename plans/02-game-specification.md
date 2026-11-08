@@ -4,6 +4,12 @@
 
 This file is the sole source of gameplay rules and constants. Values below are explicit MVP engineering decisions, not validated sensor measurements. Network representations live in [03](03-api-contracts.md). Richard owns their implementation.
 
+The original team plans describe torso lean on the phone; the merged Legs
+controller evolved to pocketed jog-in-place with facing direction, and screens
+can also drive Legs by locally processing camera poses. These are control input
+methods; the movement rules and normalized `input.legs` contract below remain the
+authority. Actual phone/browser compatibility still requires device checks.
+
 ## Coordinates and constants
 
 | Constant | Value |
@@ -27,7 +33,7 @@ This file is the sole source of gameplay rules and constants. Values below are e
 | Match victory | First to 3 points; draws award no point; no round cap |
 | Input timeout | 250 ms since server received last valid role input |
 
-Input and aim use world x,z. T1 forward is +z; T2 forward is -z. Team-relative right maps +x for T1, -x for T2. Rendering maps (x,z) to PlayCanvas (x,0,z). Both screens use the same elevated camera looking from negative z; UI labels make team direction explicit.
+Input and aim use world x,z. T1 forward is +z; T2 forward is -z. Team-relative right maps +x for T1, -x for T2. Rendering maps (x,z) to PlayCanvas (x,0,z). The overview camera looks from negative z; the current renderer also supports independent Team 1 and Team 2 first-person views, selected from the screen's camera claim or with the `view` query override. A screen view changes presentation only.
 
 ## Acquisition, hold, aim, release
 

@@ -50,10 +50,12 @@ In Porkbun, review/replace only the dodgewuh.fit apex A records with the
 coordinator EIP; preserve unrelated records. DNS is manual and unchanged by
 Terraform. Caddy obtains TLS after the domain reaches this host. Current Caddy
 configuration exposes backend paths and a placeholder root response, not the
-frontend. Public health is the initial deployment checkpoint.
+frontend. Public health is only an initial infrastructure checkpoint; gameplay
+worker allocation/routing and frontend delivery are still absent.
 
 Room allocation, coordinator WebSocket forwarding, worker API authentication,
-worker-loss handling and frontend deployment remain unimplemented. Security-group
+worker-loss handling and frontend deployment remain unimplemented. Local game
+rooms currently run in the coordinator and do not use this worker deployment. Security-group
 isolation is present; application authentication between services must be added
 before exposing internal control endpoints. Neither Compose file uses reload or
 source mounts. Deploy/restart between matches; in-memory state will be lost.
@@ -86,10 +88,11 @@ is restricted to the volume's availability zone.
 Create a strong production password file outside the repo and Terraform, e.g.
 under root-owned /etc/dodgewuh/secrets (directory 0700, file 0444). Set
 POSTGRES_PASSWORD_FILE to its absolute path for production Compose. Both app and
-PostgreSQL mount the file; app must implement DB_PASSWORD_FILE reading. Do not
+PostgreSQL mount the file; the coordinator reads DB_PASSWORD_FILE and fails startup for missing, unreadable or empty files. Do not
 put database passwords in user data, tfvars or image layers. The local example
-password must never be reused on EC2. Database credentials, migrations and tables
-are not provisioned by Terraform; the application persistence layer is next.
+password must never be reused on EC2. Terraform does not provision credentials
+or run migrations; the coordinator reads `DB_PASSWORD_FILE`, and the operator
+runs Alembic explicitly before startup.
 
 From the coordinator deployment directory, write a database backup to a protected
 operator file, then copy it off-host:

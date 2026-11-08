@@ -2,9 +2,10 @@
 
 Four phones cooperate to control two characters. A FastAPI coordinator owns room
 registration and PostgreSQL records; Richard's pure Python simulation decides the
-game. For local integration each room's simulation currently runs inside the
-coordinator (`IN_PROCESS_SIMULATION=true`); moving rooms onto the worker VM is
-pending. See [Milestone 1 integration](#milestone-1-integration-real-phone--screen).
+game. Local Compose runs the simulation in the coordinator (`IN_PROCESS_SIMULATION=true`);
+production worker allocation and routing remain unimplemented. The screen has
+stadium and crowd visuals, an optional team first-person view, and a camera-based
+Legs controller. Arms remains a placeholder. See [Local play](#local-play).
 
 ## Start local development
 
@@ -97,11 +98,11 @@ See [the transport handoff](contracts/README.md). Keep public message schemas
 unchanged. Do not create automated tests or test-only dependencies; use manual
 checks, builds/type checks and runtime validation.
 
-## Milestone 1 integration: real phone → screen
+## Local play
 
-The H4 vertical slice is wired end to end: phone Legs controller → `input.legs` →
-coordinator → Richard's `Simulation` (60 Hz fixed step) → `state.snapshot` at 20 Hz →
-PlayCanvas screen. Live rooms live in `backend/app/services/game.py`.
+The local vertical slice supports room creation/join, readiness, host start/reset,
+camera claims, Legs movement, and simulation snapshots. Rooms run at 60 Hz and
+screens receive snapshots at 20 Hz in `backend/app/services/game.py`.
 
 1. Start the backend as above. If host port 8000 is taken, set `COORDINATOR_PORT`
    (e.g. `8010`) for `docker compose up`.
@@ -109,19 +110,36 @@ PlayCanvas screen. Live rooms live in `backend/app/services/game.py`.
    ```sh
    cd frontend && npm ci && npm run dev    # BACKEND_URL=http://127.0.0.1:8010 if you moved the port
    ```
-3. Phones need HTTPS for motion sensors. Run `cloudflared tunnel --url http://localhost:5173`
-   and restart the coordinator with that origin allowed:
-   `DEV_ORIGINS=https://<name>.trycloudflare.com docker compose up -d coordinator`.
+3. Phones need HTTPS for browser camera and motion access. Run a trusted HTTPS
+   tunnel to port 5173 (for example `cloudflared tunnel --url http://localhost:5173`).
+   Local Compose allows any Origin for hackathon testing; do not copy that setting
+   into production.
 4. On a laptop open `http://localhost:5173`, **Create room**; the screen shows the code.
 5. Fill three phone seats with synthetic ready controllers (they send no input):
    ```sh
    docker compose exec coordinator /app/.venv/bin/python -m app.devtools.synthetic_phones CODE --count 3
    ```
-6. On an iPhone open the tunnel URL, join with the code as **Phone**: it takes the
-   Team 2 Legs seat. Tap **Ready**, then **Start**, pocket the phone and stand still.
-7. When all four show Ready, the host screen's **Start match** runs countdown → active.
-   Step left/right/forward/back; the orange character moves on the screen.
+6. On an iPhone open the tunnel URL, join with the code as **Phone**, tap **Ready**,
+   then set up Legs: tap Start, allow motion access, pocket the phone, and follow
+   the spoken instruction to face the screen and jog in place. A phone does not
+   need to be calibrated when a screen camera is driving that team's Legs.
+7. If using four real phones, fill the remaining three seats instead of running
+   the synthetic-phone command above. Arms is currently a placeholder and cannot
+   aim or throw; the development-only stand-in can report ready for movement
+   demonstrations. When all four seats are ready, the host can start. Legs
+   movement drives its team's character.
 
-Four real phones work the same way. Until Morteza's `ArmsController.vue` lands, Arms seats show
-a placeholder; dev builds offer a labelled stand-in so a real phone can occupy that seat. Ball
-pickup/throws, scoring and role switching arrive with the simulation's M3–M5 milestones.
+### Camera-driven Legs and screen view
+
+On `/screen`, choose a team in the camera panel and allow camera access. The
+preview identifies the Legs player in its right half; that player jogs in place
+to move their team's character. The server records the camera claim and routes
+screen `input.legs` to the team's current Legs assignment. Stop camera sharing or
+choose no team to release the claim. Each screen can also view from the team it
+drives; use `?view=fp1`, `?view=fp2`, or `?view=overview` to override the default.
+These options affect local rendering only. Camera/MediaPipe access requires HTTPS
+on phones and the browser downloads MediaPipe assets from jsDelivr and Google.
+
+The simulation includes ball pickup/throws, scoring and role switching. The phone
+Arms interface is not implemented yet, so those mechanics do not currently have a
+complete physical phone control path.

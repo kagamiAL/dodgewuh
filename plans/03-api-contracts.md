@@ -8,7 +8,7 @@ This is the sole normative network schema source. Alan owns implementations in P
 
 JSON UTF-8, snake_case fields in both languages, no undefined values. Required nullable fields must be present as null. Reject unknown fields, NaN/infinity, boolean-as-number, unknown event/version and out-of-range numbers. ID is opaque nonempty string ≤64 characters, UUID generated for room/member IDs; ball IDs follow [02]. Code is six uppercase characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`; retry collision against existing rooms. Name is trimmed 1–24 characters. seq, tick, epoch and revision are nonnegative safe integers (≤2^53−1). All elapsed times are integer milliseconds. server_ms is monotonic milliseconds since this process boot, only comparable within one connection generation; never a Unix date. Clients use performance.now() for local elapsed times. No gameplay decision trusts a client timestamp.
 
-Coordinates are `{x,z}` world metres or normalized world directions per [02]. Input seq increases across ALL input event types within a socket, starts at 1 after welcome. The adapter rejects seq ≤ last accepted seq for this socket generation; initial last seq is 0. Simulation uses room-wide receive ordinal for duplicate defense, not a member-lifetime seq counter, so reconnect seq=1 is valid. It stamps accepted input with receive ordinal and receipt time. Commands never carry player/team identity: derive those from the authenticated member and simulation assignment. Each command carries epoch; every phase change and connection interruption invalidates old epoch. No input buffering/replay across reconnection or phase change.
+Coordinates are `{x,z}` world metres or normalized world directions per [02]. Input seq increases across ALL input event types within a socket, starts at 1 after welcome. The adapter rejects seq ≤ last accepted seq for this socket generation; initial last seq is 0. Simulation uses room-wide receive ordinal for duplicate defense, not a member-lifetime seq counter, so reconnect seq=1 is valid. It stamps accepted input with receive ordinal and receipt time. Commands never carry player/team identity: derive those from the authenticated member and simulation assignment. `camera.claim` is the exception that selects an explicit team for an authenticated screen; the server authorizes screens only and routes their `input.legs` to that team's current Legs assignment. Each command carries epoch; every phase change and connection interruption invalidates old epoch. No input buffering/replay across reconnection or phase change.
 
 ## REST
 
@@ -21,11 +21,11 @@ All responses use JSON, including errors `{code: string, message: string}`. No R
 | POST /api/rooms/{room_code}/members | JoinRoom → 201 Registration | 404 absent; 409 full/phone join during match; 422 malformed; 429 rate |
 | DELETE /api/rooms/{room_code}/members/me | Bearer token, no body → 204 | 401 invalid token; 404 room |
 
-Screen join allowed in any phase. New phone joins only lobby; reconnect uses existing token. Normalize code by trim+uppercase before lookup. Delete host closes room; delete phone in a match invokes disconnect policy. Health exposes build and room count, not tokens or member details. Limit creation to 5/min/IP, join to 30/min/IP, max 10 rooms/process, idle lobby TTL 30 minutes, empty room TTL 5 minutes, hard room TTL 4 hours. Expiration sends room.closed before closing sockets where possible.
+Screen join allowed in any phase. New phone joins only lobby; reconnect uses existing token. Local Compose currently configures `DEV_ORIGINS=*` for hackathon/tunnel use; production should configure explicit origins. Normalize code by trim+uppercase before lookup. Delete host closes room; delete phone in a match invokes disconnect policy. Health exposes build and room count, not tokens or member details. Limit creation to 5/min/IP, join to 30/min/IP, max 10 rooms/process, idle lobby TTL 30 minutes, empty room TTL 5 minutes, hard room TTL 4 hours. Expiration sends room.closed before closing sockets where possible.
 
 ## TypeScript data definitions
 
-These are specification snippets to implement, not application source files produced by this planning task.
+These definitions describe the implemented protocol v1 wire shape; the checked-in Python/TypeScript implementations and `contracts/protocol.schema.json` are generated/maintained from this contract.
 
 ```ts
 type ID = string;
@@ -42,7 +42,7 @@ interface Health { status: 'ok'; build: string; rooms: number }
 interface RestError { code: string; message: string }
 interface Assignment { member_id: ID; team: Team; role: Role }
 interface Member { member_id: ID; name: string; device: Device; connected: boolean;
-  ready: boolean; permission: Permission; calibrated: boolean }
+  ready: boolean; permission: Permission; calibrated: boolean; camera_team: Team | null }
 interface Room { room_id: ID; room_code: string; host_id: ID; revision: number;
   members: Member[]; assignments: Assignment[]; assignment_version: number; phase: Phase }
 interface Character { team: Team; pos: Vec2; aim: Vec2; held_ball_id: ID | null }
@@ -60,6 +60,7 @@ interface Ping { nonce: number }
 interface Ready { epoch: number; assignment_version: number; ready: boolean; permission: Permission; calibrated: boolean }
 interface Empty {}
 interface Legs { seq: number; epoch: number; move: Vec2 }
+interface CameraClaim { team: Team | null }
 interface Arms { seq: number; epoch: number; aim: Vec2;
   action: 'aim' | 'press' | 'release' | 'cancel'; strength: number | null }
 interface Welcome { member_id: ID; room: Room; state: State }
@@ -72,7 +73,7 @@ interface Closed { reason: 'host_left' | 'expired' | 'server_shutdown' }
 interface ClientPayloads {
   'session.hello': Hello; 'session.ping': Ping; 'controller.ready': Ready;
   'match.start': Empty; 'match.reset': Empty; 'match.rematch': Empty;
-  'input.legs': Legs; 'input.arms': Arms;
+  'input.legs': Legs; 'input.arms': Arms; 'camera.claim': CameraClaim;
 }
 interface ServerPayloads {
   'session.welcome': Welcome; 'session.pong': Ping; 'room.updated': RoomUpdate;
@@ -141,6 +142,7 @@ class Member(Model):
     ready: bool
     permission: Permission
     calibrated: bool
+    camera_team: Team | None
 class Room(Model):
     room_id: ID
     room_code: str
@@ -197,6 +199,8 @@ class Ready(Model):
     calibrated: bool
 class Empty(Model):
     pass
+class CameraClaim(Model):
+    team: Team | None
 class Legs(Model):
     seq: UInt
     epoch: UInt
@@ -233,7 +237,7 @@ For each event in the TS ClientPayloads/ServerPayloads maps, define a Pydantic e
 
 ## WebSocket lifecycle and event semantics
 
-Connect same-origin `/ws/rooms/{room_code}` (wss in production). First message session.hello within 5 seconds; otherwise close 4401. Origin check before upgrade, token validation after upgrade. No query credentials. One live socket/member: a new successful hello supersedes the prior socket with 4409. For a phone or original host this clears input and resets an underway match to lobby; replacing an additional screen does not reset gameplay. Cleanup from a superseded socket must not disconnect its replacement. Token remains valid until member removal or room closure; reconnect backoff 0.5,1,2,4,5 seconds with jitter. Missing room closes 4404; policy/rate violation 4400/4429. Never replay throw events after reconnect.
+Connect same-origin `/ws/rooms/{room_code}` (wss in production). First message session.hello within 5 seconds; otherwise close 4401. Origin check before upgrade, token validation after upgrade. Local Compose sets `DEV_ORIGINS=*` for hackathon testing, while deployment must use an explicit allowed origin. No query credentials. One live socket/member: a new successful hello supersedes the prior socket with 4409. For a phone or original host this clears input and resets an underway match to lobby; replacing an additional screen does not reset gameplay. Cleanup from a superseded socket must not disconnect its replacement. Token remains valid until member removal or room closure; reconnect backoff 0.5,1,2,4,5 seconds with jitter. Missing room closes 4404; policy/rate violation 4400/4429. Never replay throw events after reconnect.
 
 | Event | Direction / allowed sender | Effect / delivery |
 |---|---|---|
@@ -244,7 +248,8 @@ Connect same-origin `/ws/rooms/{room_code}` (wss in production). First message s
 | match.start | original host screen → server | lobby readiness check then simulation start |
 | match.reset | host → server | any phase → lobby, zero score, clear ready, reset arena; preserve assignments |
 | match.rematch | host → server | match_end → lobby, reset as above |
-| input.legs | current Legs phone → server | active only; latest movement, components [-1,1], vector magnitude ≤1.001; normalize slight excess |
+| input.legs | current Legs phone or screen with a camera claim → server | active only; latest movement, components [-1,1], vector magnitude ≤1.001; normalize slight excess |
+| camera.claim | screen → server | select team 1/2 to claim its Legs control, or null to release; latest claim for a team wins |
 | input.arms | current Arms phone → server | active only; aim every sample, action edges immediate; strength required [0,1] only release, null otherwise |
 | room.updated | server → all | reliable full membership/readiness/assignment/phase record whenever changed; revision increments |
 | state.snapshot | server → all screens AND phones | full state at 20 Hz during match; lobby baseline/on changes; not a delta |
@@ -347,7 +352,7 @@ The following are complete messages for independent scenarios, not a physically 
 17. Disconnection example is a complete room update:
 
 ```json
-{"v":1,"type":"room.updated","server_ms":13000,"payload":{"room":{"room_id":"r1","room_code":"ABC234","host_id":"s1","revision":12,"members":[{"member_id":"s1","name":"Main screen","device":"screen","connected":true,"ready":false,"permission":"unknown","calibrated":false},{"member_id":"p1","name":"Richard","device":"phone","connected":false,"ready":false,"permission":"granted","calibrated":false},{"member_id":"p2","name":"Ryan","device":"phone","connected":true,"ready":false,"permission":"granted","calibrated":false},{"member_id":"p3","name":"Morteza","device":"phone","connected":true,"ready":false,"permission":"granted","calibrated":false},{"member_id":"p4","name":"Tysen","device":"phone","connected":true,"ready":false,"permission":"granted","calibrated":false}],"assignments":[{"member_id":"p1","team":1,"role":"legs"},{"member_id":"p2","team":1,"role":"arms"},{"member_id":"p3","team":2,"role":"legs"},{"member_id":"p4","team":2,"role":"arms"}],"assignment_version":2,"phase":"lobby"}}}
+{"v":1,"type":"room.updated","server_ms":13000,"payload":{"room":{"room_id":"r1","room_code":"ABC234","host_id":"s1","revision":12,"members":[{"member_id":"s1","name":"Main screen","device":"screen","connected":true,"ready":false,"permission":"unknown","calibrated":false,"camera_team":null},{"member_id":"p1","name":"Richard","device":"phone","connected":false,"ready":false,"permission":"granted","calibrated":false,"camera_team":null},{"member_id":"p2","name":"Ryan","device":"phone","connected":true,"ready":false,"permission":"granted","calibrated":false,"camera_team":null},{"member_id":"p3","name":"Morteza","device":"phone","connected":true,"ready":false,"permission":"granted","calibrated":false,"camera_team":null},{"member_id":"p4","name":"Tysen","device":"phone","connected":true,"ready":false,"permission":"granted","calibrated":false,"camera_team":null}],"assignments":[{"member_id":"p1","team":1,"role":"legs"},{"member_id":"p2","team":1,"role":"arms"},{"member_id":"p3","team":2,"role":"legs"},{"member_id":"p4","team":2,"role":"arms"}],"assignment_version":2,"phase":"lobby"}}}
 ```
 
 Other examples: host start `{"v":1,"type":"match.start","payload":{}}`; cancel `{"v":1,"type":"input.arms","payload":{"seq":4,"epoch":2,"aim":{"x":0,"z":1},"action":"cancel","strength":null}}`; rejection `{"v":1,"type":"error","server_ms":5100,"payload":{"code":"NO_THROW_ZONE","message":"Move back before throwing","ref_seq":3}}`.

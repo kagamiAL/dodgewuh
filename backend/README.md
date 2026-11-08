@@ -10,12 +10,15 @@ Directory boundaries:
 - `migrations/versions/`: immutable, explicit Alembic schema revisions.
 - `app/worker.py` and `simulation/`: worker entry point and Richard-owned pure simulation.
 
-Run one coordinator process. Startup closes previous runtime rooms and revokes
-old memberships, retaining records. Do not overlap coordinator instances or use
+Run one coordinator process. Local Compose enables `IN_PROCESS_SIMULATION=true`,
+so live rooms currently run in the coordinator. The separate worker is healthy,
+but room allocation and coordinator-to-worker routing are not implemented.
+Startup closes previous runtime rooms and revokes old memberships, retaining
+records. Do not overlap coordinator instances or use
 multiple Uvicorn workers. Local auto-reload also ends rooms. There is no match
-resume. Slot order 0–3 maps to T1 Arms, T1 Legs, T2 Arms, T2 Legs when the worker
-adapter is implemented. Initial slot membership is durable; role swapping will
-come from the simulation, not registration SQL.
+resume. Initial phone registration slots are in order T1 Arms, T1 Legs, T2 Arms,
+T2 Legs; the simulation owns current assignments and swaps roles after rounds.
+Local gameplay runs in-process through `app/services/game.py`.
 
 ## Migrations
 
@@ -54,11 +57,13 @@ curl -i -H 'Content-Type: application/json' \
 ```
 
 Registration returns a secret bearer token once; only its SHA-256 hash is stored.
-Do not paste responses into logs or commit them. `ws_path` is the agreed future
-socket route; WebSocket authentication/welcome is not implemented yet. DELETE
-membership, connection grace, empty-room TTL and worker allocation remain part of
-the transport slice. Registered lobbies expire after 30 minutes without activity
-and all rooms after four hours. Cleanup runs every 30 seconds and during health
+Do not paste responses into logs or commit them. `ws_path` is the authenticated
+socket route. The first message must be `session.hello` with the token; welcome
+includes complete room and game state. Readiness, host start/reset/rematch, input
+routing, snapshots and `camera.claim` are implemented for the local in-process
+simulation. DELETE membership and worker allocation remain unimplemented.
+Registered lobbies expire after 30 minutes without activity and all rooms after
+four hours. Cleanup runs every 30 seconds and during health
 checks; joins independently reject expired rooms. Closed records are retained.
 
 Room+host creation is atomic. An advisory transaction lock serializes the ten-room

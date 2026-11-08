@@ -1,5 +1,7 @@
 # Simulation handoff — Richard
 
+> **Historical M1 handoff.** This document records an early simulation milestone and its checks. Its M1 scope, "Not implemented yet" list, branch/commit references, and bootstrap observations are not current status. Subsequent commits integrated the full simulation with the coordinator, room lifecycle, gameplay input, camera-driven Legs, and screen rendering. For current behavior use [the root README](../../README.md), [backend operations](../README.md), [protocol handoff](../../contracts/README.md), and the live source. The old milestone-specific checks below are historical records only.
+
 **Branch:** `feat/richard-sim`, as specified in [04:82](../../plans/04-repository-structure.md).
 **Implementation commit:** see `git log -1 --format=%H feat/richard-sim`; the milestone content is
 `44b43fe` (M1) plus `31cfc6a` (project-instruction alignment) on top of the merge of `main` at `ebccfe4`.

@@ -1,56 +1,45 @@
-# Alan — first independent milestone handoff
+# Project integration status
 
-Updated 2026-11-07. Implementation is ready for the first team integration.
-See [protocol handoff and manual evidence](../../contracts/README.md) for startup,
-module ownership, connection examples, verified results and remaining work.
+Updated 2026-11-07 at `9464caa` (`first person view`). This replaces the old
+"first independent milestone" handoff; that text described an earlier lobby-only
+slice. See [the root README](../../README.md), [backend operations](../../backend/README.md),
+[protocol handoff](../../contracts/README.md), and [infrastructure notes](../../infra/README.md)
+for current usage and limitations.
 
-## Complete for this slice
+## Implemented in the current tree
 
-- SQL-backed room/member registration, hashed tokens, ordered seats, migrations,
-  TTL cleanup, database readiness and restart invalidation from the prior slice.
-- Strict protocol v1 Python models/event registry, matching TypeScript types and
-  Zod validators, JSON Schema and valid/invalid protocol fixture examples.
-- Authenticated first-frame hello, complete welcome baseline, Origin checking,
-  duplicate socket replacement, heartbeat, membership broadcasts, frame/rate bounds.
-- Native browser Transport in Alan’s assigned frontend directories, with validated
-  messages, status subscriptions, central input sequence and reconnect behavior.
-- Existing split preserved: API entry points → service policy → SQL repositories
-  → database models/configuration. No frontend package/Vue files or simulation
-  internals changed. No automated tests or project verification dependencies added.
+- SQL-backed room/member registration, hashed tokens, ordered initial seats,
+  migrations, expiry cleanup and database readiness.
+- Strict protocol v1 models, generated TypeScript types/validators, JSON Schema
+  and valid/invalid fixture examples. `camera.claim` and `Member.camera_team` are
+  part of the current wire shape.
+- Authenticated WebSocket hello/welcome, room updates, heartbeat, input routing,
+  host controls, readiness, gameplay errors and disconnect handling.
+- In local Compose, one Richard `Simulation` runs per room inside the coordinator
+  with a 60 Hz runner, bounded senders and 20 Hz snapshots. The separate worker
+  container is not used for live room routing.
+- Phone Legs can jog in place while the phone is pocketed. A screen can claim a
+  team's Legs input and use its camera with browser-local MediaPipe pose tracking.
+- The screen renders stadium/crowd/floor visuals and supports overview or a
+  team-specific first-person view. Mobile layouts and sensor playground are in
+  the frontend.
 
-## Verification
+## Known incomplete work
 
-Manual Docker checks passed for create/join, welcome, ping, connect/disconnect,
-supersession, missing room, bad token/Origin/query credentials and hello timeout.
-Python and TypeScript agreed on all 15 valid and seven invalid fixtures. Strict
-TypeScript compilation passed; the compiled transport exchanged real messages
-with the local backend and handled supersession correctly using a Node shim.
-Browser/device, cloud WSS and full matches have not been verified.
+- `ArmsPending.vue` is still the phone Arms UI. It cannot aim or throw; a dev-only
+  stand-in only reports readiness. Although the simulation/protocol include Arms
+  commands and ball gameplay, the complete physical control path is unfinished.
+- Production coordinator-to-worker allocation, WebSocket forwarding, worker API
+  authentication, worker-loss handling, frontend hosting and deployed gameplay
+  are not wired. Terraform and deployment Compose files are infrastructure plans,
+  not proof of an applied deployment.
+- Do not infer real-phone/browser compatibility, successful full-match acceptance,
+  or production hosting from this repository's implementation alone.
 
-The local lobby baseline requires LOBBY_BASELINE_ENABLED=true, enabled only in
-local Compose. It cannot start gameplay; gameplay/readiness requests explicitly
-return SERVER_BUSY. This is the pre-integration boundary, not the H4 movement gate.
+## Local operation
 
-## Milestone 1 integration (2026-11-07)
-
-`app/services/game.py` replaces the static lobby baseline: one Richard `Simulation`
-per room, a 60 Hz runner (5-step catch-up, 250 ms overload abort), 20 Hz snapshots,
-ordered transition bundles, per-socket bounded senders, readiness mirroring,
-host-only controls, per-socket seq checks and room-wide ordinals, and
-disconnect/ready=false aborts. It runs in the coordinator behind
-`IN_PROCESS_SIMULATION=true` (local Compose only). Verified manually with four
-socket clients: start gating, countdown → active, Legs movement at ~3.5 m/s,
-20 snapshots/s, WRONG_ROLE/OLD_SEQ rejection and disconnect → lobby.
-`app/devtools/synthetic_phones.py` fills seats for the one-real-phone slice.
-
-## Next work with the team
-
-Connect Richard’s Simulation/DTOs through the worker adapter and serialized runner;
-connect Ryan’s Vue store/lobby/renderer and the phone controllers. Ryan adds the
-planned Zod dependency and API/WebSocket Vite proxy in his owned scaffold.
-Then complete authoritative readiness/inputs/lifecycle and real-phone acceptance.
-
-Keep SQL for durable records only, never live ball positions or sensor streams.
-Worker allocation/results migrations, disconnect grace, membership DELETE, safe
-match abort, production routing/WSS, backup restore and deployment remain pending.
-AWS/DNS were not changed by this slice; prior Terraform validation is not deployment.
+Use the root [README](../../README.md) for Compose and frontend startup. Local
+Compose sets `IN_PROCESS_SIMULATION=true` and permits any Origin for hackathon
+access; production must use a deliberate origin policy. `backend/README.md`
+contains migration, registration and database details. The early M1 simulation
+notes in [HANDOFF.md](../../backend/simulation/HANDOFF.md) are historical.
